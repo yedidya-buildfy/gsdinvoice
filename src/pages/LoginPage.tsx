@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate, useLocation, Link } from 'react-router'
+import { useNavigate, useLocation } from 'react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { LoginForm } from '@/components/auth/LoginForm'
 
