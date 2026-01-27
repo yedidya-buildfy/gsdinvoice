@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 Phase: 6 of 12 (Credit Card Import & Linking) - COMPLETE
 Plan: 3 of 3 in current phase - COMPLETE
 Status: Phase complete
-Last activity: 2026-01-27 - Completed 06-03-PLAN.md
+Last activity: 2026-01-27 - Completed 06-02-PLAN.md (all phase 6 plans complete)
 
 Progress: [██████░░░░] ~53%
 
@@ -20,8 +20,8 @@ Progress: [██████░░░░] ~53%
 
 **Velocity:**
 - Total plans completed: 15
-- Average duration: 2.3 min
-- Total execution time: 0.61 hours
+- Average duration: 2.4 min
+- Total execution time: 0.62 hours
 
 **By Phase:**
 
@@ -32,10 +32,10 @@ Progress: [██████░░░░] ~53%
 | 03-navigation-ui-shell | 2 | 3 min | 1.5 min |
 | 04-document-upload | 2 | 5 min | 2.5 min |
 | 05-bank-statement-import | 3 | 7 min | 2.3 min |
-| 06-credit-card-import-linking | 3 | 6 min | 2 min |
+| 06-credit-card-import-linking | 3 | 10 min | 3.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 05-02 (2 min), 05-03 (2 min), 06-01 (2 min), 06-02 (1 min), 06-03 (4 min)
+- Last 5 plans: 05-03 (2 min), 06-01 (2 min), 06-02 (4 min), 06-03 (4 min)
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -92,6 +92,12 @@ Recent decisions affecting current work:
 - Auto-create credit_cards entries on first upload per card (06-01)
 - Store foreign currency amounts without conversion (06-01)
 - Map billingDate to value_date field for credit cards (06-01)
+- Israeli CC keyword detection in bank descriptions (כרטיס, ויזא, ישראכרט) (06-02)
+- Card last four extraction from bank charge descriptions (06-02)
+- Auto-flag is_credit_card_charge=true on bank import (06-02)
+- Amount tolerance matching (2%) for fuzzy linking (06-02)
+- Date window matching (±2 days) for billing alignment (06-02)
+- RTL CreditCardTable with Hebrew headers and linked status icons (06-02)
 - Credit card components in src/components/creditcard/ (06-03)
 - Reuse TransactionFilters for credit card page filtering (06-03)
 - Card selector above transactions header for primary categorization (06-03)
@@ -108,8 +114,8 @@ None
 
 ## Session Continuity
 
-Last session: 2026-01-27 20:49 UTC
-Stopped at: Completed 06-03-PLAN.md (Phase 6 complete)
+Last session: 2026-01-27 22:49 UTC
+Stopped at: Completed 06-02-PLAN.md (Phase 6 complete)
 Resume file: None
 
 ---
