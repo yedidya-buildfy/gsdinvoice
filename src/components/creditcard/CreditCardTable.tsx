@@ -2,12 +2,10 @@ import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon } from '@her
 import type { TransactionWithCard } from '@/hooks/useCreditCards'
 import { formatShekel } from '@/lib/utils/currency'
 
-// Format foreign currency amount
-function formatForeignAmount(cents: number | null, currency: string | null): string | null {
-  if (cents === null || currency === null) return null
-  const amount = cents / 100
-  const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency
-  return `${symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+// Format amount without currency symbol
+function formatAmount(cents: number): string {
+  const amount = Math.abs(cents) / 100
+  return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 interface CreditCardTableProps {
@@ -133,8 +131,8 @@ export function CreditCardTable({
             <tr>
               <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">תאריך</th>
               <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">בית עסק</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-24">מט״ח</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">סכום ₪</th>
+              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">סכום</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">מטבע</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">כרטיס</th>
               <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">מועד חיוב</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">סטטוס</th>
@@ -179,21 +177,16 @@ export function CreditCardTable({
               align="end"
             />
             <SortHeader
-              column="foreign_amount_cents"
-              label="מט״ח"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="end"
-            />
-            <SortHeader
               column="amount_agorot"
-              label="סכום ₪"
+              label="סכום"
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
               align="end"
             />
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
+              מטבע
+            </th>
             <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
               כרטיס
             </th>
@@ -226,8 +219,13 @@ export function CreditCardTable({
             // Linked status - check if this CC transaction has a credit card linked
             const isLinked = tx.linked_credit_card_id !== null;
 
-            // Format foreign currency if present
-            const foreignFormatted = formatForeignAmount(tx.foreign_amount_cents, tx.foreign_currency)
+            // Determine amount and currency to display
+            // If foreign currency exists, show that; otherwise show ILS
+            const hasForeign = tx.foreign_amount_cents !== null && tx.foreign_currency !== null
+            const displayAmount = hasForeign
+              ? formatAmount(tx.foreign_amount_cents!)
+              : formatAmount(tx.amount_agorot)
+            const displayCurrency = hasForeign ? tx.foreign_currency : 'ILS'
 
             return (
               <tr
@@ -241,10 +239,10 @@ export function CreditCardTable({
                   {tx.description}
                 </td>
                 <td className="px-4 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
-                  {foreignFormatted || '-'}
+                  {displayAmount}
                 </td>
-                <td className="px-4 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
-                  {tx.amount_agorot !== 0 ? formatShekel(tx.amount_agorot) : '-'}
+                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                  {displayCurrency}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
                   {cardLastFour}
