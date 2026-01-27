@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-01-27)
 
 **Core value:** Automatically connect invoices and receipts to bank/credit card transactions, eliminating manual matching for VAT reporting.
-**Current focus:** Phase 5 Complete - Ready for Phase 6 (Credit Card Import)
+**Current focus:** Phase 13 Complete - VAT Fields for Bank Transactions
 
 ## Current Position
 
-Phase: 6 of 12 (Credit Card Import & Linking) - COMPLETE
-Plan: 3 of 3 in current phase - COMPLETE
+Phase: 13 of 13 (VAT Fields for Bank Transactions) - COMPLETE
+Plan: 1 of 1 in current phase - COMPLETE
 Status: Phase complete
-Last activity: 2026-01-27 - Completed 06-02-PLAN.md (all phase 6 plans complete)
+Last activity: 2026-01-27 - Completed 13-01-PLAN.md (VAT fields implemented)
 
 Progress: [██████░░░░] ~53%
 
@@ -107,6 +107,10 @@ Recent decisions affecting current work:
 ### Pending Todos
 
 None
+
+### Roadmap Evolution
+
+- Phase 13 added: VAT Fields for Bank Transactions - VAT boolean, percentage, and amount columns with merchant settings modal
 
 ### Blockers/Concerns
 

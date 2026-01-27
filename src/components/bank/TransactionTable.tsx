@@ -1,6 +1,7 @@
-import { ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
+import { ChevronUpIcon, ChevronDownIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { Transaction } from '@/types/database'
 import { formatShekel } from '@/lib/utils/currency'
+import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
 
 interface TransactionTableProps {
   transactions: Transaction[]
@@ -8,6 +9,8 @@ interface TransactionTableProps {
   sortColumn: keyof Transaction
   sortDirection: 'asc' | 'desc'
   onSort: (column: keyof Transaction) => void
+  selectedIds?: Set<string>
+  onSelectionChange?: (selectedIds: Set<string>) => void
 }
 
 interface SortHeaderProps {
@@ -41,47 +44,95 @@ function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 
 }
 
 function formatDate(dateString: string): string {
-  return new Intl.DateTimeFormat('he-IL', {
+  return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: '2-digit',
-    year: 'numeric',
+    year: '2-digit',
   }).format(new Date(dateString))
 }
+
+// Checkbox styling: dark background with green border (uses custom CSS class)
+const checkboxClass = 'checkbox-dark'
 
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
-      <td className="px-4 py-3 text-end">
+      <td className="px-4 py-3 text-start">
         <div className="h-4 w-32 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-end">
-        <div className="h-4 w-20 bg-surface rounded inline-block" />
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-16 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-end">
+      <td className="px-4 py-3 text-center">
         <div className="h-4 w-24 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-end">
-        <div className="h-4 w-24 bg-surface rounded inline-block" />
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-end">
-        <div className="h-4 w-20 bg-surface rounded inline-block" />
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-10 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-16 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-16 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
     </tr>
   )
 }
 
-export function TransactionTable({ transactions, isLoading, sortColumn, sortDirection, onSort }: TransactionTableProps) {
+export function TransactionTable({
+  transactions,
+  isLoading,
+  sortColumn,
+  sortDirection,
+  onSort,
+  selectedIds = new Set(),
+  onSelectionChange,
+}: TransactionTableProps) {
+  const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
+  const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
+
+  const handleSelectAll = () => {
+    if (!onSelectionChange) return
+    if (allSelected) {
+      onSelectionChange(new Set())
+    } else {
+      onSelectionChange(new Set(transactions.map((tx) => tx.id)))
+    }
+  }
+
+  const handleSelectOne = (id: string) => {
+    if (!onSelectionChange) return
+    const newSelection = new Set(selectedIds)
+    if (newSelection.has(id)) {
+      newSelection.delete(id)
+    } else {
+      newSelection.add(id)
+    }
+    onSelectionChange(newSelection)
+  }
+
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-text-muted/20">
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Description</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">Date</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-32">Amount</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-32">Balance</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">Reference</th>
+              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Description</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">Amount</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Reference</th>
+              <th className="px-4 py-3 text-center w-12">
+                <input type="checkbox" disabled className={checkboxClass} />
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
@@ -109,7 +160,7 @@ export function TransactionTable({ transactions, isLoading, sortColumn, sortDire
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="end"
+              align="start"
             />
             <SortHeader
               column="date"
@@ -117,7 +168,7 @@ export function TransactionTable({ transactions, isLoading, sortColumn, sortDire
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="end"
+              align="center"
             />
             <SortHeader
               column="amount_agorot"
@@ -125,36 +176,87 @@ export function TransactionTable({ transactions, isLoading, sortColumn, sortDire
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="end"
+              align="center"
             />
-            <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-32">
-              Balance
+            <SortHeader
+              column="has_vat"
+              label="VAT"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="center"
+            />
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
+              VAT %
             </th>
-            <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
+              VAT Amt
+            </th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
               Reference
+            </th>
+            <th className="px-4 py-3 text-center w-12">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected
+                }}
+                onChange={handleSelectAll}
+                className={checkboxClass}
+              />
             </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
           {transactions.map((tx) => {
             const amountColor = tx.is_income ? 'text-green-400' : 'text-red-400'
+            const isSelected = selectedIds.has(tx.id)
+            const hasVat = tx.has_vat ?? false
+            const vatPercentage = tx.vat_percentage ?? 18
+            const vatAmount = hasVat && !tx.is_income
+              ? calculateVatFromTotal(tx.amount_agorot, vatPercentage)
+              : null
 
             return (
-              <tr key={tx.id} className="hover:bg-surface/30 transition-colors">
-                <td className="px-4 py-3 text-end text-sm text-text" dir="auto">
+              <tr
+                key={tx.id}
+                className={`hover:bg-surface/30 transition-colors ${isSelected ? 'bg-primary/10' : ''}`}
+              >
+                <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
                   {tx.description}
                 </td>
-                <td className="px-4 py-3 text-end text-sm text-text-muted whitespace-nowrap">
+                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
                   {formatDate(tx.date)}
                 </td>
-                <td className={`px-4 py-3 text-end text-sm font-medium ${amountColor} whitespace-nowrap`}>
+                <td className={`px-4 py-3 text-center text-sm font-medium ${amountColor} whitespace-nowrap`}>
                   {formatShekel(tx.amount_agorot)}
                 </td>
-                <td className="px-4 py-3 text-end text-sm text-text-muted whitespace-nowrap">
-                  {tx.balance_agorot !== null ? formatShekel(tx.balance_agorot) : '-'}
+                <td className="px-4 py-3 text-center">
+                  {tx.is_income ? (
+                    <span className="text-text-muted/30">-</span>
+                  ) : hasVat ? (
+                    <CheckIcon className="w-4 h-4 text-green-400 inline-block" />
+                  ) : (
+                    <XMarkIcon className="w-4 h-4 text-text-muted/30 inline-block" />
+                  )}
                 </td>
-                <td className="px-4 py-3 text-end text-sm text-text-muted">
+                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                  {tx.is_income ? '-' : hasVat ? `${vatPercentage}%` : '-'}
+                </td>
+                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                  {tx.is_income ? '-' : (vatAmount !== null ? formatShekel(vatAmount) : '-')}
+                </td>
+                <td className="px-4 py-3 text-center text-sm text-text-muted">
                   {tx.reference || '-'}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => handleSelectOne(tx.id)}
+                    className={checkboxClass}
+                  />
                 </td>
               </tr>
             )

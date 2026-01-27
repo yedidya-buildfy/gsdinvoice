@@ -1,18 +1,22 @@
 import { useState, useMemo } from 'react'
-import { ArrowPathIcon, LinkIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { ArrowPathIcon, LinkIcon, TrashIcon, ReceiptPercentIcon } from '@heroicons/react/24/outline'
 import { useCreditCards, useCreditCardTransactions, type TransactionWithCard } from '@/hooks/useCreditCards'
+import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
 import { CreditCardUploader } from '@/components/creditcard/CreditCardUploader'
 import { CreditCardTable } from '@/components/creditcard/CreditCardTable'
 import { TransactionFilters, type TransactionFilterState } from '@/components/bank/TransactionFilters'
+import { VatChangeModal } from '@/components/bank/VatChangeModal'
 import { linkCreditCardTransactions } from '@/lib/services/creditCardLinker'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { parseMerchantName, getMerchantBaseKey } from '@/lib/utils/merchantParser'
 
 export function CreditCardPage() {
   const { user } = useAuth()
-  const { creditCards, isLoading: cardsLoading, refetch: refetchCards } = useCreditCards()
+  const { creditCards, refetch: refetchCards } = useCreditCards()
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const { transactions, isLoading, refetch } = useCreditCardTransactions(selectedCardId || undefined)
+  const { isUpdating, updateSingle, updateAllByMerchant, saveMerchantPreference } = useUpdateTransactionVat()
 
   const [filters, setFilters] = useState<TransactionFilterState>({
     search: '',
@@ -26,6 +30,7 @@ export function CreditCardPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isLinking, setIsLinking] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [showVatModal, setShowVatModal] = useState(false)
 
   // Apply filters
   const filteredTransactions = useMemo(() => {
@@ -121,6 +126,73 @@ export function CreditCardPage() {
     setSelectedIds(new Set())
   }
 
+  // Get selected transactions (credit card transactions are always expenses)
+  const selectedTransactions = useMemo(() => {
+    return sortedTransactions.filter((tx) => selectedIds.has(tx.id))
+  }, [sortedTransactions, selectedIds])
+
+  // Get merchant names from selected transactions
+  const selectedMerchantNames = useMemo(() => {
+    return selectedTransactions.map((tx) => parseMerchantName(tx.description))
+  }, [selectedTransactions])
+
+  const handleOpenVatModal = () => {
+    if (selectedTransactions.length === 0) return
+    setShowVatModal(true)
+  }
+
+  const handleApplyToSelected = async (hasVat: boolean, vatPercentage: number) => {
+    for (const tx of selectedTransactions) {
+      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
+  const handleApplyToAllPast = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user) return
+    const uniqueMerchants = [...new Set(selectedMerchantNames)]
+    for (const merchantName of uniqueMerchants) {
+      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
+  const handleApplyToAllMerchant = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user) return
+    const uniqueMerchants = [...new Set(selectedMerchantNames)]
+    // Update all past transactions
+    for (const merchantName of uniqueMerchants) {
+      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    // Save preferences for future
+    for (const merchantName of uniqueMerchants) {
+      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
+  const handleApplyToFuture = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user) return
+    const uniqueMerchants = [...new Set(selectedMerchantNames)]
+    // Save preferences for all merchants
+    for (const merchantName of uniqueMerchants) {
+      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    // Also update selected transactions
+    for (const tx of selectedTransactions) {
+      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
   const handleUploadComplete = () => {
     console.log('[CreditCardPage] Upload complete, calling refetch')
     refetch()
@@ -185,6 +257,19 @@ export function CreditCardPage() {
               {isLinking ? 'Linking...' : 'Re-link Transactions'}
             </button>
 
+            {/* Set VAT button - only show when items selected */}
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={handleOpenVatModal}
+                disabled={isUpdating}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ReceiptPercentIcon className="w-4 h-4" />
+                {isUpdating ? 'Updating...' : `Set VAT (${selectedIds.size})`}
+              </button>
+            )}
+
             {/* Delete button - only show when items selected */}
             {selectedIds.size > 0 && (
               <button
@@ -235,6 +320,19 @@ export function CreditCardPage() {
           />
         )}
       </div>
+
+      {/* VAT Change Modal */}
+      <VatChangeModal
+        isOpen={showVatModal}
+        onClose={() => setShowVatModal(false)}
+        selectedCount={selectedTransactions.length}
+        merchantNames={selectedMerchantNames}
+        onApplyToSelected={handleApplyToSelected}
+        onApplyToAllPast={handleApplyToAllPast}
+        onApplyToAllMerchant={handleApplyToAllMerchant}
+        onApplyToFuture={handleApplyToFuture}
+        isLoading={isUpdating}
+      />
     </div>
   )
 }

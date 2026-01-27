@@ -22,6 +22,7 @@ This roadmap delivers an AI-powered VAT declaration manager for Israeli SMBs. St
 - [ ] **Phase 10: Advanced Matching** - Split/group matching with amount validation
 - [ ] **Phase 11: Duplicate Detection** - Fuzzy detection with side-by-side review
 - [ ] **Phase 12: Dashboard & Export** - Summary views, date range selection, CSV export
+- [x] **Phase 13: VAT Fields for Bank Transactions** - VAT boolean, percentage, and amount columns with merchant settings modal
 
 ## Phase Details
 
@@ -189,6 +190,19 @@ Plans:
   5. Auto-approval confidence threshold accessible from Settings page
 **Plans**: TBD
 
+### Phase 13: VAT Fields for Bank Transactions
+**Goal**: Users can track VAT on bank transactions with merchant-level settings
+**Depends on**: Phase 5
+**Requirements**: None (enhancement phase)
+**Success Criteria** (what must be TRUE):
+  1. Bank transactions table shows VAT columns (has VAT, VAT %, VAT amount) - DONE
+  2. Date column is smaller with compact date format - DONE
+  3. User can toggle VAT and set percentage per transaction - DONE
+  4. VAT amount auto-calculates from transaction amount and percentage - DONE
+  5. Modal prompts user to apply VAT settings to: all past orders, this order, or all future orders from same merchant - DONE
+  6. Merchant VAT preferences stored for auto-applying to future imports - DONE
+**Plans**: 13-01-PLAN.md (Complete)
+
 ## Progress
 
 **Execution Order:**
@@ -208,8 +222,9 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> ... -> 12
 | 10. Advanced Matching | 0/TBD | Not started | - |
 | 11. Duplicate Detection | 0/TBD | Not started | - |
 | 12. Dashboard & Export | 0/TBD | Not started | - |
+| 13. VAT Fields for Bank Transactions | 1/1 | Complete | 2026-01-27 |
 
 ---
 *Roadmap created: 2026-01-27*
-*Depth: comprehensive (12 phases)*
+*Depth: comprehensive (13 phases)*
 *Requirements coverage: 35/35 mapped*

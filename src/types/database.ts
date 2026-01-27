@@ -127,6 +127,9 @@ export interface Database {
           match_status: string
           foreign_amount_cents: number | null
           foreign_currency: string | null
+          has_vat: boolean
+          vat_percentage: number
+          vat_amount_agorot: number | null
           created_at: string
         }
         Insert: {
@@ -147,6 +150,9 @@ export interface Database {
           match_status?: string
           foreign_amount_cents?: number | null
           foreign_currency?: string | null
+          has_vat?: boolean
+          vat_percentage?: number
+          vat_amount_agorot?: number | null
           created_at?: string
         }
         Update: {
@@ -167,6 +173,9 @@ export interface Database {
           match_status?: string
           foreign_amount_cents?: number | null
           foreign_currency?: string | null
+          has_vat?: boolean
+          vat_percentage?: number
+          vat_amount_agorot?: number | null
           created_at?: string
         }
         Relationships: [
@@ -327,6 +336,36 @@ export interface Database {
         }
         Relationships: []
       }
+      merchant_vat_preferences: {
+        Row: {
+          id: string
+          user_id: string
+          merchant_name: string
+          has_vat: boolean
+          vat_percentage: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          merchant_name: string
+          has_vat?: boolean
+          vat_percentage?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          merchant_name?: string
+          has_vat?: boolean
+          vat_percentage?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -369,3 +408,7 @@ export type TransactionUpdate = Database['public']['Tables']['transactions']['Up
 export type InvoiceUpdate = Database['public']['Tables']['invoices']['Update']
 export type InvoiceRowUpdate = Database['public']['Tables']['invoice_rows']['Update']
 export type AuditLogUpdate = Database['public']['Tables']['audit_log']['Update']
+
+export type MerchantVatPreference = Database['public']['Tables']['merchant_vat_preferences']['Row']
+export type MerchantVatPreferenceInsert = Database['public']['Tables']['merchant_vat_preferences']['Insert']
+export type MerchantVatPreferenceUpdate = Database['public']['Tables']['merchant_vat_preferences']['Update']

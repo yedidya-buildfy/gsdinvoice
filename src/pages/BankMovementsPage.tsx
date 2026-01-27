@@ -1,12 +1,20 @@
 import { useState, useMemo } from 'react'
+import { TrashIcon, ReceiptPercentIcon } from '@heroicons/react/24/outline'
 import { useTransactions } from '@/hooks/useTransactions'
+import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
 import { BankUploader } from '@/components/bank/BankUploader'
-import { TransactionFilters, TransactionFilterState } from '@/components/bank/TransactionFilters'
+import { TransactionFilters, type TransactionFilterState } from '@/components/bank/TransactionFilters'
 import { TransactionTable } from '@/components/bank/TransactionTable'
+import { VatChangeModal } from '@/components/bank/VatChangeModal'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+import { parseMerchantName, getMerchantBaseKey } from '@/lib/utils/merchantParser'
 import type { Transaction } from '@/types/database'
 
 export function BankMovementsPage() {
+  const { user } = useAuth()
   const { transactions, isLoading, refetch } = useTransactions()
+  const { isUpdating, updateSingle, updateAllByMerchant, saveMerchantPreference } = useUpdateTransactionVat()
 
   const [filters, setFilters] = useState<TransactionFilterState>({
     search: '',
@@ -17,6 +25,10 @@ export function BankMovementsPage() {
 
   const [sortColumn, setSortColumn] = useState<keyof Transaction>('date')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [showVatModal, setShowVatModal] = useState(false)
 
   // Apply filters
   const filteredTransactions = useMemo(() => {
@@ -65,6 +77,106 @@ export function BankMovementsPage() {
     }
   }
 
+  const handleDelete = async () => {
+    if (selectedIds.size === 0) return
+
+    setIsDeleting(true)
+    try {
+      const idsToDelete = Array.from(selectedIds)
+
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .in('id', idsToDelete)
+
+      if (error) {
+        console.error('[BankMovements] Delete failed:', error)
+        return
+      }
+
+      console.log('[BankMovements] Deleted', idsToDelete.length, 'transactions')
+      setSelectedIds(new Set())
+      refetch()
+    } catch (err) {
+      console.error('[BankMovements] Delete error:', err)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  // Clear selection when filters change (selected items may no longer be visible)
+  const handleFiltersChange = (newFilters: TransactionFilterState) => {
+    setFilters(newFilters)
+    setSelectedIds(new Set())
+  }
+
+  // Get selected transactions (only expenses, not income)
+  const selectedTransactions = useMemo(() => {
+    return sortedTransactions.filter((tx) => selectedIds.has(tx.id) && !tx.is_income)
+  }, [sortedTransactions, selectedIds])
+
+  // Get merchant names from selected transactions
+  const selectedMerchantNames = useMemo(() => {
+    return selectedTransactions.map((tx) => parseMerchantName(tx.description))
+  }, [selectedTransactions])
+
+  const handleOpenVatModal = () => {
+    if (selectedTransactions.length === 0) return
+    setShowVatModal(true)
+  }
+
+  const handleApplyToSelected = async (hasVat: boolean, vatPercentage: number) => {
+    for (const tx of selectedTransactions) {
+      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
+  const handleApplyToAllPast = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user) return
+    const uniqueMerchants = [...new Set(selectedMerchantNames)]
+    for (const merchantName of uniqueMerchants) {
+      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
+  const handleApplyToAllMerchant = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user) return
+    const uniqueMerchants = [...new Set(selectedMerchantNames)]
+    // Update all past transactions
+    for (const merchantName of uniqueMerchants) {
+      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    // Save preferences for future
+    for (const merchantName of uniqueMerchants) {
+      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
+  const handleApplyToFuture = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user) return
+    const uniqueMerchants = [...new Set(selectedMerchantNames)]
+    // Save preferences for all merchants
+    for (const merchantName of uniqueMerchants) {
+      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
+    }
+    // Also update selected transactions
+    for (const tx of selectedTransactions) {
+      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
+    }
+    setShowVatModal(false)
+    setSelectedIds(new Set())
+    refetch()
+  }
+
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-text">Bank Movements</h1>
@@ -72,24 +184,57 @@ export function BankMovementsPage() {
       {/* Upload section */}
       <div className="bg-surface rounded-lg p-6">
         <h2 className="text-lg font-semibold text-text mb-4">Import Bank Statement</h2>
-        <BankUploader onUploadComplete={() => refetch()} />
+        <BankUploader onUploadComplete={() => {
+          console.log('[BankMovementsPage] Upload complete, calling refetch')
+          refetch()
+        }} />
       </div>
 
       {/* Transactions section */}
       <div className="bg-surface rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-text mb-4">
-          Transactions
-          {!isLoading && transactions.length > 0 && (
-            <span className="text-sm font-normal text-text-muted ms-2">
-              ({filteredTransactions.length} of {transactions.length})
-            </span>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-text">
+            Transactions
+            {!isLoading && transactions.length > 0 && (
+              <span className="text-sm font-normal text-text-muted ms-2">
+                ({filteredTransactions.length} of {transactions.length})
+              </span>
+            )}
+          </h2>
+
+          {/* Action buttons - only show when items selected */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              {/* Set VAT button - only if expense transactions selected */}
+              {selectedTransactions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleOpenVatModal}
+                  disabled={isUpdating}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ReceiptPercentIcon className="w-4 h-4" />
+                  {isUpdating ? 'Updating...' : `Set VAT (${selectedTransactions.length})`}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <TrashIcon className="w-4 h-4" />
+                {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
+              </button>
+            </div>
           )}
-        </h2>
+        </div>
 
         {/* Filters - only show if there are transactions */}
         {transactions.length > 0 && (
           <div className="mb-4">
-            <TransactionFilters filters={filters} onChange={setFilters} />
+            <TransactionFilters filters={filters} onChange={handleFiltersChange} />
           </div>
         )}
 
@@ -116,9 +261,24 @@ export function BankMovementsPage() {
             sortColumn={sortColumn}
             sortDirection={sortDirection}
             onSort={handleSort}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
           />
         )}
       </div>
+
+      {/* VAT Change Modal */}
+      <VatChangeModal
+        isOpen={showVatModal}
+        onClose={() => setShowVatModal(false)}
+        selectedCount={selectedTransactions.length}
+        merchantNames={selectedMerchantNames}
+        onApplyToSelected={handleApplyToSelected}
+        onApplyToAllPast={handleApplyToAllPast}
+        onApplyToAllMerchant={handleApplyToAllMerchant}
+        onApplyToFuture={handleApplyToFuture}
+        isLoading={isUpdating}
+      />
     </div>
   )
 }
