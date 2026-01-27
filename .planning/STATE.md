@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-27)
 ## Current Position
 
 Phase: 5 of 12 (Bank Statement Import) - IN PROGRESS
-Plan: 1 of TBD in current phase
+Plan: 3 of TBD in current phase
 Status: In progress
-Last activity: 2026-01-27 - Completed 05-01-PLAN.md
+Last activity: 2026-01-27 - Completed 05-03-PLAN.md
 
-Progress: [████░░░░░░] ~42%
+Progress: [████░░░░░░] ~50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
-- Average duration: 2.6 min
-- Total execution time: 0.44 hours
+- Total plans completed: 12
+- Average duration: 2.3 min
+- Total execution time: 0.50 hours
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [████░░░░░░] ~42%
 | 02-authentication | 2 | 7 min | 3.5 min |
 | 03-navigation-ui-shell | 2 | 3 min | 1.5 min |
 | 04-document-upload | 2 | 5 min | 2.5 min |
-| 05-bank-statement-import | 1 | 3 min | 3 min |
+| 05-bank-statement-import | 3 | 7 min | 2.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-02 (1 min), 04-01 (3 min), 04-02 (2 min), 05-01 (3 min)
+- Last 5 plans: 04-02 (2 min), 05-01 (3 min), 05-02 (2 min), 05-03 (2 min)
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -79,6 +79,14 @@ Recent decisions affecting current work:
 - Scan first 15 rows for header detection in bank files (05-01)
 - Normalize headers by removing \r\n, ₪, whitespace (05-01)
 - Excel serial dates (days since 1899-12-30) for real bank files (05-01)
+- Hash-based duplicate detection using btoa encoding (05-02)
+- Sequential transaction insertion with continue-on-error (05-02)
+- No source_file_id for bank imports (not stored in Storage) (05-02)
+- Bank import hooks follow upload hook pattern with status tracking (05-02)
+- Client-side filtering and sorting for transaction display (05-03)
+- RTL table layout with right-aligned columns for Hebrew (05-03)
+- Green for income, red for expense color coding (05-03)
+- Bank components in src/components/bank/ (05-03)
 
 ### Pending Todos
 
@@ -90,8 +98,8 @@ None
 
 ## Session Continuity
 
-Last session: 2026-01-27 19:38 UTC
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-01-27 19:47 UTC
+Stopped at: Completed 05-03-PLAN.md
 Resume file: None
 
 ---
