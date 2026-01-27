@@ -72,6 +72,9 @@ function SkeletonRow() {
         <div className="h-4 w-32 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-end">
+        <div className="h-4 w-20 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-end">
         <div className="h-4 w-24 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
@@ -130,7 +133,8 @@ export function CreditCardTable({
             <tr>
               <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">תאריך</th>
               <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">בית עסק</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-32">סכום</th>
+              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-24">מט״ח</th>
+              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">סכום ₪</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">כרטיס</th>
               <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">מועד חיוב</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">סטטוס</th>
@@ -175,8 +179,16 @@ export function CreditCardTable({
               align="end"
             />
             <SortHeader
+              column="foreign_amount_cents"
+              label="מט״ח"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="end"
+            />
+            <SortHeader
               column="amount_agorot"
-              label="סכום"
+              label="סכום ₪"
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
@@ -206,7 +218,6 @@ export function CreditCardTable({
         </thead>
         <tbody className="divide-y divide-text-muted/10">
           {transactions.map((tx) => {
-            const amountColor = tx.is_income ? 'text-green-400' : 'text-red-400'
             const isSelected = selectedIds.has(tx.id)
 
             // Get card last four from joined credit_card relation
@@ -229,17 +240,11 @@ export function CreditCardTable({
                 <td className="px-4 py-3 text-end text-sm text-text" dir="auto">
                   {tx.description}
                 </td>
-                <td className={`px-4 py-3 text-end text-sm font-medium whitespace-nowrap`}>
-                  {foreignFormatted ? (
-                    <div className="flex flex-col items-end">
-                      <span className={amountColor}>{foreignFormatted}</span>
-                      {tx.amount_agorot !== 0 && (
-                        <span className="text-xs text-text-muted">{formatShekel(tx.amount_agorot)}</span>
-                      )}
-                    </div>
-                  ) : (
-                    <span className={amountColor}>{formatShekel(tx.amount_agorot)}</span>
-                  )}
+                <td className="px-4 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
+                  {foreignFormatted || '-'}
+                </td>
+                <td className="px-4 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
+                  {tx.amount_agorot !== 0 ? formatShekel(tx.amount_agorot) : '-'}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
                   {cardLastFour}
