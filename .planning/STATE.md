@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-27)
 
 **Core value:** Automatically connect invoices and receipts to bank/credit card transactions, eliminating manual matching for VAT reporting.
-**Current focus:** Phase 4 - Document Upload
+**Current focus:** Phase 4 Complete - Ready for Phase 5 (AI Extraction)
 
 ## Current Position
 
-Phase: 4 of 12 (Document Upload)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-01-27 - Completed 04-01-PLAN.md
+Phase: 4 of 12 (Document Upload) - COMPLETE
+Plan: 2 of 2 in current phase - COMPLETE
+Status: Phase complete
+Last activity: 2026-01-27 - Completed 04-02-PLAN.md
 
-Progress: [████░░░░░░] ~33%
+Progress: [████░░░░░░] ~35%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 2.6 min
-- Total execution time: 0.35 hours
+- Total execution time: 0.38 hours
 
 **By Phase:**
 
@@ -30,10 +30,10 @@ Progress: [████░░░░░░] ~33%
 | 01-foundation | 3 | 9 min | 3 min |
 | 02-authentication | 2 | 7 min | 3.5 min |
 | 03-navigation-ui-shell | 2 | 3 min | 1.5 min |
-| 04-document-upload | 1 | 3 min | 3 min |
+| 04-document-upload | 2 | 5 min | 2.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-02 (5 min), 03-01 (2 min), 03-02 (1 min), 04-01 (3 min)
+- Last 5 plans: 03-01 (2 min), 03-02 (1 min), 04-01 (3 min), 04-02 (2 min)
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -70,6 +70,10 @@ Recent decisions affecting current work:
 - Store file metadata in files table after Storage upload (04-01)
 - Hooks folder at src/hooks/ for custom hooks (04-01)
 - Upload components at src/components/upload/ (04-01)
+- DocumentWithUrl type adds URL to File for display convenience (04-02)
+- Intl.DateTimeFormat for locale-aware date formatting (04-02)
+- Document components in src/components/documents/ (04-02)
+- Grid responsive: 2 cols mobile, up to 5 cols desktop (04-02)
 
 ### Pending Todos
 
@@ -81,9 +85,9 @@ None
 
 ## Session Continuity
 
-Last session: 2026-01-27 18:45 UTC
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-01-27 18:49 UTC
+Stopped at: Completed 04-02-PLAN.md (Phase 4 complete)
 Resume file: None
 
 ---
-*Next step: Execute 04-02-PLAN.md with `/gsd:execute-phase`*
+*Next step: Start Phase 5 (AI Extraction) with `/gsd:plan-phase`*
