@@ -1,6 +1,5 @@
 import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon } from '@heroicons/react/24/outline'
 import type { TransactionWithCard } from '@/hooks/useCreditCards'
-import { formatShekel } from '@/lib/utils/currency'
 
 // Format amount without currency symbol
 function formatAmount(cents: number): string {
@@ -63,26 +62,27 @@ const checkboxClass = 'checkbox-dark'
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
-      <td className="px-4 py-3 text-end">
+      {/* RTL order: status, billing date, card, currency, amount, merchant, date, checkbox */}
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-4 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-start">
         <div className="h-4 w-20 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-end">
-        <div className="h-4 w-32 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-end">
-        <div className="h-4 w-20 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-end">
-        <div className="h-4 w-24 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-12 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-end">
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-12 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-start">
         <div className="h-4 w-20 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
+      <td className="px-4 py-3 text-start">
+        <div className="h-4 w-32 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-start">
+        <div className="h-4 w-20 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
@@ -129,13 +129,14 @@ export function CreditCardTable({
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">תאריך</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">בית עסק</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">סכום</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">מטבע</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">כרטיס</th>
-              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">מועד חיוב</th>
+              {/* RTL order: status, billing date, card, currency, amount, merchant, date, checkbox */}
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">סטטוס</th>
+              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">מועד חיוב</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">כרטיס</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">מטבע</th>
+              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">סכום</th>
+              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">בית עסק</th>
+              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">תאריך</th>
               <th className="px-4 py-3 text-center w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
@@ -160,13 +161,26 @@ export function CreditCardTable({
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
+            {/* RTL order: status, billing date, card, currency, amount, merchant, date, checkbox */}
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
+              סטטוס
+            </th>
+            <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">
+              מועד חיוב
+            </th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+              כרטיס
+            </th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
+              מטבע
+            </th>
             <SortHeader
-              column="date"
-              label="תאריך"
+              column="amount_agorot"
+              label="סכום"
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="end"
+              align="start"
             />
             <SortHeader
               column="description"
@@ -174,28 +188,16 @@ export function CreditCardTable({
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="end"
+              align="start"
             />
             <SortHeader
-              column="amount_agorot"
-              label="סכום"
+              column="date"
+              label="תאריך"
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="end"
+              align="start"
             />
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
-              מטבע
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
-              כרטיס
-            </th>
-            <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">
-              מועד חיוב
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
-              סטטוס
-            </th>
             <th className="px-4 py-3 text-center w-12">
               <input
                 type="checkbox"
@@ -232,30 +234,31 @@ export function CreditCardTable({
                 key={tx.id}
                 className={`hover:bg-surface/30 transition-colors ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                <td className="px-4 py-3 text-end text-sm text-text-muted whitespace-nowrap">
-                  {formatDate(tx.date)}
-                </td>
-                <td className="px-4 py-3 text-end text-sm text-text" dir="auto">
-                  {tx.description}
-                </td>
-                <td className="px-4 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
-                  {displayAmount}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {displayCurrency}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
-                  {cardLastFour}
-                </td>
-                <td className="px-4 py-3 text-end text-sm text-text-muted whitespace-nowrap">
-                  {formatDate(tx.value_date)}
-                </td>
+                {/* RTL order: status, billing date, card, currency, amount, merchant, date, checkbox */}
                 <td className="px-4 py-3 text-center">
                   {isLinked ? (
                     <CheckCircleIcon className="w-5 h-5 text-green-400 inline-block" />
                   ) : (
                     <ClockIcon className="w-5 h-5 text-text-muted/50 inline-block" />
                   )}
+                </td>
+                <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
+                  {formatDate(tx.value_date)}
+                </td>
+                <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
+                  {cardLastFour}
+                </td>
+                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                  {displayCurrency}
+                </td>
+                <td className="px-4 py-3 text-start text-sm font-medium text-red-400 whitespace-nowrap">
+                  {displayAmount}
+                </td>
+                <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
+                  {tx.description}
+                </td>
+                <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
+                  {formatDate(tx.date)}
                 </td>
                 <td className="px-4 py-3 text-center">
                   <input
