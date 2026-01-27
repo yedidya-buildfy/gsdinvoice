@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-27)
 
 **Core value:** Automatically connect invoices and receipts to bank/credit card transactions, eliminating manual matching for VAT reporting.
-**Current focus:** Phase 5 - Bank Statement Import
+**Current focus:** Phase 5 Complete - Ready for Phase 6 (Credit Card Import)
 
 ## Current Position
 
-Phase: 5 of 12 (Bank Statement Import) - IN PROGRESS
-Plan: 3 of TBD in current phase
+Phase: 6 of 12 (Credit Card Import & Linking) - IN PROGRESS
+Plan: 1 of 3 in current phase - COMPLETE
 Status: In progress
-Last activity: 2026-01-27 - Completed 05-03-PLAN.md
+Last activity: 2026-01-27 - Completed 06-01-PLAN.md
 
-Progress: [████░░░░░░] ~50%
+Progress: [█████░░░░░] ~48%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: 2.3 min
-- Total execution time: 0.50 hours
+- Total execution time: 0.54 hours
 
 **By Phase:**
 
@@ -32,9 +32,10 @@ Progress: [████░░░░░░] ~50%
 | 03-navigation-ui-shell | 2 | 3 min | 1.5 min |
 | 04-document-upload | 2 | 5 min | 2.5 min |
 | 05-bank-statement-import | 3 | 7 min | 2.3 min |
+| 06-credit-card-import-linking | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 04-02 (2 min), 05-01 (3 min), 05-02 (2 min), 05-03 (2 min)
+- Last 5 plans: 05-01 (3 min), 05-02 (2 min), 05-03 (2 min), 06-01 (2 min)
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -87,6 +88,11 @@ Recent decisions affecting current work:
 - RTL table layout with right-aligned columns for Hebrew (05-03)
 - Green for income, red for expense color coding (05-03)
 - Bank components in src/components/bank/ (05-03)
+- Credit card hash prefix 'cc|' to distinguish from bank hashes (06-01)
+- Auto-create credit_cards entries on first upload per card (06-01)
+- Store foreign currency amounts without conversion (06-01)
+- Map billingDate to value_date field for credit cards (06-01)
+- Credit card components in src/components/creditcard/ (planned)
 
 ### Pending Todos
 
@@ -98,9 +104,9 @@ None
 
 ## Session Continuity
 
-Last session: 2026-01-27 19:47 UTC
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-01-27 20:40 UTC
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
 
 ---
-*Next step: Continue Phase 5 with next plan*
+*Next step: Continue Phase 6 with 06-02-PLAN.md (Credit Card UI)*
