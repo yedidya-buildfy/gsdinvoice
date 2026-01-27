@@ -58,6 +58,8 @@ function normalizeHeader(header: string): string {
 /**
  * Detect column mapping from headers
  * Maps field names to actual column names in the file
+ * Uses exact matching first, then falls back to includes matching
+ * First match wins to avoid overwriting with longer column names
  */
 function detectColumnMapping(headers: string[]): Record<string, string> {
   const mapping: Record<string, string> = {};
@@ -69,9 +71,17 @@ function detectColumnMapping(headers: string[]): Record<string, string> {
 
     // Check each pattern type
     for (const [field, patterns] of Object.entries(CREDIT_CARD_COLUMN_PATTERNS)) {
+      // Skip if already mapped (first match wins)
+      if (mapping[field]) continue;
+
       for (const pattern of patterns) {
         const normalizedPattern = normalizeHeader(pattern);
-        if (normalized.includes(normalizedPattern)) {
+        // Prefer exact match, then check if starts with pattern
+        // This prevents "מזהה כרטיס בארנק דיגילטי" from matching "כרטיס" pattern
+        const isExactMatch = normalized === normalizedPattern;
+        const startsWithPattern = normalized.startsWith(normalizedPattern);
+
+        if (isExactMatch || startsWithPattern) {
           mapping[field] = trimmedHeader;
           break;
         }
@@ -107,16 +117,29 @@ function detectHeaderRow(data: unknown[][]): number {
 
 /**
  * Extract last 4 digits from card field
- * Handles formats like: "1234", "**** 1234", "כרטיס 1234"
+ * Handles formats like: "1234", "**** 1234", "ויזה 4176", "מאסטרקארד 9710"
  */
 function extractCardLastFour(cardValue: unknown): string {
-  const str = String(cardValue || '');
-  // Find all sequences of 4 consecutive digits
+  const str = String(cardValue || '').trim();
+
+  // Skip empty or placeholder values
+  if (!str || str === '-' || str === '—') {
+    return '0000';
+  }
+
+  // Look for 4 digits at the end of the string (common format: "ויזה 4176")
+  const endMatch = str.match(/(\d{4})\s*$/);
+  if (endMatch) {
+    return endMatch[1];
+  }
+
+  // Fallback: find any 4 consecutive digits
   const matches = str.match(/\d{4}/g);
   if (matches && matches.length > 0) {
-    // Take the last match (most likely the card last four)
+    // Take the last match
     return matches[matches.length - 1];
   }
+
   return '0000'; // Default if not found
 }
 
