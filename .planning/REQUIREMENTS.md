@@ -112,47 +112,47 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | TBD | Pending |
-| AUTH-02 | TBD | Pending |
-| AUTH-03 | TBD | Pending |
-| UPLD-01 | TBD | Pending |
-| UPLD-02 | TBD | Pending |
-| UPLD-03 | TBD | Pending |
-| EXTR-01 | TBD | Pending |
-| EXTR-02 | TBD | Pending |
-| EXTR-03 | TBD | Pending |
-| EXTR-04 | TBD | Pending |
-| EXTR-05 | TBD | Pending |
-| BANK-01 | TBD | Pending |
-| BANK-02 | TBD | Pending |
-| BANK-03 | TBD | Pending |
-| BANK-04 | TBD | Pending |
-| BANK-05 | TBD | Pending |
-| BANK-06 | TBD | Pending |
-| MTCH-01 | TBD | Pending |
-| MTCH-02 | TBD | Pending |
-| MTCH-03 | TBD | Pending |
-| MTCH-04 | TBD | Pending |
-| MTCH-05 | TBD | Pending |
-| DUPL-01 | TBD | Pending |
-| DUPL-02 | TBD | Pending |
-| DUPL-03 | TBD | Pending |
-| DASH-01 | TBD | Pending |
-| DASH-02 | TBD | Pending |
-| DASH-03 | TBD | Pending |
-| DASH-04 | TBD | Pending |
-| NAV-01 | TBD | Pending |
-| SETT-01 | TBD | Pending |
-| SETT-02 | TBD | Pending |
-| UI-01 | TBD | Pending |
-| UI-02 | TBD | Pending |
-| UI-03 | TBD | Pending |
+| AUTH-01 | Phase 2 | Pending |
+| AUTH-02 | Phase 2 | Pending |
+| AUTH-03 | Phase 2 | Pending |
+| UPLD-01 | Phase 4 | Pending |
+| UPLD-02 | Phase 4 | Pending |
+| UPLD-03 | Phase 4 | Pending |
+| EXTR-01 | Phase 7 | Pending |
+| EXTR-02 | Phase 7 | Pending |
+| EXTR-03 | Phase 8 | Pending |
+| EXTR-04 | Phase 8 | Pending |
+| EXTR-05 | Phase 8 | Pending |
+| BANK-01 | Phase 5 | Pending |
+| BANK-02 | Phase 5 | Pending |
+| BANK-03 | Phase 6 | Pending |
+| BANK-04 | Phase 5 | Pending |
+| BANK-05 | Phase 6 | Pending |
+| BANK-06 | Phase 6 | Pending |
+| MTCH-01 | Phase 9 | Pending |
+| MTCH-02 | Phase 9 | Pending |
+| MTCH-03 | Phase 10 | Pending |
+| MTCH-04 | Phase 10 | Pending |
+| MTCH-05 | Phase 10 | Pending |
+| DUPL-01 | Phase 11 | Pending |
+| DUPL-02 | Phase 11 | Pending |
+| DUPL-03 | Phase 11 | Pending |
+| DASH-01 | Phase 12 | Pending |
+| DASH-02 | Phase 12 | Pending |
+| DASH-03 | Phase 12 | Pending |
+| DASH-04 | Phase 12 | Pending |
+| NAV-01 | Phase 3 | Pending |
+| SETT-01 | Phase 9 | Pending |
+| SETT-02 | Phase 12 | Pending |
+| UI-01 | Phase 3 | Pending |
+| UI-02 | Phase 3 | Pending |
+| UI-03 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 35 total
-- Mapped to phases: 0
-- Unmapped: 35
+- Mapped to phases: 35
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-27*
-*Last updated: 2026-01-27 after initial definition*
+*Last updated: 2026-01-27 after roadmap creation*
