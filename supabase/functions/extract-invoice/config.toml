@@ -1,0 +1,5 @@
+[limits]
+timeout = 120  # 2 minutes for large documents
+
+[runtime]
+deno_version = "2.1"
