@@ -14,10 +14,18 @@
     "@supabase/supabase-js": "^2.93.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.90.20",
+    "@types/papaparse": "^5.5.2",
+    "@untitledui/icons": "^0.0.20",
+    "clsx": "^2.1.1",
+    "dayjs": "^1.11.19",
+    "papaparse": "^5.5.3",
     "react": "^19.2.4",
+    "react-aria-components": "^1.14.0",
     "react-dom": "^19.2.4",
     "react-router": "^7.13.0",
+    "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
