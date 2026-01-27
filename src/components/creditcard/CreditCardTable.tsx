@@ -151,39 +151,37 @@ export function CreditCardTable({
         <thead className="bg-surface/50">
           <tr>
             <SortHeader
-              column="description"
-              label="Merchant"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-            />
-            <SortHeader
               column="date"
-              label="Date"
+              label="תאריך"
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="center"
+              align="end"
             />
             <SortHeader
-              column="value_date"
-              label="Billing"
+              column="description"
+              label="בית עסק"
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="center"
+              align="end"
             />
             <SortHeader
               column="amount_agorot"
-              label="Amount"
+              label="סכום"
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="center"
+              align="end"
             />
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">
-              Type
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+              כרטיס
+            </th>
+            <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-28">
+              מועד חיוב
+            </th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
+              סטטוס
             </th>
             <th className="px-4 py-3 text-center w-12">
               <input
@@ -203,25 +201,41 @@ export function CreditCardTable({
             const amountColor = tx.is_income ? 'text-green-400' : 'text-red-400'
             const isSelected = selectedIds.has(tx.id)
 
+            // Extract card last four from description if available
+            // This will be enhanced when we join with credit_cards table
+            const cardMatch = tx.description.match(/\d{4}/);
+            const cardLastFour = cardMatch ? cardMatch[0] : '-';
+
+            // Linked status - check if this CC transaction has a bank charge linked
+            // The linked_credit_card_id field is used for linking to credit_cards
+            const isLinked = tx.linked_credit_card_id !== null;
+
             return (
               <tr
                 key={tx.id}
                 className={`hover:bg-surface/30 transition-colors ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
-                  {tx.description}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                <td className="px-4 py-3 text-end text-sm text-text-muted whitespace-nowrap">
                   {formatDate(tx.date)}
                 </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {tx.value_date ? formatDate(tx.value_date) : '-'}
+                <td className="px-4 py-3 text-end text-sm text-text" dir="auto">
+                  {tx.description}
                 </td>
-                <td className={`px-4 py-3 text-center text-sm font-medium ${amountColor} whitespace-nowrap`}>
+                <td className={`px-4 py-3 text-end text-sm font-medium ${amountColor} whitespace-nowrap`}>
                   {formatShekel(tx.amount_agorot)}
                 </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted">
-                  {tx.reference || '-'}
+                <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
+                  {cardLastFour}
+                </td>
+                <td className="px-4 py-3 text-end text-sm text-text-muted whitespace-nowrap">
+                  {formatDate(tx.value_date)}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {isLinked ? (
+                    <CheckCircleIcon className="w-5 h-5 text-green-400 inline-block" />
+                  ) : (
+                    <ClockIcon className="w-5 h-5 text-text-muted/50 inline-block" />
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center">
                   <input
