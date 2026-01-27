@@ -34,6 +34,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       files: {
         Row: {
@@ -78,6 +79,7 @@ export interface Database {
           created_at?: string
           processed_at?: string | null
         }
+        Relationships: []
       }
       credit_cards: {
         Row: {
@@ -104,6 +106,7 @@ export interface Database {
           card_type?: string
           created_at?: string
         }
+        Relationships: []
       }
       transactions: {
         Row: {
@@ -160,6 +163,20 @@ export interface Database {
           match_status?: string
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'transactions_linked_credit_card_id_fkey'
+            columns: ['linked_credit_card_id']
+            referencedRelation: 'credit_cards'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'transactions_source_file_id_fkey'
+            columns: ['source_file_id']
+            referencedRelation: 'files'
+            referencedColumns: ['id']
+          }
+        ]
       }
       invoices: {
         Row: {
@@ -213,6 +230,14 @@ export interface Database {
           is_income?: boolean
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'invoices_file_id_fkey'
+            columns: ['file_id']
+            referencedRelation: 'files'
+            referencedColumns: ['id']
+          }
+        ]
       }
       invoice_rows: {
         Row: {
@@ -248,6 +273,20 @@ export interface Database {
           allocation_amount_agorot?: number | null
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'invoice_rows_invoice_id_fkey'
+            columns: ['invoice_id']
+            referencedRelation: 'invoices'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'invoice_rows_transaction_id_fkey'
+            columns: ['transaction_id']
+            referencedRelation: 'transactions'
+            referencedColumns: ['id']
+          }
+        ]
       }
       audit_log: {
         Row: {
@@ -280,7 +319,20 @@ export interface Database {
           changed_by?: string | null
           changed_at?: string
         }
+        Relationships: []
       }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
     }
   }
 }
