@@ -160,6 +160,9 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
         source_file_id: null,
         hash: hash,
         match_status: 'unmatched',
+        // Foreign currency info
+        foreign_amount_cents: tx.foreignAmount ? Math.round(tx.foreignAmount * 100) : null,
+        foreign_currency: tx.foreignCurrency,
       }))
 
       // Batch insert ALL transactions in ONE query

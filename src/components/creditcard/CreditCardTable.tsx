@@ -1,23 +1,31 @@
 import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon } from '@heroicons/react/24/outline'
-import type { Transaction } from '@/types/database'
+import type { TransactionWithCard } from '@/hooks/useCreditCards'
 import { formatShekel } from '@/lib/utils/currency'
 
+// Format foreign currency amount
+function formatForeignAmount(cents: number | null, currency: string | null): string | null {
+  if (cents === null || currency === null) return null
+  const amount = cents / 100
+  const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency
+  return `${symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 interface CreditCardTableProps {
-  transactions: Transaction[]
+  transactions: TransactionWithCard[]
   isLoading?: boolean
-  sortColumn: keyof Transaction
+  sortColumn: keyof TransactionWithCard
   sortDirection: 'asc' | 'desc'
-  onSort: (column: keyof Transaction) => void
+  onSort: (column: keyof TransactionWithCard) => void
   selectedIds?: Set<string>
   onSelectionChange?: (selectedIds: Set<string>) => void
 }
 
 interface SortHeaderProps {
-  column: keyof Transaction
+  column: keyof TransactionWithCard
   label: string
-  sortColumn: keyof Transaction
+  sortColumn: keyof TransactionWithCard
   sortDirection: 'asc' | 'desc'
-  onSort: (column: keyof Transaction) => void
+  onSort: (column: keyof TransactionWithCard) => void
   align?: 'start' | 'center' | 'end'
 }
 
@@ -201,14 +209,14 @@ export function CreditCardTable({
             const amountColor = tx.is_income ? 'text-green-400' : 'text-red-400'
             const isSelected = selectedIds.has(tx.id)
 
-            // Extract card last four from description if available
-            // This will be enhanced when we join with credit_cards table
-            const cardMatch = tx.description.match(/\d{4}/);
-            const cardLastFour = cardMatch ? cardMatch[0] : '-';
+            // Get card last four from joined credit_card relation
+            const cardLastFour = tx.credit_card?.card_last_four || '-';
 
-            // Linked status - check if this CC transaction has a bank charge linked
-            // The linked_credit_card_id field is used for linking to credit_cards
+            // Linked status - check if this CC transaction has a credit card linked
             const isLinked = tx.linked_credit_card_id !== null;
+
+            // Format foreign currency if present
+            const foreignFormatted = formatForeignAmount(tx.foreign_amount_cents, tx.foreign_currency)
 
             return (
               <tr
@@ -221,8 +229,17 @@ export function CreditCardTable({
                 <td className="px-4 py-3 text-end text-sm text-text" dir="auto">
                   {tx.description}
                 </td>
-                <td className={`px-4 py-3 text-end text-sm font-medium ${amountColor} whitespace-nowrap`}>
-                  {formatShekel(tx.amount_agorot)}
+                <td className={`px-4 py-3 text-end text-sm font-medium whitespace-nowrap`}>
+                  {foreignFormatted ? (
+                    <div className="flex flex-col items-end">
+                      <span className={amountColor}>{foreignFormatted}</span>
+                      {tx.amount_agorot !== 0 && (
+                        <span className="text-xs text-text-muted">{formatShekel(tx.amount_agorot)}</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className={amountColor}>{formatShekel(tx.amount_agorot)}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
                   {cardLastFour}

@@ -195,15 +195,17 @@ function normalizeCreditCardTransaction(
     }
   }
 
-  // Infer foreign currency (simple heuristic - could be improved)
+  // Infer foreign currency from column header name
   let foreignCurrency: string | null = null;
   if (foreignAmount !== null) {
     // Check if column header mentions currency
-    const foreignColName = mapping.foreignAmount || '';
-    if (foreignColName.includes('דולר') || foreignColName.includes('USD')) {
+    const foreignColName = (mapping.foreignAmount || '').toLowerCase();
+    if (foreignColName.includes('דולר') || foreignColName.includes('usd') || foreignColName.includes('$')) {
       foreignCurrency = 'USD';
-    } else if (foreignColName.includes('יורו') || foreignColName.includes('EUR')) {
+    } else if (foreignColName.includes('יורו') || foreignColName.includes('eur') || foreignColName.includes('€')) {
       foreignCurrency = 'EUR';
+    } else if (foreignColName.includes('לירה') || foreignColName.includes('gbp') || foreignColName.includes('£')) {
+      foreignCurrency = 'GBP';
     } else {
       foreignCurrency = 'USD'; // Default assumption for foreign currency
     }

@@ -3,6 +3,15 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import type { CreditCard, Transaction } from '@/types/database'
 
+// Extended transaction with joined credit card info
+export interface TransactionWithCard extends Transaction {
+  credit_card?: {
+    card_last_four: string
+    card_name: string | null
+    card_type: string
+  } | null
+}
+
 interface UseCreditCardsReturn {
   creditCards: CreditCard[]
   isLoading: boolean
@@ -42,7 +51,7 @@ export function useCreditCards(): UseCreditCardsReturn {
 }
 
 interface UseCreditCardTransactionsReturn {
-  transactions: Transaction[]
+  transactions: TransactionWithCard[]
   isLoading: boolean
   error: Error | null
   refetch: () => Promise<any>
@@ -51,12 +60,20 @@ interface UseCreditCardTransactionsReturn {
 async function fetchCreditCardTransactions(
   userId: string,
   cardId?: string
-): Promise<Transaction[]> {
+): Promise<TransactionWithCard[]> {
   console.log('[useCreditCardTransactions] Fetching transactions for user:', userId, 'card:', cardId)
 
+  // Join with credit_cards to get card_last_four
   let query = supabase
     .from('transactions')
-    .select('*')
+    .select(`
+      *,
+      credit_card:credit_cards!linked_credit_card_id (
+        card_last_four,
+        card_name,
+        card_type
+      )
+    `)
     .eq('user_id', userId)
     .eq('is_credit_card_charge', false)
     .not('linked_credit_card_id', 'is', null)
@@ -69,7 +86,7 @@ async function fetchCreditCardTransactions(
 
   console.log('[useCreditCardTransactions] Fetch result:', { count: data?.length, error })
   if (error) throw error
-  return data || []
+  return (data || []) as TransactionWithCard[]
 }
 
 export function useCreditCardTransactions(cardId?: string): UseCreditCardTransactionsReturn {

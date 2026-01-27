@@ -125,6 +125,8 @@ export interface Database {
           source_file_id: string | null
           hash: string | null
           match_status: string
+          foreign_amount_cents: number | null
+          foreign_currency: string | null
           created_at: string
         }
         Insert: {
@@ -143,6 +145,8 @@ export interface Database {
           source_file_id?: string | null
           hash?: string | null
           match_status?: string
+          foreign_amount_cents?: number | null
+          foreign_currency?: string | null
           created_at?: string
         }
         Update: {
@@ -161,6 +165,8 @@ export interface Database {
           source_file_id?: string | null
           hash?: string | null
           match_status?: string
+          foreign_amount_cents?: number | null
+          foreign_currency?: string | null
           created_at?: string
         }
         Relationships: [

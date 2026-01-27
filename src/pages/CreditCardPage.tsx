@@ -1,13 +1,12 @@
 import { useState, useMemo } from 'react'
 import { ArrowPathIcon, LinkIcon, TrashIcon } from '@heroicons/react/24/outline'
-import { useCreditCards, useCreditCardTransactions } from '@/hooks/useCreditCards'
+import { useCreditCards, useCreditCardTransactions, type TransactionWithCard } from '@/hooks/useCreditCards'
 import { CreditCardUploader } from '@/components/creditcard/CreditCardUploader'
 import { CreditCardTable } from '@/components/creditcard/CreditCardTable'
 import { TransactionFilters, type TransactionFilterState } from '@/components/bank/TransactionFilters'
 import { linkCreditCardTransactions } from '@/lib/services/creditCardLinker'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import type { Transaction } from '@/types/database'
 
 export function CreditCardPage() {
   const { user } = useAuth()
@@ -22,7 +21,7 @@ export function CreditCardPage() {
     type: 'all',
   })
 
-  const [sortColumn, setSortColumn] = useState<keyof Transaction>('date')
+  const [sortColumn, setSortColumn] = useState<keyof TransactionWithCard>('date')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isLinking, setIsLinking] = useState(false)
@@ -66,7 +65,7 @@ export function CreditCardPage() {
     })
   }, [filteredTransactions, sortColumn, sortDirection])
 
-  const handleSort = (column: keyof Transaction) => {
+  const handleSort = (column: keyof TransactionWithCard) => {
     if (column === sortColumn) {
       setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
