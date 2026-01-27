@@ -1,10 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="he" dir="rtl">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // FOUC prevention: Apply dark theme immediately before stylesheets load
+      (function() {
+        try {
+          const stored = localStorage.getItem('vat-manager-ui');
+          const state = stored ? JSON.parse(stored).state : null;
+          const theme = state?.theme;
+          // Default to dark if no preference stored
+          if (theme === 'dark' || !theme) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {
+          // On error, default to dark theme
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>invoices-app</title>
+    <title>VAT Declaration Manager</title>
   </head>
   <body>
     <div id="root"></div>
