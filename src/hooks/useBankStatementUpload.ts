@@ -1,8 +1,16 @@
 import { useState, useCallback } from 'react'
 import { parseBankStatement, type ParsedTransaction } from '@/lib/parsers/bankStatementParser'
+import { detectCreditCardCharge } from '@/lib/services/creditCardLinker'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import type { TransactionInsert } from '@/types/database'
+
+// UTF-8 safe base64 encoding for Hebrew text
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str)
+  const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join('')
+  return btoa(binString)
+}
 
 interface UseBankStatementUploadReturn {
   file: File | null
@@ -50,6 +58,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
 
       parsedTransactions = await parseBankStatement(file)
       setParsedCount(parsedTransactions.length)
+      console.log('[BankUpload] Parsed transactions:', parsedTransactions.length, parsedTransactions.slice(0, 2))
 
       if (parsedTransactions.length === 0) {
         setError('No transactions found in file')
@@ -57,61 +66,71 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
         return
       }
 
-      // Step 2: Save to database with duplicate detection
+      // Step 2: Save to database with batch insert
       setStatus('saving')
-      let saved = 0
-      let duplicates = 0
 
-      for (const tx of parsedTransactions) {
-        try {
-          // Generate hash for duplicate detection
-          const hash = btoa(`${tx.date}|${tx.description.trim()}|${tx.amountAgorot}|${tx.reference || ''}`)
+      // Generate hashes for all transactions
+      const txWithHashes = parsedTransactions.map((tx) => ({
+        tx,
+        hash: utf8ToBase64(`${tx.date}|${tx.description.trim()}|${tx.amountAgorot}|${tx.reference || ''}`),
+      }))
 
-          // Check for existing transaction with same hash
-          const { data: existing } = await supabase
-            .from('transactions')
-            .select('id')
-            .eq('hash', hash)
-            .eq('user_id', user.id)
-            .single()
+      // Fetch existing hashes in ONE query
+      const allHashes = txWithHashes.map((t) => t.hash)
+      const { data: existingRows } = await supabase
+        .from('transactions')
+        .select('hash')
+        .eq('user_id', user.id)
+        .in('hash', allHashes)
 
-          if (existing) {
-            duplicates++
-            continue
-          }
+      const existingHashes = new Set((existingRows || []).map((r) => r.hash))
 
-          // Create transaction insert object
-          const transactionInsert: TransactionInsert = {
-            user_id: user.id,
-            date: tx.date,
-            value_date: tx.valueDate,
-            description: tx.description,
-            reference: tx.reference,
-            amount_agorot: tx.amountAgorot,
-            balance_agorot: tx.balanceAgorot,
-            is_income: tx.amountAgorot > 0,
-            is_credit_card_charge: false,
-            source_file_id: null, // No file record for bank imports
-            hash: hash,
-            match_status: 'unmatched',
-          }
+      // Filter out duplicates client-side
+      const newTransactions = txWithHashes.filter((t) => !existingHashes.has(t.hash))
+      const duplicates = txWithHashes.length - newTransactions.length
 
-          // Insert to database
-          const { error: insertError } = await supabase
-            .from('transactions')
-            .insert(transactionInsert)
+      console.log('[BankUpload] Found', duplicates, 'duplicates,', newTransactions.length, 'new transactions')
 
-          if (insertError) {
-            console.error('Failed to insert transaction:', insertError)
-            continue
-          }
-
-          saved++
-        } catch (txError) {
-          console.error('Error processing transaction:', txError)
-          // Continue with next transaction
-        }
+      if (newTransactions.length === 0) {
+        setSavedCount(0)
+        setDuplicateCount(duplicates)
+        setStatus('success')
+        return
       }
+
+      // Create insert objects for all new transactions
+      const inserts: TransactionInsert[] = newTransactions.map(({ tx, hash }) => {
+        const cardLastFour = detectCreditCardCharge(tx.description);
+
+        return {
+          user_id: user.id,
+          date: tx.date,
+          value_date: tx.valueDate,
+          description: tx.description,
+          reference: tx.reference,
+          amount_agorot: tx.amountAgorot,
+          balance_agorot: tx.balanceAgorot,
+          is_income: tx.amountAgorot > 0,
+          is_credit_card_charge: cardLastFour !== null,
+          source_file_id: null,
+          hash: hash,
+          match_status: 'unmatched',
+        };
+      })
+
+      // Batch insert ALL transactions in ONE query
+      const { error: insertError, data: insertedData } = await supabase
+        .from('transactions')
+        .insert(inserts)
+        .select()
+
+      if (insertError) {
+        console.error('[BankUpload] Batch insert failed:', insertError)
+        throw new Error(`Failed to save transactions: ${insertError.message}`)
+      }
+
+      const saved = insertedData?.length || 0
+      console.log('[BankUpload] Batch insert complete. Saved:', saved, 'Duplicates:', duplicates)
 
       setSavedCount(saved)
       setDuplicateCount(duplicates)
