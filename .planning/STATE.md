@@ -5,33 +5,35 @@
 See: .planning/PROJECT.md (updated 2026-01-27)
 
 **Core value:** Automatically connect invoices and receipts to bank/credit card transactions, eliminating manual matching for VAT reporting.
-**Current focus:** Phase 1 - Foundation
+**Current focus:** Phase 3 - Navigation & UI Shell
 
 ## Current Position
 
-Phase: 1 of 12 (Foundation)
-Plan: 1 of TBD in current phase
+Phase: 3 of 12 (Navigation & UI Shell)
+Plan: 1 of 2 in current phase
 Status: In progress
-Last activity: 2026-01-27 - Completed 01-01-PLAN.md (Project Foundation)
+Last activity: 2026-01-27 - Completed 03-01-PLAN.md
 
-Progress: [█░░░░░░░░░] ~8%
+Progress: [████░░░░░░] ~25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 4 min
-- Total execution time: 0.07 hours
+- Total plans completed: 6
+- Average duration: 3 min
+- Total execution time: 0.27 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-foundation | 1 | 4 min | 4 min |
+| 01-foundation | 3 | 9 min | 3 min |
+| 02-authentication | 2 | 7 min | 3.5 min |
+| 03-navigation-ui-shell | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (4 min)
-- Trend: Not enough data
+- Last 5 plans: 01-03 (2 min), 02-01 (2 min), 02-02 (5 min), 03-01 (2 min)
+- Trend: Stable
 
 *Updated after each plan completion*
 
@@ -45,20 +47,34 @@ Recent decisions affecting current work:
 - React 19 with strict mode for latest features
 - Tailwind CSS v4 with CSS-based @theme configuration (not tailwind.config.js)
 - Path aliases using @/* pattern for clean imports
+- TanStack Query with 30s staleTime for balanced caching
+- Zustand persist middleware with partialize for selective localStorage
+- Database types include Row, Insert, and Update variants
+- Custom trigger-based audit logging (supa_audit extension not available on this Supabase instance)
+- Team-shared RLS policies (all authenticated users can read/write all data)
+- Local scope signOut for single-device logout (02-01)
+- useAuth hook throws if used outside AuthProvider (02-01)
+- ProtectedRoute uses Outlet pattern for nested protected routes (02-02)
+- Session-reactive navigation via useEffect watching user state (02-02)
+- Location state preserves intended destination for post-login redirect (02-02)
+- Signup form includes name field and password confirmation (02-02)
+- FOUC prevention inline script reads Zustand persist format (03-01)
+- RTL-ready from start using logical CSS properties (03-01)
+- Layout components in src/components/layout/ (03-01)
 
 ### Pending Todos
 
-- Add real Supabase anon key to .env.local (required before Supabase client implementation)
+None
 
 ### Blockers/Concerns
 
-- Supabase anon key placeholder in .env.local needs to be replaced with real key
+None
 
 ## Session Continuity
 
-Last session: 2026-01-27T14:27:41Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-01-27 18:15 UTC
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
 
 ---
-*Next step: Execute next plan in phase 01-foundation*
+*Next step: Continue Phase 3 with 03-02-PLAN.md*
