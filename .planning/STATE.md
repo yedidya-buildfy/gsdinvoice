@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-27)
 
 **Core value:** Automatically connect invoices and receipts to bank/credit card transactions, eliminating manual matching for VAT reporting.
-**Current focus:** Phase 13 Complete - VAT Fields for Bank Transactions
+**Current focus:** Phase 7 - AI Document Extraction
 
 ## Current Position
 
-Phase: 13 of 13 (VAT Fields for Bank Transactions) - COMPLETE
-Plan: 1 of 1 in current phase - COMPLETE
-Status: Phase complete
-Last activity: 2026-01-27 - Completed 13-01-PLAN.md (VAT fields implemented)
+Phase: 7 of 13 (AI Document Extraction)
+Plan: 2 of 3 in current phase - COMPLETE
+Status: In progress
+Last activity: 2026-01-28 - Completed 07-02-PLAN.md (Extraction client hooks)
 
-Progress: [██████░░░░] ~53%
+Progress: [████████░░] ~59%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15
+- Total plans completed: 17
 - Average duration: 2.4 min
-- Total execution time: 0.62 hours
+- Total execution time: 0.68 hours
 
 **By Phase:**
 
@@ -33,9 +33,10 @@ Progress: [██████░░░░] ~53%
 | 04-document-upload | 2 | 5 min | 2.5 min |
 | 05-bank-statement-import | 3 | 7 min | 2.3 min |
 | 06-credit-card-import-linking | 3 | 10 min | 3.3 min |
+| 07-ai-document-extraction | 2 | 5 min | 2.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 05-03 (2 min), 06-01 (2 min), 06-02 (4 min), 06-03 (4 min)
+- Last 5 plans: 06-02 (4 min), 06-03 (4 min), 07-01 (3 min), 07-02 (2 min)
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -103,6 +104,14 @@ Recent decisions affecting current work:
 - Card selector above transactions header for primary categorization (06-03)
 - Re-link button always visible for manual linking retry (06-03)
 - Credit card table shows both transaction date and billing date (06-03)
+- Gemini 3 Flash preview model for structured invoice extraction (07-01)
+- Zod schema with zodToJsonSchema for type-safe Gemini output (07-01)
+- 120s timeout for Edge Function large document processing (07-01)
+- Hebrew language hint in Gemini extraction prompt (07-01)
+- Edge Function CORS: Allow-Origin *, authorization/apikey/content-type headers (07-01)
+- Separate interfaces for ExtractionRequest, ExtractionResult, InvoiceExtraction (07-02)
+- Sequential batch processing with 500ms delay for rate limit protection (07-02)
+- InvoiceWithFile type extends Invoice with file relation for display (07-02)
 
 ### Pending Todos
 
@@ -118,9 +127,9 @@ None
 
 ## Session Continuity
 
-Last session: 2026-01-27 22:49 UTC
-Stopped at: Completed 06-02-PLAN.md (Phase 6 complete)
+Last session: 2026-01-28 00:22 UTC
+Stopped at: Completed 07-02-PLAN.md (Extraction client hooks)
 Resume file: None
 
 ---
-*Next step: Start Phase 7 with `/gsd:plan-phase 7` (Invoice Processing)*
+*Next step: Continue Phase 7 with 07-03-PLAN.md (Extraction UI components)*
