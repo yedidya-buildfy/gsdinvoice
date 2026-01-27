@@ -15,9 +15,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Document Upload
 
-- [ ] **UPLD-01**: User can upload multiple files at once (batch upload)
-- [ ] **UPLD-02**: User can upload PDF, images (jpg/png), xlsx, csv files
-- [ ] **UPLD-03**: User can view uploaded documents in a list with thumbnails
+- [x] **UPLD-01**: User can upload multiple files at once (batch upload)
+- [x] **UPLD-02**: User can upload PDF, images (jpg/png), xlsx, csv files
+- [x] **UPLD-03**: User can view uploaded documents in a list with thumbnails
 
 ### AI Extraction
 
@@ -29,12 +29,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Bank & Credit Card Import
 
-- [ ] **BANK-01**: User can upload bank statement (xlsx/csv)
-- [ ] **BANK-02**: System parses Israeli bank formats (date, description, amount, reference)
-- [ ] **BANK-03**: User can upload credit card statement (xlsx/csv)
-- [ ] **BANK-04**: User can view transactions in sortable/filterable list
-- [ ] **BANK-05**: System detects credit card charges in bank movements (e.g., "ישראכרט")
-- [ ] **BANK-06**: System links credit card bank rows to credit card detail rows
+- [x] **BANK-01**: User can upload bank statement (xlsx/csv)
+- [x] **BANK-02**: System parses Israeli bank formats (date, description, amount, reference)
+- [x] **BANK-03**: User can upload credit card statement (xlsx/csv)
+- [x] **BANK-04**: User can view transactions in sortable/filterable list
+- [x] **BANK-05**: System detects credit card charges in bank movements (e.g., "ישראכרט")
+- [x] **BANK-06**: System links credit card bank rows to credit card detail rows
 
 ### Matching Engine
 
@@ -112,23 +112,23 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 2 | Pending |
-| AUTH-02 | Phase 2 | Pending |
-| AUTH-03 | Phase 2 | Pending |
-| UPLD-01 | Phase 4 | Pending |
-| UPLD-02 | Phase 4 | Pending |
-| UPLD-03 | Phase 4 | Pending |
+| AUTH-01 | Phase 2 | Complete |
+| AUTH-02 | Phase 2 | Complete |
+| AUTH-03 | Phase 2 | Complete |
+| UPLD-01 | Phase 4 | Complete |
+| UPLD-02 | Phase 4 | Complete |
+| UPLD-03 | Phase 4 | Complete |
 | EXTR-01 | Phase 7 | Pending |
 | EXTR-02 | Phase 7 | Pending |
 | EXTR-03 | Phase 8 | Pending |
 | EXTR-04 | Phase 8 | Pending |
 | EXTR-05 | Phase 8 | Pending |
-| BANK-01 | Phase 5 | Pending |
-| BANK-02 | Phase 5 | Pending |
-| BANK-03 | Phase 6 | Pending |
-| BANK-04 | Phase 5 | Pending |
-| BANK-05 | Phase 6 | Pending |
-| BANK-06 | Phase 6 | Pending |
+| BANK-01 | Phase 5 | Complete |
+| BANK-02 | Phase 5 | Complete |
+| BANK-03 | Phase 6 | Complete |
+| BANK-04 | Phase 5 | Complete |
+| BANK-05 | Phase 6 | Complete |
+| BANK-06 | Phase 6 | Complete |
 | MTCH-01 | Phase 9 | Pending |
 | MTCH-02 | Phase 9 | Pending |
 | MTCH-03 | Phase 10 | Pending |
@@ -141,12 +141,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-02 | Phase 12 | Pending |
 | DASH-03 | Phase 12 | Pending |
 | DASH-04 | Phase 12 | Pending |
-| NAV-01 | Phase 3 | Pending |
+| NAV-01 | Phase 3 | Complete |
 | SETT-01 | Phase 9 | Pending |
 | SETT-02 | Phase 12 | Pending |
-| UI-01 | Phase 3 | Pending |
-| UI-02 | Phase 3 | Pending |
-| UI-03 | Phase 3 | Pending |
+| UI-01 | Phase 3 | Complete |
+| UI-02 | Phase 3 | Complete |
+| UI-03 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 35 total
