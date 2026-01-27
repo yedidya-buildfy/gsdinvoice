@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline'
+import { EnvelopeIcon, LockClosedIcon, UserIcon } from '@heroicons/react/24/outline'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface SignupFormProps {
@@ -8,8 +8,10 @@ interface SignupFormProps {
 
 export function SignupForm({ onLoginClick }: SignupFormProps) {
   const { signUp } = useAuth()
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
@@ -17,9 +19,21 @@ export function SignupForm({ onLoginClick }: SignupFormProps) {
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError('')
+
+    // Validate password confirmation
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+
     setLoading(true)
 
-    const { error: signUpError } = await signUp(email, password)
+    const { error: signUpError } = await signUp(email, password, name)
 
     if (signUpError) {
       setError(signUpError.message)
@@ -58,6 +72,28 @@ export function SignupForm({ onLoginClick }: SignupFormProps) {
   return (
     <div className="w-full max-w-md mx-auto">
       <form onSubmit={handleSubmit} className="space-y-6">
+        <div>
+          <label htmlFor="signup-name" className="block text-sm font-medium text-text mb-2">
+            Full name
+          </label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <UserIcon className="h-5 w-5 text-text-secondary" />
+            </div>
+            <input
+              id="signup-name"
+              name="name"
+              type="text"
+              autoComplete="name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2 border border-surface rounded-lg bg-surface text-text placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              placeholder="John Doe"
+            />
+          </div>
+        </div>
+
         <div>
           <label htmlFor="signup-email" className="block text-sm font-medium text-text mb-2">
             Email address
@@ -99,6 +135,29 @@ export function SignupForm({ onLoginClick }: SignupFormProps) {
               onChange={(e) => setPassword(e.target.value)}
               className="block w-full pl-10 pr-3 py-2 border border-surface rounded-lg bg-surface text-text placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               placeholder="At least 6 characters"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="signup-confirm-password" className="block text-sm font-medium text-text mb-2">
+            Confirm password
+          </label>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <LockClosedIcon className="h-5 w-5 text-text-secondary" />
+            </div>
+            <input
+              id="signup-confirm-password"
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={6}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2 border border-surface rounded-lg bg-surface text-text placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              placeholder="Confirm your password"
             />
           </div>
         </div>
