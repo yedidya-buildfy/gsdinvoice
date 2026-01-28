@@ -76,6 +76,16 @@ OTHER RULES:
 - Extract VAT info from metadata if available (e.g., "VAT Rate: 17%")
 - Handle Hebrew and English correctly
 
+IMPORTANT: If this document is NOT an invoice, receipt, billing summary, or credit note (e.g., it's a photo, screenshot, random image, or unrelated document), return:
+{
+  "document": { "type": "not_invoice" },
+  "vendor": { "name": null },
+  "line_items": [],
+  "totals": { "total": null, "currency": "ILS" },
+  "confidence": 0
+}
+Do NOT attempt to extract data from non-financial documents.
+
 Return ONLY the JSON object, no other text.`
 
 // Supported MIME types
@@ -326,6 +336,11 @@ export async function extractInvoiceWithGemini(
   console.log('Gemini response JSON:', jsonText.substring(0, 500) + '...')
 
   const extracted = JSON.parse(jsonText) as InvoiceExtraction
+
+  // Check if the document was identified as not an invoice
+  if (extracted.document?.type === 'not_invoice') {
+    throw new Error('Document is not an invoice or receipt')
+  }
 
   console.log('Extracted data:', {
     vendor: extracted.vendor?.name,

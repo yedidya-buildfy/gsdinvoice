@@ -9,7 +9,7 @@
 export interface ExtractionRequest {
   fileId: string
   storagePath: string
-  fileType: string // pdf, png, jpg, jpeg
+  fileType: string // pdf, png, jpg, jpeg, csv, xlsx
 }
 
 /**
@@ -23,20 +23,68 @@ export interface ExtractionResult {
 }
 
 /**
- * Line item extracted from an invoice
+ * Vendor information extracted from document
  */
-export interface LineItem {
+export interface ExtractedVendor {
+  name: string | null
+  vat_id?: string | null
+  country?: string | null
+}
+
+/**
+ * Document metadata
+ */
+export interface ExtractedDocument {
+  type: 'billing_summary' | 'invoice' | 'receipt' | 'credit_note' | 'not_invoice'
+  number?: string | null
+  date?: string | null
+  billing_period?: {
+    start: string | null
+    end: string | null
+  } | null
+}
+
+/**
+ * Line item extracted from an invoice - each represents a matchable transaction
+ */
+export interface ExtractedLineItem {
+  date: string | null
   description: string | null
-  quantity: number | null
-  unit_price: number | null
+  reference_id?: string | null
+  amount: number | null
+  currency: string
+  vat_rate?: number | null
+  vat_amount?: number | null
+}
+
+/**
+ * Totals extracted from document
+ */
+export interface ExtractedTotals {
+  subtotal?: number | null
+  vat_rate?: number | null
+  vat_amount?: number | null
   total: number | null
+  currency: string
 }
 
 /**
  * Complete extracted invoice data structure
- * Matches the Gemini structured output schema
+ * Matches the new Gemini structured output schema
  */
 export interface InvoiceExtraction {
+  vendor: ExtractedVendor
+  document: ExtractedDocument
+  line_items: ExtractedLineItem[]
+  totals: ExtractedTotals
+  confidence: number
+}
+
+/**
+ * Legacy format for backwards compatibility
+ * TODO: Remove after migration
+ */
+export interface LegacyInvoiceExtraction {
   vendor_name: string | null
   invoice_number: string | null
   invoice_date: string | null
@@ -45,11 +93,16 @@ export interface InvoiceExtraction {
   total_amount: number | null
   currency: string
   confidence: number
-  line_items: LineItem[]
+  line_items: Array<{
+    description: string | null
+    quantity: number | null
+    unit_price: number | null
+    total: number | null
+  }>
 }
 
 /**
  * Document extraction status
  * Used for tracking extraction progress in UI
  */
-export type ExtractionStatus = 'pending' | 'processing' | 'extracted' | 'error'
+export type ExtractionStatus = 'pending' | 'processing' | 'processed' | 'failed' | 'not_invoice'
