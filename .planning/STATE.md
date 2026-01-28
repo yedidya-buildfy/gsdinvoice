@@ -115,7 +115,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None
+1. **Fix spreadsheet viewer RTL display issues** (ui) - Replace custom SpreadsheetPreview with proper viewer library for mixed Hebrew/English content
 
 ### Roadmap Evolution
 
