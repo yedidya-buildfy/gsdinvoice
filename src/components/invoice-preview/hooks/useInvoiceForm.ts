@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { agorotToShekel, shekelToAgorot } from '@/lib/utils/currency'
 import type { Invoice, InvoiceRow, InvoiceUpdate, InvoiceRowInsert, InvoiceRowUpdate } from '@/types/database'
 
@@ -15,9 +15,12 @@ export interface InvoiceFormData {
 export interface LineItemFormData {
   id: string
   description: string
-  quantity: number
-  unit_price: number
-  total: number
+  reference_id: string
+  transaction_date: string
+  amount: number
+  currency: string
+  vat_rate: number | null
+  vat_amount: number | null
   isNew?: boolean
 }
 
@@ -38,7 +41,7 @@ export interface UseInvoiceFormReturn {
   updateLineItem: (
     id: string,
     field: keyof LineItemFormData,
-    value: string | number
+    value: string | number | null
   ) => void
   removeLineItem: (id: string) => void
   isDirty: boolean
@@ -66,9 +69,12 @@ function invoiceRowToFormData(row: InvoiceRow): LineItemFormData {
   return {
     id: row.id,
     description: row.description ?? '',
-    quantity: row.quantity ?? 0,
-    unit_price: row.unit_price_agorot ? agorotToShekel(row.unit_price_agorot) : 0,
-    total: row.total_agorot ? agorotToShekel(row.total_agorot) : 0,
+    reference_id: row.reference_id ?? '',
+    transaction_date: row.transaction_date ?? '',
+    amount: row.total_agorot ? agorotToShekel(row.total_agorot) : 0,
+    currency: row.currency ?? 'ILS',
+    vat_rate: row.vat_rate,
+    vat_amount: row.vat_amount_agorot ? agorotToShekel(row.vat_amount_agorot) : null,
     isNew: false,
   }
 }
@@ -93,6 +99,14 @@ export function useInvoiceForm(
     useState<LineItemFormData[]>(initialLineItems)
   const [deletedRowIds, setDeletedRowIds] = useState<string[]>([])
 
+  // Sync line items when initial data arrives (e.g., from async query)
+  // Only sync if current state is empty and new data has items
+  useEffect(() => {
+    if (lineItems.length === 0 && initialLineItems.length > 0) {
+      setLineItems(initialLineItems)
+    }
+  }, [initialLineItems, lineItems.length])
+
   // Track dirty state by comparing with initial values
   const isDirty = useMemo(() => {
     const invoiceChanged =
@@ -114,31 +128,23 @@ export function useInvoiceForm(
     const newItem: LineItemFormData = {
       id: crypto.randomUUID(),
       description: '',
-      quantity: 1,
-      unit_price: 0,
-      total: 0,
+      reference_id: '',
+      transaction_date: '',
+      amount: 0,
+      currency: invoiceData.currency || 'ILS',
+      vat_rate: null,
+      vat_amount: null,
       isNew: true,
     }
     setLineItems((prev) => [...prev, newItem])
-  }, [])
+  }, [invoiceData.currency])
 
   const updateLineItem = useCallback(
-    (id: string, field: keyof LineItemFormData, value: string | number) => {
+    (id: string, field: keyof LineItemFormData, value: string | number | null) => {
       setLineItems((prev) =>
         prev.map((item) => {
           if (item.id !== id) return item
-
-          const updated = { ...item, [field]: value }
-
-          // Auto-calculate total when quantity or unit_price changes
-          if (field === 'quantity' || field === 'unit_price') {
-            const qty = field === 'quantity' ? (value as number) : item.quantity
-            const price =
-              field === 'unit_price' ? (value as number) : item.unit_price
-            updated.total = Number((qty * price).toFixed(2))
-          }
-
-          return updated
+          return { ...item, [field]: value }
         })
       )
     },
@@ -178,11 +184,12 @@ export function useInvoiceForm(
     const lineItemsForSave = lineItems.map((item) => {
       const baseData = {
         description: item.description || null,
-        quantity: item.quantity || null,
-        unit_price_agorot: item.unit_price
-          ? shekelToAgorot(item.unit_price)
-          : null,
-        total_agorot: item.total ? shekelToAgorot(item.total) : null,
+        reference_id: item.reference_id || null,
+        transaction_date: item.transaction_date || null,
+        total_agorot: item.amount ? shekelToAgorot(item.amount) : null,
+        currency: item.currency || 'ILS',
+        vat_rate: item.vat_rate,
+        vat_amount_agorot: item.vat_amount ? shekelToAgorot(item.vat_amount) : null,
       }
 
       if (item.isNew) {

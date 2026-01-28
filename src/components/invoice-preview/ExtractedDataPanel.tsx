@@ -200,7 +200,6 @@ export function ExtractedDataPanel({
             onAdd={addLineItem}
             onUpdate={updateLineItem}
             onRemove={removeLineItem}
-            currency={invoiceData.currency}
           />
         </div>
       </div>
