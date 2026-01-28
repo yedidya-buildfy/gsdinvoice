@@ -99,6 +99,20 @@ export function useInvoiceForm(
     useState<LineItemFormData[]>(initialLineItems)
   const [deletedRowIds, setDeletedRowIds] = useState<string[]>([])
 
+  // Sync invoice data when extraction completes (invoice.id changes from empty to real)
+  // This happens when user clicks Extract and the API returns with data
+  const [lastSyncedInvoiceId, setLastSyncedInvoiceId] = useState(invoice.id)
+
+  useEffect(() => {
+    // If invoice ID changed (e.g., from '' to a real ID after extraction), sync all data
+    if (invoice.id !== lastSyncedInvoiceId) {
+      setInvoiceData(initialInvoiceData)
+      setLineItems(initialLineItems)
+      setDeletedRowIds([])
+      setLastSyncedInvoiceId(invoice.id)
+    }
+  }, [invoice.id, lastSyncedInvoiceId, initialInvoiceData, initialLineItems])
+
   // Sync line items when initial data arrives (e.g., from async query)
   // Only sync if current state is empty and new data has items
   useEffect(() => {

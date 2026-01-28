@@ -2,6 +2,7 @@ import { ChevronUpIcon, ChevronDownIcon, CheckIcon, XMarkIcon } from '@heroicons
 import type { Transaction } from '@/types/database'
 import { formatShekel } from '@/lib/utils/currency'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
+import { parseDescriptionParts } from '@/lib/utils/merchantParser'
 
 interface TransactionTableProps {
   transactions: Transaction[]
@@ -57,6 +58,9 @@ const checkboxClass = 'checkbox-dark'
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-4 bg-surface rounded inline-block" />
+      </td>
       <td className="px-4 py-3 text-start">
         <div className="h-4 w-32 bg-surface rounded inline-block" />
       </td>
@@ -77,9 +81,6 @@ function SkeletonRow() {
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
     </tr>
   )
@@ -123,6 +124,9 @@ export function TransactionTable({
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
+              <th className="px-4 py-3 text-center w-12">
+                <input type="checkbox" disabled className={checkboxClass} />
+              </th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Description</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">Amount</th>
@@ -130,9 +134,6 @@ export function TransactionTable({
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Reference</th>
-              <th className="px-4 py-3 text-center w-12">
-                <input type="checkbox" disabled className={checkboxClass} />
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
@@ -154,6 +155,17 @@ export function TransactionTable({
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
+            <th className="px-4 py-3 text-center w-12">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected
+                }}
+                onChange={handleSelectAll}
+                className={checkboxClass}
+              />
+            </th>
             <SortHeader
               column="description"
               label="Description"
@@ -195,17 +207,6 @@ export function TransactionTable({
             <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
               Reference
             </th>
-            <th className="px-4 py-3 text-center w-12">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                ref={(el) => {
-                  if (el) el.indeterminate = someSelected
-                }}
-                onChange={handleSelectAll}
-                className={checkboxClass}
-              />
-            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -218,13 +219,28 @@ export function TransactionTable({
               ? calculateVatFromTotal(tx.amount_agorot, vatPercentage)
               : null
 
+            // Parse description into merchant name and reference
+            const { merchantName, reference } = parseDescriptionParts(tx.description)
+
             return (
               <tr
                 key={tx.id}
-                className={`hover:bg-surface/30 transition-colors ${isSelected ? 'bg-primary/10' : ''}`}
+                onClick={() => handleSelectOne(tx.id)}
+                className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
-                  {tx.description}
+                <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => handleSelectOne(tx.id)}
+                    className={checkboxClass}
+                  />
+                </td>
+                <td className="px-4 py-3 text-start text-sm" dir="auto">
+                  <span className="text-text font-medium">{merchantName}</span>
+                  {reference && (
+                    <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
                   {formatDate(tx.date)}
@@ -249,14 +265,6 @@ export function TransactionTable({
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted">
                   {tx.reference || '-'}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => handleSelectOne(tx.id)}
-                    className={checkboxClass}
-                  />
                 </td>
               </tr>
             )

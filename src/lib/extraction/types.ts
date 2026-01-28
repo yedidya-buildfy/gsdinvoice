@@ -106,3 +106,47 @@ export interface LegacyInvoiceExtraction {
  * Used for tracking extraction progress in UI
  */
 export type ExtractionStatus = 'pending' | 'processing' | 'processed' | 'failed' | 'not_invoice'
+
+/**
+ * Line item duplicate info returned when duplicates are detected
+ */
+export interface LineItemDuplicateInfo {
+  invoiceId: string
+  vendorName: string | null
+  totalItems: number
+  duplicateCount: number
+  matches: Array<{
+    newItem: {
+      reference_id: string | null
+      transaction_date: string | null
+      amount_agorot: number | null
+      description: string | null
+    }
+    existingItems: Array<{
+      id: string
+      invoice_id: string
+      reference_id: string | null
+      transaction_date: string | null
+      total_agorot: number | null
+      description: string | null
+    }>
+    matchType: 'exact_reference' | 'date_amount'
+  }>
+  pendingLineItems: Array<{
+    invoice_id: string
+    description: string | null
+    reference_id: string | null
+    transaction_date: string | null
+    total_agorot: number | null
+    currency: string
+    vat_rate: number | null
+    vat_amount_agorot: number | null
+  }>
+}
+
+/**
+ * Extended extraction result that may include line item duplicate info
+ */
+export interface ExtendedExtractionResult extends ExtractionResult {
+  lineItemDuplicates?: LineItemDuplicateInfo
+}

@@ -5,6 +5,7 @@ import {
   XCircleIcon,
 } from '@heroicons/react/24/outline'
 import { useFileUpload } from '@/hooks/useFileUpload'
+import { FileDuplicateModal } from '@/components/duplicates/FileDuplicateModal'
 
 interface FileUploaderProps {
   onUploadComplete?: () => void
@@ -27,6 +28,9 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     isUploading,
     addFiles,
     error,
+    duplicateResult,
+    handleDuplicateAction,
+    clearDuplicateResult,
   } = useFileUpload()
 
   const prevIsUploadingRef = useRef(isUploading)
@@ -188,6 +192,15 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
           </div>
         </div>
       )}
+
+      {/* Duplicate Detection Modal */}
+      <FileDuplicateModal
+        isOpen={!!duplicateResult}
+        onClose={clearDuplicateResult}
+        fileName={duplicateResult?.file.name ?? ''}
+        matches={duplicateResult?.matches ?? []}
+        onAction={handleDuplicateAction}
+      />
     </div>
   )
 }

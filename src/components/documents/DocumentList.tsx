@@ -4,33 +4,15 @@ import {
   ArrowPathIcon,
 } from '@heroicons/react/24/outline'
 import { useDocuments, getDocumentsWithUrls } from '@/hooks/useDocuments'
-import { DocumentCard } from './DocumentCard'
+import { DocumentTable, type DocumentWithInvoice } from './DocumentTable'
+import type { Invoice } from '@/types/database'
 
 interface DocumentListProps {
   sourceType?: string
-}
-
-function LoadingSkeleton() {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-      {[1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          className="bg-surface rounded-lg overflow-hidden animate-pulse"
-        >
-          {/* Thumbnail skeleton */}
-          <div className="w-full aspect-square bg-surface-alt" />
-          {/* Info skeleton */}
-          <div className="p-3 space-y-2">
-            <div className="h-4 bg-surface-alt rounded w-3/4" />
-            <div className="h-3 bg-surface-alt rounded w-1/2" />
-            <div className="h-3 bg-surface-alt rounded w-1/3" />
-            <div className="h-5 bg-surface-alt rounded w-1/4 mt-1" />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
+  selectedIds?: Set<string>
+  onSelectionChange?: (selectedIds: Set<string>) => void
+  onRowClick?: (document: DocumentWithInvoice) => void
+  invoices?: Invoice[]
 }
 
 function EmptyState() {
@@ -68,14 +50,20 @@ function ErrorState({ message, onRetry }: ErrorStateProps) {
   )
 }
 
-export function DocumentList({ sourceType }: DocumentListProps) {
+export function DocumentList({
+  sourceType,
+  selectedIds,
+  onSelectionChange,
+  onRowClick,
+  invoices = [],
+}: DocumentListProps) {
   const { data, isLoading, isError, error, refetch } = useDocuments({
     sourceType,
   })
 
   // Loading state
   if (isLoading) {
-    return <LoadingSkeleton />
+    return <DocumentTable documents={[]} isLoading />
   }
 
   // Error state
@@ -93,14 +81,27 @@ export function DocumentList({ sourceType }: DocumentListProps) {
     return <EmptyState />
   }
 
-  // Success state - render document grid
+  // Create a map of file_id -> invoice for quick lookup
+  const invoicesByFileId = new Map<string, Invoice>()
+  for (const invoice of invoices) {
+    if (invoice.file_id) {
+      invoicesByFileId.set(invoice.file_id, invoice)
+    }
+  }
+
+  // Merge documents with their invoices
   const documentsWithUrls = getDocumentsWithUrls(data)
+  const documentsWithInvoices: DocumentWithInvoice[] = documentsWithUrls.map((doc) => ({
+    ...doc,
+    invoice: invoicesByFileId.get(doc.id) ?? null,
+  }))
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-      {documentsWithUrls.map((doc) => (
-        <DocumentCard key={doc.id} document={doc} />
-      ))}
-    </div>
+    <DocumentTable
+      documents={documentsWithInvoices}
+      selectedIds={selectedIds}
+      onSelectionChange={onSelectionChange}
+      onRowClick={onRowClick}
+    />
   )
 }

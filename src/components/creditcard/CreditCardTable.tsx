@@ -2,6 +2,7 @@ import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, 
 import type { TransactionWithCard } from '@/hooks/useCreditCards'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
 import { formatShekel } from '@/lib/utils/currency'
+import { parseDescriptionParts } from '@/lib/utils/merchantParser'
 
 // Format amount without currency symbol
 function formatAmount(cents: number): string {
@@ -64,7 +65,10 @@ const checkboxClass = 'checkbox-dark'
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
-      {/* Columns: merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, checkbox */}
+      {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-4 bg-surface rounded inline-block" />
+      </td>
       <td className="px-4 py-3 text-start">
         <div className="h-4 w-32 bg-surface rounded inline-block" />
       </td>
@@ -91,9 +95,6 @@ function SkeletonRow() {
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
@@ -140,7 +141,10 @@ export function CreditCardTable({
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
-              {/* Columns: merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, checkbox */}
+              {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+              <th className="px-4 py-3 text-center w-12">
+                <input type="checkbox" disabled className={checkboxClass} />
+              </th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Merchant</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Amount</th>
@@ -151,9 +155,6 @@ export function CreditCardTable({
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Card</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Billing</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Status</th>
-              <th className="px-4 py-3 text-center w-12">
-                <input type="checkbox" disabled className={checkboxClass} />
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
@@ -175,7 +176,18 @@ export function CreditCardTable({
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
-            {/* Columns: merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, checkbox */}
+            {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+            <th className="px-4 py-3 text-center w-12">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected
+                }}
+                onChange={handleSelectAll}
+                className={checkboxClass}
+              />
+            </th>
             <SortHeader
               column="description"
               label="Merchant"
@@ -226,17 +238,6 @@ export function CreditCardTable({
             <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">
               Status
             </th>
-            <th className="px-4 py-3 text-center w-12">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                ref={(el) => {
-                  if (el) el.indeterminate = someSelected
-                }}
-                onChange={handleSelectAll}
-                className={checkboxClass}
-              />
-            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -264,14 +265,29 @@ export function CreditCardTable({
               ? calculateVatFromTotal(tx.amount_agorot, vatPercentage)
               : null
 
+            // Parse description into merchant name and reference
+            const { merchantName, reference } = parseDescriptionParts(tx.description)
+
             return (
               <tr
                 key={tx.id}
-                className={`hover:bg-surface/30 transition-colors ${isSelected ? 'bg-primary/10' : ''}`}
+                onClick={() => handleSelectOne(tx.id)}
+                className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                {/* Columns: merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, checkbox */}
-                <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
-                  {tx.description}
+                {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+                <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => handleSelectOne(tx.id)}
+                    className={checkboxClass}
+                  />
+                </td>
+                <td className="px-4 py-3 text-start text-sm" dir="auto">
+                  <span className="text-text font-medium">{merchantName}</span>
+                  {reference && (
+                    <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
                   {formatDate(tx.date)}
@@ -307,14 +323,6 @@ export function CreditCardTable({
                   ) : (
                     <ClockIcon className="w-5 h-5 text-text-muted/50 inline-block" />
                   )}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => handleSelectOne(tx.id)}
-                    className={checkboxClass}
-                  />
                 </td>
               </tr>
             )

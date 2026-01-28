@@ -1,7 +1,15 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { extractInvoiceWithGemini } from '@/lib/gemini/extractInvoice'
-import type { ExtractionRequest, ExtractionResult, InvoiceExtraction, ExtractedLineItem } from '@/lib/extraction/types'
+import { checkLineItemDuplicates } from '@/lib/duplicates'
+import type {
+  ExtractionRequest,
+  ExtendedExtractionResult,
+  InvoiceExtraction,
+  ExtractedLineItem,
+  LineItemDuplicateInfo
+} from '@/lib/extraction/types'
+import type { DuplicateAction } from '@/lib/duplicates/types'
 
 // Convert amounts to agorot (integer cents) for database storage
 function toAgorot(amount: number | null | undefined): number | null {
@@ -40,11 +48,24 @@ function ensureLineItems(
  * Hook for extracting data from a single document using client-side Gemini API
  *
  * Downloads file from storage, sends to Gemini for extraction, saves result to database.
+ * If line item duplicates are detected (for billing summaries with >1 item), returns
+ * duplicate info for UI to handle.
  */
 export function useExtractDocument() {
   const queryClient = useQueryClient()
 
-  return useMutation<ExtractionResult, Error, ExtractionRequest>({
+  return useMutation<ExtendedExtractionResult, Error, ExtractionRequest>({
+    onMutate: async ({ fileId }) => {
+      // Optimistically update the document status to 'processing' in the cache
+      await queryClient.cancelQueries({ queryKey: ['documents'] })
+
+      queryClient.setQueriesData<Array<{ id: string; status: string }>>(
+        { queryKey: ['documents'] },
+        (old) => old?.map((doc) =>
+          doc.id === fileId ? { ...doc, status: 'processing' } : doc
+        )
+      )
+    },
     mutationFn: async ({ fileId, storagePath, fileType }) => {
       // Update file status to processing
       await supabase
@@ -113,19 +134,64 @@ export function useExtractDocument() {
           extracted.vendor?.name || null
         )
 
-        // Insert line items into invoice_rows table
-        if (lineItems.length > 0) {
-          const rowsToInsert = lineItems.map((item) => ({
-            invoice_id: invoice.id,
-            description: item.description,
+        // Prepare line items for insertion
+        const rowsToInsert = lineItems.map((item) => ({
+          invoice_id: invoice.id,
+          description: item.description,
+          reference_id: item.reference_id || null,
+          transaction_date: item.date || null,
+          total_agorot: toAgorot(item.amount),
+          currency: item.currency || 'ILS',
+          vat_rate: item.vat_rate || null,
+          vat_amount_agorot: toAgorot(item.vat_amount),
+        }))
+
+        // Check for duplicates if we have multiple line items (billing summary scenario)
+        if (lineItems.length > 1) {
+          const lineItemsForCheck = lineItems.map((item) => ({
             reference_id: item.reference_id || null,
             transaction_date: item.date || null,
-            total_agorot: toAgorot(item.amount),
+            amount_agorot: toAgorot(item.amount),
             currency: item.currency || 'ILS',
-            vat_rate: item.vat_rate || null,
-            vat_amount_agorot: toAgorot(item.vat_amount),
+            description: item.description,
           }))
 
+          const duplicateCheck = await checkLineItemDuplicates(
+            fileRecord.user_id,
+            extracted.vendor?.name || null,
+            lineItemsForCheck
+          )
+
+          if (duplicateCheck.duplicateCount > 0) {
+            // Update file status to processed (extraction succeeded)
+            await supabase
+              .from('files')
+              .update({
+                status: 'processed',
+                extracted_data: JSON.parse(JSON.stringify(extracted)),
+                processed_at: new Date().toISOString(),
+              })
+              .eq('id', fileId)
+
+            // Return with duplicate info - let UI handle the modal
+            return {
+              success: true,
+              invoice_id: invoice.id,
+              confidence: extracted.confidence,
+              lineItemDuplicates: {
+                invoiceId: invoice.id,
+                vendorName: extracted.vendor?.name || null,
+                totalItems: duplicateCheck.totalItems,
+                duplicateCount: duplicateCheck.duplicateCount,
+                matches: duplicateCheck.matches,
+                pendingLineItems: rowsToInsert,
+              },
+            }
+          }
+        }
+
+        // No duplicates or single item - insert line items directly
+        if (rowsToInsert.length > 0) {
           const { error: rowsError } = await supabase
             .from('invoice_rows')
             .insert(rowsToInsert)
@@ -174,14 +240,126 @@ export function useExtractDocument() {
 }
 
 /**
+ * Handle line item duplicate action after user chooses
+ */
+export async function handleLineItemDuplicateAction(
+  action: DuplicateAction,
+  duplicateInfo: LineItemDuplicateInfo
+): Promise<void> {
+  const { pendingLineItems, matches } = duplicateInfo
+
+  switch (action) {
+    case 'skip': {
+      // Only insert non-duplicate items
+      const duplicateRefs = new Set(
+        matches.flatMap((m) =>
+          m.newItem.reference_id ? [m.newItem.reference_id] : []
+        )
+      )
+      const duplicateDates = new Set(
+        matches.flatMap((m) =>
+          m.newItem.transaction_date ? [m.newItem.transaction_date] : []
+        )
+      )
+
+      const newItems = pendingLineItems.filter((item) => {
+        // Skip if reference_id matches a duplicate
+        if (item.reference_id && duplicateRefs.has(item.reference_id)) {
+          return false
+        }
+        // Skip if date+amount matches a duplicate
+        if (item.transaction_date && duplicateDates.has(item.transaction_date)) {
+          // Check if amount also matches
+          const matchingDupe = matches.find(
+            (m) =>
+              m.newItem.transaction_date === item.transaction_date &&
+              m.newItem.amount_agorot === item.total_agorot
+          )
+          if (matchingDupe) return false
+        }
+        return true
+      })
+
+      if (newItems.length > 0) {
+        const { error } = await supabase.from('invoice_rows').insert(newItems)
+        if (error) {
+          console.error('Failed to insert new line items:', error)
+        } else {
+          console.log(`Inserted ${newItems.length} new line items (skipped ${matches.length} duplicates)`)
+        }
+      }
+      break
+    }
+
+    case 'replace': {
+      // Delete existing duplicate items, then insert all new ones
+      const existingIds = matches.flatMap((m) => m.existingItems.map((e) => e.id))
+
+      if (existingIds.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('invoice_rows')
+          .delete()
+          .in('id', existingIds)
+
+        if (deleteError) {
+          console.error('Failed to delete existing line items:', deleteError)
+        }
+      }
+
+      // Insert all pending line items
+      const { error: insertError } = await supabase
+        .from('invoice_rows')
+        .insert(pendingLineItems)
+
+      if (insertError) {
+        console.error('Failed to insert line items:', insertError)
+      } else {
+        console.log(`Replaced ${existingIds.length} items, inserted ${pendingLineItems.length} line items`)
+      }
+      break
+    }
+
+    case 'keep_both': {
+      // Insert all pending items regardless of duplicates
+      const { error } = await supabase
+        .from('invoice_rows')
+        .insert(pendingLineItems)
+
+      if (error) {
+        console.error('Failed to insert line items:', error)
+      } else {
+        console.log(`Inserted ${pendingLineItems.length} line items (keeping duplicates)`)
+      }
+      break
+    }
+  }
+}
+
+/**
  * Hook for extracting data from multiple documents with optimized batching
+ * Returns array of LineItemDuplicateInfo for documents that have duplicates
  */
 export function useExtractMultipleDocuments() {
   const queryClient = useQueryClient()
 
-  return useMutation<void, Error, ExtractionRequest[]>({
-    mutationFn: async (documents) => {
+  return useMutation<LineItemDuplicateInfo[], Error, ExtractionRequest[]>({
+    onMutate: async (documents) => {
       if (documents.length === 0) return
+
+      const fileIds = new Set(documents.map((d) => d.fileId))
+
+      // Optimistically update all document statuses to 'processing' in the cache
+      await queryClient.cancelQueries({ queryKey: ['documents'] })
+
+      queryClient.setQueriesData<Array<{ id: string; status: string }>>(
+        { queryKey: ['documents'] },
+        (old) => old?.map((doc) =>
+          fileIds.has(doc.id) ? { ...doc, status: 'processing' } : doc
+        )
+      )
+    },
+    mutationFn: async (documents): Promise<LineItemDuplicateInfo[]> => {
+      if (documents.length === 0) return []
 
       const fileIds = documents.map((d) => d.fileId)
 
@@ -251,6 +429,9 @@ export function useExtractMultipleDocuments() {
         }
       }
 
+      // Collect duplicate infos for UI handling
+      const duplicateInfos: LineItemDuplicateInfo[] = []
+
       // Batch insert all successful invoices and their line items
       const successfulResults = results.filter((r) => r.success && r.extracted)
       if (successfulResults.length > 0) {
@@ -279,15 +460,18 @@ export function useExtractMultipleDocuments() {
           console.error('Batch invoice insert failed:', invoiceError)
         }
 
-        // Insert line items for each invoice
+        // Insert line items for each invoice, checking for duplicates
         if (insertedInvoices && insertedInvoices.length > 0) {
           const invoiceIdByFileId = new Map(
             insertedInvoices.map((inv) => [inv.file_id, inv.id])
           )
 
-          const allRowsToInsert = successfulResults.flatMap((r) => {
+          for (const r of successfulResults) {
             const invoiceId = invoiceIdByFileId.get(r.fileId)
-            if (!invoiceId) return []
+            if (!invoiceId) continue
+
+            const userId = userIdByFileId.get(r.fileId)
+            if (!userId) continue
 
             // Ensure at least one line item
             const lineItems = ensureLineItems(
@@ -296,7 +480,7 @@ export function useExtractMultipleDocuments() {
               r.extracted!.vendor?.name || null
             )
 
-            return lineItems.map((item) => ({
+            const rowsToInsert = lineItems.map((item) => ({
               invoice_id: invoiceId,
               description: item.description,
               reference_id: item.reference_id || null,
@@ -306,17 +490,47 @@ export function useExtractMultipleDocuments() {
               vat_rate: item.vat_rate || null,
               vat_amount_agorot: toAgorot(item.vat_amount),
             }))
-          })
 
-          if (allRowsToInsert.length > 0) {
-            const { error: rowsError } = await supabase
-              .from('invoice_rows')
-              .insert(allRowsToInsert)
+            // Check for duplicates if we have multiple line items
+            if (lineItems.length > 1) {
+              const lineItemsForCheck = lineItems.map((item) => ({
+                reference_id: item.reference_id || null,
+                transaction_date: item.date || null,
+                amount_agorot: toAgorot(item.amount),
+                currency: item.currency || 'ILS',
+                description: item.description,
+              }))
 
-            if (rowsError) {
-              console.error('Batch line items insert failed:', rowsError)
-            } else {
-              console.log(`Inserted ${allRowsToInsert.length} line items total`)
+              const duplicateCheck = await checkLineItemDuplicates(
+                userId,
+                r.extracted!.vendor?.name || null,
+                lineItemsForCheck
+              )
+
+              if (duplicateCheck.duplicateCount > 0) {
+                // Store duplicate info for UI to handle
+                duplicateInfos.push({
+                  invoiceId,
+                  vendorName: r.extracted!.vendor?.name || null,
+                  totalItems: duplicateCheck.totalItems,
+                  duplicateCount: duplicateCheck.duplicateCount,
+                  matches: duplicateCheck.matches,
+                  pendingLineItems: rowsToInsert,
+                })
+                // Don't insert - let UI handle it
+                continue
+              }
+            }
+
+            // No duplicates - insert directly
+            if (rowsToInsert.length > 0) {
+              const { error: rowsError } = await supabase
+                .from('invoice_rows')
+                .insert(rowsToInsert)
+
+              if (rowsError) {
+                console.error('Line items insert failed:', rowsError)
+              }
             }
           }
         }
@@ -357,6 +571,8 @@ export function useExtractMultipleDocuments() {
           )
         )
       }
+
+      return duplicateInfos
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })

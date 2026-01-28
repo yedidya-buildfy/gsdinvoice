@@ -12,7 +12,7 @@ interface DocumentCardProps {
   document: DocumentWithUrl
 }
 
-type DocumentStatus = 'pending' | 'processing' | 'extracted' | 'error'
+type DocumentStatus = 'pending' | 'processing' | 'processed' | 'failed'
 
 const statusConfig: Record<
   DocumentStatus,
@@ -28,15 +28,15 @@ const statusConfig: Record<
     color: 'text-blue-500 bg-blue-500/20',
     label: 'Processing',
   },
-  extracted: {
+  processed: {
     icon: CheckCircleIcon,
     color: 'text-green-500 bg-green-500/20',
-    label: 'Extracted',
+    label: 'Processed',
   },
-  error: {
+  failed: {
     icon: ExclamationCircleIcon,
     color: 'text-red-500 bg-red-500/20',
-    label: 'Error',
+    label: 'Failed',
   },
 }
 

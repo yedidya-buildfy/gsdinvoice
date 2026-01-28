@@ -128,7 +128,11 @@ Plans:
   3. Each extraction includes a confidence score (0-100%)
   4. Hebrew text in invoices is correctly extracted
   5. Extracted data stored with link to original document
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 07-01-PLAN.md - Edge Function for Gemini API extraction
+- [ ] 07-02-PLAN.md - Client extraction hooks and invoice query
+- [ ] 07-03-PLAN.md - UI integration with Extract button and status display
 
 ### Phase 8: Extraction Review
 **Goal**: Users can review and correct AI extractions with configurable auto-approval
@@ -216,7 +220,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> ... -> 12
 | 4. Document Upload | 2/2 | Complete | 2026-01-27 |
 | 5. Bank Statement Import | 3/3 | Complete | 2026-01-27 |
 | 6. Credit Card Import & Linking | 3/3 | Complete | 2026-01-27 |
-| 7. AI Document Extraction | 0/TBD | Not started | - |
+| 7. AI Document Extraction | 0/3 | Not started | - |
 | 8. Extraction Review | 0/TBD | Not started | - |
 | 9. Basic Matching | 0/TBD | Not started | - |
 | 10. Advanced Matching | 0/TBD | Not started | - |

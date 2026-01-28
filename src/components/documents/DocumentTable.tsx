@@ -2,24 +2,32 @@ import {
   DocumentTextIcon,
   TableCellsIcon,
   DocumentIcon,
+  PhotoIcon,
 } from '@heroicons/react/24/outline'
 import type { DocumentWithUrl } from '@/hooks/useDocuments'
-import { formatFileSize } from '@/lib/storage'
+import type { Invoice } from '@/types/database'
+import { formatCurrency } from '@/lib/utils/currency'
 import { ExtractionStatus } from './ExtractionStatus'
 import type { ExtractionStatus as ExtractionStatusType } from '@/lib/extraction/types'
+import { isImageType } from '@/lib/storage'
+
+export type DocumentWithInvoice = DocumentWithUrl & {
+  invoice?: Invoice | null
+}
 
 interface DocumentTableProps {
-  documents: DocumentWithUrl[]
+  documents: DocumentWithInvoice[]
   isLoading?: boolean
   selectedIds?: Set<string>
   onSelectionChange?: (selectedIds: Set<string>) => void
+  onRowClick?: (document: DocumentWithInvoice) => void
 }
 
 // Checkbox styling: dark background with green border (uses custom CSS class)
 const checkboxClass = 'checkbox-dark'
 
-// Valid extraction statuses
-const validStatuses: ExtractionStatusType[] = ['pending', 'processing', 'extracted', 'error']
+// Valid extraction statuses (must match database constraint: pending, processing, processed, failed)
+const validStatuses: ExtractionStatusType[] = ['pending', 'processing', 'processed', 'failed']
 
 function getExtractionStatus(status: string | null | undefined): ExtractionStatusType {
   if (status && validStatuses.includes(status as ExtractionStatusType)) {
@@ -31,28 +39,38 @@ function getExtractionStatus(status: string | null | undefined): ExtractionStatu
 function FileTypeIcon({ fileType }: { fileType: string }) {
   const iconClass = 'h-5 w-5'
 
-  switch (fileType) {
-    case 'pdf':
-      return <DocumentTextIcon className={`${iconClass} text-red-400`} />
-    case 'xlsx':
-      return <TableCellsIcon className={`${iconClass} text-green-400`} />
-    case 'csv':
-      return <TableCellsIcon className={`${iconClass} text-blue-400`} />
-    case 'image':
-      return <DocumentIcon className={`${iconClass} text-purple-400`} />
-    default:
-      return <DocumentIcon className={`${iconClass} text-text-muted`} />
+  if (fileType === 'pdf') {
+    return <DocumentTextIcon className={`${iconClass} text-red-400`} />
   }
+  if (fileType === 'xlsx') {
+    return <TableCellsIcon className={`${iconClass} text-green-400`} />
+  }
+  if (fileType === 'csv') {
+    return <TableCellsIcon className={`${iconClass} text-blue-400`} />
+  }
+  if (isImageType(fileType)) {
+    return <PhotoIcon className={`${iconClass} text-purple-400`} />
+  }
+  return <DocumentIcon className={`${iconClass} text-text-muted`} />
 }
 
-function formatDate(dateString: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(dateString))
+function ConfidenceBadge({ score }: { score: number | null }) {
+  if (score === null) return <span className="text-text-muted">-</span>
+
+  let colorClass: string
+  if (score >= 80) {
+    colorClass = 'bg-green-500/20 text-green-400'
+  } else if (score >= 50) {
+    colorClass = 'bg-yellow-500/20 text-yellow-400'
+  } else {
+    colorClass = 'bg-red-500/20 text-red-400'
+  }
+
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
+      {score}%
+    </span>
+  )
 }
 
 function SkeletonRow() {
@@ -67,11 +85,17 @@ function SkeletonRow() {
       <td className="px-4 py-3 text-start">
         <div className="h-4 w-48 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
+      <td className="px-4 py-3 text-end">
+        <div className="h-4 w-24 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
-        <div className="h-4 w-32 bg-surface rounded inline-block" />
+        <div className="h-4 w-20 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-20 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-12 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-5 w-16 bg-surface rounded inline-block" />
@@ -85,6 +109,7 @@ export function DocumentTable({
   isLoading,
   selectedIds = new Set(),
   onSelectionChange,
+  onRowClick,
 }: DocumentTableProps) {
   const allSelected = documents.length > 0 && selectedIds.size === documents.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < documents.length
@@ -118,11 +143,13 @@ export function DocumentTable({
               <th className="px-4 py-3 text-center w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Type</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-12">Type</th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Name</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Size</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-40">Uploaded</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-36">AI Status</th>
+              <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Vendor</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Total</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Confidence</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">AI Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
@@ -155,23 +182,27 @@ export function DocumentTable({
                 className={checkboxClass}
               />
             </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Type</th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-12">Type</th>
             <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Name</th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Size</th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-40">Uploaded</th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-36">AI Status</th>
+            <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Vendor</th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Total</th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT</th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Confidence</th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">AI Status</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
           {documents.map((doc) => {
             const isSelected = selectedIds.has(doc.id)
+            const invoice = doc.invoice
 
             return (
               <tr
                 key={doc.id}
-                className={`hover:bg-surface/30 transition-colors ${isSelected ? 'bg-primary/10' : ''}`}
+                onClick={() => onRowClick?.(doc)}
+                className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                <td className="px-4 py-3 text-center">
+                <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -186,7 +217,7 @@ export function DocumentTable({
                 </td>
                 <td className="px-4 py-3 text-start">
                   <div className="flex items-center gap-3">
-                    {doc.file_type === 'image' && (
+                    {isImageType(doc.file_type || '') && (
                       <img
                         src={doc.url}
                         alt={doc.original_name || 'Document'}
@@ -199,11 +230,17 @@ export function DocumentTable({
                     </span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted">
-                  {doc.file_size ? formatFileSize(doc.file_size) : '-'}
+                <td className="px-4 py-3 text-end text-sm text-text" dir="auto">
+                  {invoice?.vendor_name || '-'}
+                </td>
+                <td className="px-4 py-3 text-center text-sm font-medium text-text">
+                  {invoice?.total_amount_agorot ? formatCurrency(invoice.total_amount_agorot, invoice.currency || 'ILS') : '-'}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted">
-                  {doc.created_at ? formatDate(doc.created_at) : '-'}
+                  {invoice?.vat_amount_agorot ? formatCurrency(invoice.vat_amount_agorot, invoice.currency || 'ILS') : '-'}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <ConfidenceBadge score={invoice?.confidence_score ?? null} />
                 </td>
                 <td className="px-4 py-3 text-center">
                   <ExtractionStatus

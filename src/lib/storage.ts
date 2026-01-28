@@ -2,7 +2,13 @@ import { supabase } from '@/lib/supabase'
 
 export const BUCKET_NAME = 'documents'
 
-export type FileType = 'pdf' | 'image' | 'xlsx' | 'csv' | 'unknown'
+export type FileType = 'pdf' | 'png' | 'jpg' | 'jpeg' | 'webp' | 'xlsx' | 'csv' | 'unknown'
+
+// Image types for display logic
+const IMAGE_TYPES = ['png', 'jpg', 'jpeg', 'webp'] as const
+export function isImageType(fileType: string): boolean {
+  return IMAGE_TYPES.includes(fileType.toLowerCase() as typeof IMAGE_TYPES[number])
+}
 
 const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'xlsx', 'csv']
 const ALLOWED_MIME_TYPES = [
@@ -15,6 +21,7 @@ const ALLOWED_MIME_TYPES = [
 
 /**
  * Determine the file type based on MIME type and extension
+ * Returns specific format (e.g., 'png', 'jpg') for AI extraction compatibility
  */
 export function getFileType(file: File): FileType {
   const extension = file.name.split('.').pop()?.toLowerCase()
@@ -22,13 +29,17 @@ export function getFileType(file: File): FileType {
 
   // Check by MIME type first
   if (mimeType === 'application/pdf') return 'pdf'
-  if (mimeType.startsWith('image/')) return 'image'
+  if (mimeType === 'image/png') return 'png'
+  if (mimeType === 'image/jpeg') return 'jpg'
+  if (mimeType === 'image/webp') return 'webp'
   if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'xlsx'
   if (mimeType === 'text/csv') return 'csv'
 
   // Fallback to extension check
   if (extension === 'pdf') return 'pdf'
-  if (['jpg', 'jpeg', 'png'].includes(extension || '')) return 'image'
+  if (extension === 'png') return 'png'
+  if (extension === 'jpg' || extension === 'jpeg') return 'jpg'
+  if (extension === 'webp') return 'webp'
   if (extension === 'xlsx') return 'xlsx'
   if (extension === 'csv') return 'csv'
 

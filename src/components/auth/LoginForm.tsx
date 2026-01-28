@@ -38,7 +38,7 @@ export function LoginForm({ onSignupClick }: LoginFormProps) {
             Email address
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <div className="absolute inset-y-0 start-0 ps-3 flex items-center pointer-events-none">
               <EnvelopeIcon className="h-5 w-5 text-text-secondary" />
             </div>
             <input
@@ -49,7 +49,7 @@ export function LoginForm({ onSignupClick }: LoginFormProps) {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="block w-full pl-10 pr-3 py-2 border border-surface rounded-lg bg-surface text-text placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="block w-full ps-10 pe-3 py-2 border border-surface rounded-lg bg-surface text-text placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               placeholder="you@example.com"
             />
           </div>
@@ -60,7 +60,7 @@ export function LoginForm({ onSignupClick }: LoginFormProps) {
             Password
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <div className="absolute inset-y-0 start-0 ps-3 flex items-center pointer-events-none">
               <LockClosedIcon className="h-5 w-5 text-text-secondary" />
             </div>
             <input
@@ -71,7 +71,7 @@ export function LoginForm({ onSignupClick }: LoginFormProps) {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="block w-full pl-10 pr-3 py-2 border border-surface rounded-lg bg-surface text-text placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="block w-full ps-10 pe-3 py-2 border border-surface rounded-lg bg-surface text-text placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               placeholder="Enter your password"
             />
           </div>

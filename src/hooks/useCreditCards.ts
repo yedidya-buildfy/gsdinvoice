@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import type { CreditCard, Transaction } from '@/types/database'
@@ -48,6 +48,43 @@ export function useCreditCards(): UseCreditCardsReturn {
     error: error as Error | null,
     refetch,
   }
+}
+
+/**
+ * Hook for deleting a credit card and unlinking its transactions
+ */
+export function useDeleteCreditCard() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (cardId: string) => {
+      // First, unlink all transactions from this card
+      const { error: unlinkError } = await supabase
+        .from('transactions')
+        .update({ linked_credit_card_id: null })
+        .eq('linked_credit_card_id', cardId)
+
+      if (unlinkError) {
+        throw new Error(`Failed to unlink transactions: ${unlinkError.message}`)
+      }
+
+      // Then delete the credit card
+      const { error: deleteError } = await supabase
+        .from('credit_cards')
+        .delete()
+        .eq('id', cardId)
+
+      if (deleteError) {
+        throw new Error(`Failed to delete card: ${deleteError.message}`)
+      }
+
+      return { success: true }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credit_cards'] })
+      queryClient.invalidateQueries({ queryKey: ['credit_card_transactions'] })
+    },
+  })
 }
 
 interface UseCreditCardTransactionsReturn {

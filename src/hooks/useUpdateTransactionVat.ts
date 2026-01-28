@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
-import { normalizeMerchantName, getMerchantBaseKey } from '@/lib/utils/merchantParser'
+import { normalizeMerchantName, isSameMerchant } from '@/lib/utils/merchantParser'
 
 interface VatUpdateData {
   hasVat: boolean
@@ -45,8 +45,72 @@ export function useUpdateTransactionVat() {
   }
 
   /**
+   * Update VAT for multiple transactions at once (batch)
+   * Optimized to avoid N+1 queries
+   */
+  const updateBatch = async (
+    transactions: Array<{ id: string; amount_agorot: number }>,
+    { hasVat, vatPercentage }: VatUpdateData
+  ) => {
+    if (transactions.length === 0) return { success: true, count: 0 }
+
+    setIsUpdating(true)
+    try {
+      const ids = transactions.map((tx) => tx.id)
+
+      // If no VAT, single bulk update
+      if (!hasVat) {
+        const { error } = await supabase
+          .from('transactions')
+          .update({
+            has_vat: false,
+            vat_percentage: vatPercentage,
+            vat_amount_agorot: null,
+          })
+          .in('id', ids)
+
+        if (error) throw error
+        return { success: true, count: transactions.length }
+      }
+
+      // With VAT, each row needs calculated vat_amount_agorot
+      // Group by computed VAT amount to batch where possible
+      const byVatAmount = new Map<number, string[]>()
+
+      for (const tx of transactions) {
+        const vatAmountAgorot = calculateVatFromTotal(tx.amount_agorot, vatPercentage)
+        const existing = byVatAmount.get(vatAmountAgorot) || []
+        existing.push(tx.id)
+        byVatAmount.set(vatAmountAgorot, existing)
+      }
+
+      // Batch update all transactions with the same VAT amount together
+      await Promise.all(
+        Array.from(byVatAmount.entries()).map(([vatAmountAgorot, ids]) =>
+          supabase
+            .from('transactions')
+            .update({
+              has_vat: true,
+              vat_percentage: vatPercentage,
+              vat_amount_agorot: vatAmountAgorot,
+            })
+            .in('id', ids)
+        )
+      )
+
+      return { success: true, count: transactions.length }
+    } catch (error) {
+      console.error('[useUpdateTransactionVat] updateBatch error:', error)
+      return { success: false, error }
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  /**
    * Update VAT for all transactions matching a merchant name pattern
-   * Uses smart merchant matching to group similar merchants (e.g., FACEBK *ABC123 and FACEBK *XYZ789)
+   * Uses smart merchant matching with fuzzy matching and first-word matching
+   * (e.g., FACEBK *ABC123 and FACEBK *XYZ789, Upwork -REF123 and Upwork -REF456)
    */
   const updateAllByMerchant = async (
     userId: string,
@@ -55,13 +119,10 @@ export function useUpdateTransactionVat() {
   ) => {
     setIsUpdating(true)
     try {
-      // Get the base key for the merchant we're looking for
-      const targetKey = getMerchantBaseKey(merchantName)
-
       // Fetch all transactions for this user (we'll filter in JS for smart matching)
       const { data: allTransactions, error: fetchError } = await supabase
         .from('transactions')
-        .select('id, amount_agorot, description, is_income')
+        .select('id, amount_agorot, description, is_income, linked_credit_card_id')
         .eq('user_id', userId)
 
       if (fetchError) throw fetchError
@@ -70,34 +131,61 @@ export function useUpdateTransactionVat() {
         return { success: true, count: 0 }
       }
 
-      // Filter transactions that match the merchant (excluding income)
+      // Filter transactions that match the merchant using fuzzy matching
+      // For bank transactions: exclude income (income doesn't need VAT)
+      // For credit card transactions: include all (CC expenses may have is_income wrongly set)
       const matchingTransactions = allTransactions.filter((tx) => {
-        if (tx.is_income) return false
-        const txKey = getMerchantBaseKey(tx.description)
-        return txKey === targetKey
+        const isCreditCard = tx.linked_credit_card_id !== null
+        // Skip bank income transactions (not CC transactions)
+        if (!isCreditCard && tx.is_income) return false
+        return isSameMerchant(tx.description, merchantName)
       })
 
       if (matchingTransactions.length === 0) {
         return { success: true, count: 0 }
       }
 
-      // Update each matching transaction with calculated VAT
-      for (const tx of matchingTransactions) {
-        const vatAmountAgorot = hasVat
-          ? calculateVatFromTotal(tx.amount_agorot, vatPercentage)
-          : null
+      const matchingIds = matchingTransactions.map((tx) => tx.id)
 
+      // If no VAT, we can do a single bulk update (no per-row calculation needed)
+      if (!hasVat) {
         const { error } = await supabase
           .from('transactions')
           .update({
-            has_vat: hasVat,
+            has_vat: false,
             vat_percentage: vatPercentage,
-            vat_amount_agorot: vatAmountAgorot,
+            vat_amount_agorot: null,
           })
-          .eq('id', tx.id)
+          .in('id', matchingIds)
 
         if (error) throw error
+        return { success: true, count: matchingTransactions.length }
       }
+
+      // With VAT, each row needs calculated vat_amount_agorot
+      // Group by computed VAT amount to batch where possible
+      const byVatAmount = new Map<number, string[]>()
+
+      for (const tx of matchingTransactions) {
+        const vatAmountAgorot = calculateVatFromTotal(tx.amount_agorot, vatPercentage)
+        const existing = byVatAmount.get(vatAmountAgorot) || []
+        existing.push(tx.id)
+        byVatAmount.set(vatAmountAgorot, existing)
+      }
+
+      // Batch update all transactions with the same VAT amount together
+      await Promise.all(
+        Array.from(byVatAmount.entries()).map(([vatAmountAgorot, ids]) =>
+          supabase
+            .from('transactions')
+            .update({
+              has_vat: true,
+              vat_percentage: vatPercentage,
+              vat_amount_agorot: vatAmountAgorot,
+            })
+            .in('id', ids)
+        )
+      )
 
       return { success: true, count: matchingTransactions.length }
     } catch (error) {
@@ -146,6 +234,43 @@ export function useUpdateTransactionVat() {
   }
 
   /**
+   * Save multiple merchant VAT preferences in a single batch operation
+   */
+  const saveMerchantPreferencesBatch = async (
+    userId: string,
+    merchantNames: string[],
+    { hasVat, vatPercentage }: VatUpdateData
+  ) => {
+    if (merchantNames.length === 0) return { success: true }
+
+    setIsUpdating(true)
+    try {
+      const now = new Date().toISOString()
+      const records = merchantNames.map((name) => ({
+        user_id: userId,
+        merchant_name: normalizeMerchantName(name),
+        has_vat: hasVat,
+        vat_percentage: vatPercentage,
+        updated_at: now,
+      }))
+
+      const { error } = await supabase
+        .from('merchant_vat_preferences')
+        .upsert(records, {
+          onConflict: 'user_id,merchant_name',
+        })
+
+      if (error) throw error
+      return { success: true }
+    } catch (error) {
+      console.error('[useUpdateTransactionVat] saveMerchantPreferencesBatch error:', error)
+      return { success: false, error }
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  /**
    * Get merchant VAT preference if it exists
    */
   const getMerchantPreference = async (userId: string, merchantName: string) => {
@@ -174,8 +299,10 @@ export function useUpdateTransactionVat() {
   return {
     isUpdating,
     updateSingle,
+    updateBatch,
     updateAllByMerchant,
     saveMerchantPreference,
+    saveMerchantPreferencesBatch,
     getMerchantPreference,
   }
 }

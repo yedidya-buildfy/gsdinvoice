@@ -14,7 +14,7 @@ import type { Transaction } from '@/types/database'
 export function BankMovementsPage() {
   const { user } = useAuth()
   const { transactions, isLoading, refetch } = useTransactions()
-  const { isUpdating, updateSingle, updateAllByMerchant, saveMerchantPreference } = useUpdateTransactionVat()
+  const { isUpdating, updateBatch, updateAllByMerchant, saveMerchantPreferencesBatch } = useUpdateTransactionVat()
 
   const [filters, setFilters] = useState<TransactionFilterState>({
     search: '',
@@ -126,9 +126,10 @@ export function BankMovementsPage() {
   }
 
   const handleApplyToSelected = async (hasVat: boolean, vatPercentage: number) => {
-    for (const tx of selectedTransactions) {
-      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
-    }
+    await updateBatch(
+      selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot })),
+      { hasVat, vatPercentage }
+    )
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()
@@ -137,9 +138,14 @@ export function BankMovementsPage() {
   const handleApplyToAllPast = async (hasVat: boolean, vatPercentage: number) => {
     if (!user) return
     const uniqueMerchants = [...new Set(selectedMerchantNames)]
-    for (const merchantName of uniqueMerchants) {
-      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
-    }
+
+    // Update all merchants in parallel
+    await Promise.all(
+      uniqueMerchants.map((merchantName) =>
+        updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+      )
+    )
+
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()
@@ -148,14 +154,17 @@ export function BankMovementsPage() {
   const handleApplyToAllMerchant = async (hasVat: boolean, vatPercentage: number) => {
     if (!user) return
     const uniqueMerchants = [...new Set(selectedMerchantNames)]
-    // Update all past transactions
-    for (const merchantName of uniqueMerchants) {
-      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
-    }
-    // Save preferences for future
-    for (const merchantName of uniqueMerchants) {
-      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
-    }
+
+    // Update all past transactions in parallel
+    await Promise.all(
+      uniqueMerchants.map((merchantName) =>
+        updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+      )
+    )
+
+    // Save preferences for future (single batch operation)
+    await saveMerchantPreferencesBatch(user.id, uniqueMerchants, { hasVat, vatPercentage })
+
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()
@@ -164,14 +173,16 @@ export function BankMovementsPage() {
   const handleApplyToFuture = async (hasVat: boolean, vatPercentage: number) => {
     if (!user) return
     const uniqueMerchants = [...new Set(selectedMerchantNames)]
-    // Save preferences for all merchants
-    for (const merchantName of uniqueMerchants) {
-      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
-    }
-    // Also update selected transactions
-    for (const tx of selectedTransactions) {
-      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
-    }
+
+    // Save preferences for all merchants (single batch operation) and update selected transactions in parallel
+    await Promise.all([
+      saveMerchantPreferencesBatch(user.id, uniqueMerchants, { hasVat, vatPercentage }),
+      updateBatch(
+        selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot })),
+        { hasVat, vatPercentage }
+      ),
+    ])
+
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()

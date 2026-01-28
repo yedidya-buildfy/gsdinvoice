@@ -3,6 +3,7 @@ import {
   TableCellsIcon,
   DocumentIcon,
 } from '@heroicons/react/24/outline'
+import { isImageType } from '@/lib/storage'
 
 interface DocumentThumbnailProps {
   url: string
@@ -16,7 +17,7 @@ export function DocumentThumbnail({
   fileName,
 }: DocumentThumbnailProps) {
   // Image files show actual thumbnail
-  if (fileType === 'image') {
+  if (isImageType(fileType)) {
     return (
       <div className="w-full aspect-square bg-surface-alt rounded-t-lg overflow-hidden">
         <img

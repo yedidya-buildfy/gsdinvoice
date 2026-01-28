@@ -62,13 +62,15 @@ function detectColumnMapping(headers: string[]): Record<string, string> {
 
   headers.forEach((header) => {
     const normalized = normalizeHeader(header);
+    // Store trimmed header to match xlsxToObjects keys
+    const trimmedHeader = header.trim();
 
     // Check each pattern type
     for (const [field, patterns] of Object.entries(COLUMN_PATTERNS)) {
       for (const pattern of patterns) {
         const normalizedPattern = normalizeHeader(pattern);
         if (normalized.includes(normalizedPattern)) {
-          mapping[field] = header;
+          mapping[field] = trimmedHeader;
           break;
         }
       }

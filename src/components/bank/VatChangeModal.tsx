@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   ClockIcon,
   DocumentDuplicateIcon,
@@ -27,9 +27,10 @@ interface ActionButtonProps {
   description: string
   onClick: () => void
   disabled?: boolean
+  selected?: boolean
 }
 
-function ActionButton({ icon: Icon, label, description, onClick, disabled }: ActionButtonProps) {
+function ActionButton({ icon: Icon, label, description, onClick, disabled, selected }: ActionButtonProps) {
   return (
     <button
       type="button"
@@ -37,13 +38,15 @@ function ActionButton({ icon: Icon, label, description, onClick, disabled }: Act
       disabled={disabled}
       className={cx(
         'flex items-start gap-3 w-full p-3 rounded-lg text-start transition-colors',
-        'bg-background/50 hover:bg-background border border-text-muted/20',
+        selected
+          ? 'bg-primary/20 border-2 border-primary ring-2 ring-primary/20'
+          : 'bg-background/50 hover:bg-background border border-text-muted/20',
         'disabled:opacity-50 disabled:cursor-not-allowed'
       )}
     >
-      <Icon className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+      <Icon className="w-5 h-5 mt-0.5 shrink-0 text-primary" />
       <div>
-        <div className="text-sm font-medium text-text">{label}</div>
+        <div className={cx('text-sm font-medium', selected ? 'text-primary' : 'text-text')}>{label}</div>
         <div className="text-xs text-text-muted mt-0.5">{description}</div>
       </div>
     </button>
@@ -63,11 +66,64 @@ export function VatChangeModal({
 }: VatChangeModalProps) {
   const [hasVat, setHasVat] = useState(true)
   const [vatPercentage, setVatPercentage] = useState(18)
+  const [selectedIndex, setSelectedIndex] = useState(0)
 
   const uniqueMerchants = [...new Set(merchantNames)]
   const merchantsDisplay = uniqueMerchants.length <= 3
     ? uniqueMerchants.join(', ')
     : `${uniqueMerchants.slice(0, 2).join(', ')} +${uniqueMerchants.length - 2} more`
+
+  // Reset selection when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedIndex(0)
+    }
+  }, [isOpen])
+
+  // Execute action based on selected index
+  const executeSelectedAction = useCallback(() => {
+    switch (selectedIndex) {
+      case 0:
+        onApplyToAllMerchant(hasVat, vatPercentage)
+        break
+      case 1:
+        onApplyToAllPast(hasVat, vatPercentage)
+        break
+      case 2:
+        onApplyToSelected(hasVat, vatPercentage)
+        break
+      case 3:
+        onApplyToFuture(hasVat, vatPercentage)
+        break
+    }
+  }, [selectedIndex, hasVat, vatPercentage, onApplyToAllMerchant, onApplyToAllPast, onApplyToSelected, onApplyToFuture])
+
+  // Keyboard navigation
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault()
+          setSelectedIndex((prev) => (prev + 1) % 4)
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          setSelectedIndex((prev) => (prev - 1 + 4) % 4)
+          break
+        case 'Enter':
+          e.preventDefault()
+          if (!isLoading) {
+            executeSelectedAction()
+          }
+          break
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isLoading, executeSelectedAction])
 
   return (
     <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -142,27 +198,30 @@ export function VatChangeModal({
 
         <Modal.Actions>
           <ActionButton
-            icon={CheckIcon}
-            label={`Selected transactions (${selectedCount})`}
-            description="Apply only to the selected transactions"
-            onClick={() => onApplyToSelected(hasVat, vatPercentage)}
-            disabled={isLoading}
-          />
-
-          <ActionButton
             icon={DocumentDuplicateIcon}
-            label="All past from these merchants"
-            description={`Update all existing transactions from ${uniqueMerchants.length} merchant${uniqueMerchants.length > 1 ? 's' : ''}`}
-            onClick={() => onApplyToAllPast(hasVat, vatPercentage)}
+            label="All transactions with same merchant"
+            description="Update all past + save for future imports (recommended)"
+            onClick={() => onApplyToAllMerchant(hasVat, vatPercentage)}
             disabled={isLoading}
+            selected={selectedIndex === 0}
           />
 
           <ActionButton
             icon={ClockIcon}
-            label="All transactions with same merchant"
-            description="Update all past + save for future imports"
-            onClick={() => onApplyToAllMerchant(hasVat, vatPercentage)}
+            label="All past from these merchants"
+            description={`Update all existing transactions from ${uniqueMerchants.length} merchant${uniqueMerchants.length > 1 ? 's' : ''}`}
+            onClick={() => onApplyToAllPast(hasVat, vatPercentage)}
             disabled={isLoading}
+            selected={selectedIndex === 1}
+          />
+
+          <ActionButton
+            icon={CheckIcon}
+            label={`Selected transactions only (${selectedCount})`}
+            description="Apply only to the selected transactions"
+            onClick={() => onApplyToSelected(hasVat, vatPercentage)}
+            disabled={isLoading}
+            selected={selectedIndex === 2}
           />
 
           <ActionButton
@@ -171,6 +230,7 @@ export function VatChangeModal({
             description="Save preferences for future imports only"
             onClick={() => onApplyToFuture(hasVat, vatPercentage)}
             disabled={isLoading}
+            selected={selectedIndex === 3}
           />
         </Modal.Actions>
       </Modal.Content>

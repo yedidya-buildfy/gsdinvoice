@@ -50,6 +50,7 @@ export interface Database {
           error_message: string | null
           created_at: string
           processed_at: string | null
+          file_hash: string | null
         }
         Insert: {
           id?: string
@@ -64,6 +65,7 @@ export interface Database {
           error_message?: string | null
           created_at?: string
           processed_at?: string | null
+          file_hash?: string | null
         }
         Update: {
           id?: string
@@ -78,6 +80,7 @@ export interface Database {
           error_message?: string | null
           created_at?: string
           processed_at?: string | null
+          file_hash?: string | null
         }
         Relationships: []
       }
@@ -264,6 +267,11 @@ export interface Database {
           total_agorot: number | null
           transaction_id: string | null
           allocation_amount_agorot: number | null
+          reference_id: string | null
+          transaction_date: string | null
+          currency: string
+          vat_rate: number | null
+          vat_amount_agorot: number | null
           created_at: string
         }
         Insert: {
@@ -275,6 +283,11 @@ export interface Database {
           total_agorot?: number | null
           transaction_id?: string | null
           allocation_amount_agorot?: number | null
+          reference_id?: string | null
+          transaction_date?: string | null
+          currency?: string
+          vat_rate?: number | null
+          vat_amount_agorot?: number | null
           created_at?: string
         }
         Update: {
@@ -286,6 +299,11 @@ export interface Database {
           total_agorot?: number | null
           transaction_id?: string | null
           allocation_amount_agorot?: number | null
+          reference_id?: string | null
+          transaction_date?: string | null
+          currency?: string
+          vat_rate?: number | null
+          vat_amount_agorot?: number | null
           created_at?: string
         }
         Relationships: [

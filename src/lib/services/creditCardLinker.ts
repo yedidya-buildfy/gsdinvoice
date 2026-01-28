@@ -148,7 +148,9 @@ export async function linkCreditCardTransactions(
     // Create lookup by card last four
     const cardsByLastFour = new Map(cards.map(c => [c.card_last_four, c]));
 
-    // Link each bank charge to appropriate credit card
+    // Group charges by their target credit card ID for batch updates
+    const chargesByCardId = new Map<string, string[]>();
+
     for (const charge of bankCharges) {
       const cardLastFour = detectCreditCardCharge(charge.description);
       if (!cardLastFour) {
@@ -162,19 +164,30 @@ export async function linkCreditCardTransactions(
         continue;
       }
 
-      // Update bank charge with credit card link
-      const { error: updateError } = await supabase
-        .from('transactions')
-        .update({ linked_credit_card_id: card.id })
-        .eq('id', charge.id);
-
-      if (updateError) {
-        result.errors.push(`Failed to link charge ${charge.id}: ${updateError.message}`);
-        result.unlinked++;
-      } else {
-        result.linked++;
-      }
+      // Group charge IDs by their target card ID
+      const existing = chargesByCardId.get(card.id) || [];
+      existing.push(charge.id);
+      chargesByCardId.set(card.id, existing);
     }
+
+    // Batch update all charges for each card in parallel
+    const updatePromises = Array.from(chargesByCardId.entries()).map(
+      async ([cardId, chargeIds]) => {
+        const { error: updateError, count } = await supabase
+          .from('transactions')
+          .update({ linked_credit_card_id: cardId })
+          .in('id', chargeIds);
+
+        if (updateError) {
+          result.errors.push(`Failed to link ${chargeIds.length} charges to card ${cardId}: ${updateError.message}`);
+          result.unlinked += chargeIds.length;
+        } else {
+          result.linked += chargeIds.length;
+        }
+      }
+    );
+
+    await Promise.all(updatePromises);
 
     return result;
   } catch (err) {

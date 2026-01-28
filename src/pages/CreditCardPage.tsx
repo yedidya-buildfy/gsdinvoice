@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { ArrowPathIcon, LinkIcon, TrashIcon, ReceiptPercentIcon } from '@heroicons/react/24/outline'
-import { useCreditCards, useCreditCardTransactions, type TransactionWithCard } from '@/hooks/useCreditCards'
+import { useCreditCards, useCreditCardTransactions, useDeleteCreditCard, type TransactionWithCard } from '@/hooks/useCreditCards'
 import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
 import { CreditCardUploader } from '@/components/creditcard/CreditCardUploader'
 import { CreditCardTable } from '@/components/creditcard/CreditCardTable'
@@ -16,7 +16,8 @@ export function CreditCardPage() {
   const { creditCards, refetch: refetchCards } = useCreditCards()
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const { transactions, isLoading, refetch } = useCreditCardTransactions(selectedCardId || undefined)
-  const { isUpdating, updateSingle, updateAllByMerchant, saveMerchantPreference } = useUpdateTransactionVat()
+  const { isUpdating, updateBatch, updateAllByMerchant, saveMerchantPreferencesBatch } = useUpdateTransactionVat()
+  const deleteCardMutation = useDeleteCreditCard()
 
   const [filters, setFilters] = useState<TransactionFilterState>({
     search: '',
@@ -30,6 +31,7 @@ export function CreditCardPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isLinking, setIsLinking] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isDeletingCard, setIsDeletingCard] = useState(false)
   const [showVatModal, setShowVatModal] = useState(false)
 
   // Apply filters
@@ -93,6 +95,28 @@ export function CreditCardPage() {
     }
   }
 
+  const handleDeleteCard = async () => {
+    if (!selectedCardId) return
+
+    const card = creditCards.find((c) => c.id === selectedCardId)
+    const cardName = card?.card_name || `****${card?.card_last_four}`
+
+    if (!window.confirm(`Delete card "${cardName}"? All transactions will be unlinked from this card.`)) {
+      return
+    }
+
+    setIsDeletingCard(true)
+    try {
+      await deleteCardMutation.mutateAsync(selectedCardId)
+      setSelectedCardId(null)
+      console.log('[CreditCard] Deleted card:', selectedCardId)
+    } catch (err) {
+      console.error('[CreditCard] Delete card error:', err)
+    } finally {
+      setIsDeletingCard(false)
+    }
+  }
+
   const handleDelete = async () => {
     if (selectedIds.size === 0) return
 
@@ -142,9 +166,10 @@ export function CreditCardPage() {
   }
 
   const handleApplyToSelected = async (hasVat: boolean, vatPercentage: number) => {
-    for (const tx of selectedTransactions) {
-      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
-    }
+    await updateBatch(
+      selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot })),
+      { hasVat, vatPercentage }
+    )
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()
@@ -153,9 +178,14 @@ export function CreditCardPage() {
   const handleApplyToAllPast = async (hasVat: boolean, vatPercentage: number) => {
     if (!user) return
     const uniqueMerchants = [...new Set(selectedMerchantNames)]
-    for (const merchantName of uniqueMerchants) {
-      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
-    }
+
+    // Update all merchants in parallel
+    await Promise.all(
+      uniqueMerchants.map((merchantName) =>
+        updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+      )
+    )
+
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()
@@ -164,14 +194,17 @@ export function CreditCardPage() {
   const handleApplyToAllMerchant = async (hasVat: boolean, vatPercentage: number) => {
     if (!user) return
     const uniqueMerchants = [...new Set(selectedMerchantNames)]
-    // Update all past transactions
-    for (const merchantName of uniqueMerchants) {
-      await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
-    }
-    // Save preferences for future
-    for (const merchantName of uniqueMerchants) {
-      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
-    }
+
+    // Update all past transactions in parallel
+    await Promise.all(
+      uniqueMerchants.map((merchantName) =>
+        updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+      )
+    )
+
+    // Save preferences for future (single batch operation)
+    await saveMerchantPreferencesBatch(user.id, uniqueMerchants, { hasVat, vatPercentage })
+
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()
@@ -180,14 +213,16 @@ export function CreditCardPage() {
   const handleApplyToFuture = async (hasVat: boolean, vatPercentage: number) => {
     if (!user) return
     const uniqueMerchants = [...new Set(selectedMerchantNames)]
-    // Save preferences for all merchants
-    for (const merchantName of uniqueMerchants) {
-      await saveMerchantPreference(user.id, merchantName, { hasVat, vatPercentage })
-    }
-    // Also update selected transactions
-    for (const tx of selectedTransactions) {
-      await updateSingle(tx.id, tx.amount_agorot, { hasVat, vatPercentage })
-    }
+
+    // Save preferences for all merchants (single batch operation) and update selected transactions in parallel
+    await Promise.all([
+      saveMerchantPreferencesBatch(user.id, uniqueMerchants, { hasVat, vatPercentage }),
+      updateBatch(
+        selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot })),
+        { hasVat, vatPercentage }
+      ),
+    ])
+
     setShowVatModal(false)
     setSelectedIds(new Set())
     refetch()
@@ -227,6 +262,20 @@ export function CreditCardPage() {
                 </option>
               ))}
             </select>
+
+            {/* Delete card button - only show when a specific card is selected */}
+            {selectedCardId && (
+              <button
+                type="button"
+                onClick={handleDeleteCard}
+                disabled={isDeletingCard}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Delete this card"
+              >
+                <TrashIcon className="w-4 h-4" />
+                {isDeletingCard ? 'Deleting...' : 'Delete Card'}
+              </button>
+            )}
           </div>
         )}
 

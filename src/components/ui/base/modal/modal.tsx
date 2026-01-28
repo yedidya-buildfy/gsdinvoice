@@ -32,7 +32,7 @@ function ModalOverlay({ children, ...props }: ModalOverlayProps) {
       <AriaModal
         className={(state) =>
           cx(
-            'w-full max-w-md',
+            'w-full',
             state.isEntering && 'duration-200 ease-out animate-in zoom-in-95',
             state.isExiting && 'duration-150 ease-in animate-out zoom-out-95'
           )
@@ -53,7 +53,9 @@ function ModalContent({ children, ...props }: ModalContentProps) {
     <AriaDialog
       {...props}
       className={cx(
-        'rounded-xl bg-surface p-6 shadow-xl ring-1 ring-white/10 outline-none',
+        'mx-auto rounded-xl bg-surface p-6 shadow-xl ring-1 ring-white/10 outline-none',
+        // Default max-width if not specified in className
+        !props.className?.includes('max-w-') && 'max-w-md',
         props.className
       )}
     >

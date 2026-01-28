@@ -6,7 +6,7 @@ import type { Invoice } from '@/types/database'
  * Options for filtering invoices
  */
 export interface UseInvoicesOptions {
-  /** Filter by invoice status (pending_review, approved, etc.) */
+  /** Filter by invoice status (pending, approved, matched, partial) */
   status?: string
   /** Filter by source file ID */
   fileId?: string
@@ -34,7 +34,7 @@ export type InvoiceWithFile = Invoice & {
  *
  * @example
  * // Fetch invoices pending review
- * const { data: pendingInvoices } = useInvoices({ status: 'pending_review' })
+ * const { data: pendingInvoices } = useInvoices({ status: 'pending' })
  *
  * @example
  * // Fetch invoices from a specific file
