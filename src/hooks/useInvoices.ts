@@ -13,13 +13,14 @@ export interface UseInvoicesOptions {
 }
 
 /**
- * Invoice with optional file relationship for display
+ * Invoice with optional file relationship and line items count for display
  */
 export type InvoiceWithFile = Invoice & {
   file?: {
     original_name: string
     storage_path: string
   } | null
+  invoice_rows?: { count: number }[]
 }
 
 /**
@@ -48,7 +49,7 @@ export function useInvoices(options?: UseInvoicesOptions) {
     queryFn: async () => {
       let query = supabase
         .from('invoices')
-        .select('*, file:files(original_name, storage_path)')
+        .select('*, file:files(original_name, storage_path), invoice_rows(count)')
 
       if (status) {
         query = query.eq('status', status)

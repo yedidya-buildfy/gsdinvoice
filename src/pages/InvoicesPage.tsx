@@ -1,57 +1,229 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { TrashIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import { FileUploader } from '@/components/upload/FileUploader'
-import { DocumentList } from '@/components/documents/DocumentList'
-import type { DocumentWithInvoice } from '@/components/documents/DocumentTable'
+import {
+  DocumentTable,
+  type DocumentWithInvoice,
+  type DocumentSortColumn,
+} from '@/components/documents/DocumentTable'
+import { InvoiceFilters } from '@/components/documents/InvoiceFilters'
+import {
+  getDefaultInvoiceFilters,
+  type InvoiceFilterState,
+} from '@/components/documents/invoiceFilterTypes'
 import { InvoicePreviewModal } from '@/components/invoice-preview/InvoicePreviewModal'
 import { LineItemDuplicateModal } from '@/components/duplicates/LineItemDuplicateModal'
-import { useDocuments } from '@/hooks/useDocuments'
+import { useDocuments, getDocumentsWithUrls } from '@/hooks/useDocuments'
 import {
   useExtractDocument,
   useExtractMultipleDocuments,
   handleLineItemDuplicateAction,
 } from '@/hooks/useDocumentExtraction'
 import { useInvoices } from '@/hooks/useInvoices'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { supabase } from '@/lib/supabase'
 import type { ExtractionRequest, LineItemDuplicateInfo } from '@/lib/extraction/types'
 import type { DuplicateAction } from '@/lib/duplicates/types'
+import { isImageType } from '@/lib/storage'
 
 export function InvoicesPage() {
   const queryClient = useQueryClient()
-  const { data: documents, refetch } = useDocuments({ sourceType: 'invoice' })
+  const { data: documents, isLoading, refetch } = useDocuments({ sourceType: 'invoice' })
   const { data: invoices } = useInvoices()
   const extractSingle = useExtractDocument()
   const extractMultiple = useExtractMultipleDocuments()
+  const { autoExtractOnUpload } = useSettingsStore()
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
-  // Queue of duplicate infos to process one by one
   const [duplicateQueue, setDuplicateQueue] = useState<LineItemDuplicateInfo[]>([])
   const [isHandlingDuplicates, setIsHandlingDuplicates] = useState(false)
 
-  // Current duplicate being shown in modal (first in queue)
+  // Filter state
+  const [filters, setFilters] = useState<InvoiceFilterState>(getDefaultInvoiceFilters)
+
+  // Sort state
+  const [sortColumn, setSortColumn] = useState<DocumentSortColumn>('created_at')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+
+  // Current duplicate being shown in modal
   const currentDuplicate = duplicateQueue[0] ?? null
 
-  // Get the current document from the documents array (stays fresh when queries update)
+  // Get documents with URLs and invoices merged
   const documentsWithInvoices = useMemo(() => {
     if (!documents) return []
-    return documents.map((doc) => ({
+    const docsWithUrls = getDocumentsWithUrls(documents)
+    return docsWithUrls.map((doc) => ({
       ...doc,
       invoice: invoices?.find((inv) => inv.file_id === doc.id) ?? null,
     }))
   }, [documents, invoices])
+
+  // Filter documents
+  const filteredDocuments = useMemo(() => {
+    return documentsWithInvoices.filter((doc) => {
+      // Search filter (name + vendor)
+      if (filters.search) {
+        const search = filters.search.toLowerCase()
+        const name = doc.original_name?.toLowerCase() || ''
+        const vendor = doc.invoice?.vendor_name?.toLowerCase() || ''
+        if (!name.includes(search) && !vendor.includes(search)) return false
+      }
+
+      // Date range filter (invoice_date)
+      if (filters.dateFrom && doc.invoice?.invoice_date) {
+        if (doc.invoice.invoice_date < filters.dateFrom) return false
+      }
+      if (filters.dateTo && doc.invoice?.invoice_date) {
+        if (doc.invoice.invoice_date > filters.dateTo) return false
+      }
+
+      // File type filter
+      if (filters.fileTypes.length > 0) {
+        const fileType = doc.file_type || ''
+        const isImage = isImageType(fileType)
+        const matchesType =
+          filters.fileTypes.includes(fileType) || (filters.fileTypes.includes('image') && isImage)
+        if (!matchesType) return false
+      }
+
+      // AI Status filter (also include 'not_invoice' when filtering for 'failed')
+      if (filters.aiStatus !== 'all') {
+        if (filters.aiStatus === 'failed') {
+          // 'failed' filter shows both 'failed' and 'not_invoice' statuses
+          if (doc.status !== 'failed' && doc.status !== 'not_invoice') return false
+        } else if (doc.status !== filters.aiStatus) {
+          return false
+        }
+      }
+
+      return true
+    })
+  }, [documentsWithInvoices, filters])
+
+  // Sort documents
+  const sortedDocuments = useMemo(() => {
+    return [...filteredDocuments].sort((a, b) => {
+      let aVal: string | number
+      let bVal: string | number
+
+      switch (sortColumn) {
+        case 'original_name':
+          aVal = a.original_name?.toLowerCase() || ''
+          bVal = b.original_name?.toLowerCase() || ''
+          break
+        case 'file_size':
+          aVal = a.file_size ?? 0
+          bVal = b.file_size ?? 0
+          break
+        case 'vendor_name':
+          aVal = a.invoice?.vendor_name?.toLowerCase() || ''
+          bVal = b.invoice?.vendor_name?.toLowerCase() || ''
+          break
+        case 'total_amount_agorot':
+          aVal = a.invoice?.total_amount_agorot ?? 0
+          bVal = b.invoice?.total_amount_agorot ?? 0
+          break
+        case 'vat_amount_agorot':
+          aVal = a.invoice?.vat_amount_agorot ?? 0
+          bVal = b.invoice?.vat_amount_agorot ?? 0
+          break
+        case 'created_at':
+          aVal = a.created_at || ''
+          bVal = b.created_at || ''
+          break
+        case 'line_items_count':
+          aVal = a.invoice?.invoice_rows?.[0]?.count ?? 0
+          bVal = b.invoice?.invoice_rows?.[0]?.count ?? 0
+          break
+        case 'confidence_score':
+          aVal = a.invoice?.confidence_score ?? 0
+          bVal = b.invoice?.confidence_score ?? 0
+          break
+        case 'status': {
+          const priority: Record<string, number> = {
+            processed: 0,
+            processing: 1,
+            pending: 2,
+            failed: 3,
+            not_invoice: 4,
+          }
+          aVal = priority[a.status as string] ?? 5
+          bVal = priority[b.status as string] ?? 5
+          break
+        }
+        default:
+          return 0
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [filteredDocuments, sortColumn, sortDirection])
 
   const selectedDocument = useMemo(() => {
     if (!selectedDocumentId) return null
     return documentsWithInvoices.find((doc) => doc.id === selectedDocumentId) ?? null
   }, [selectedDocumentId, documentsWithInvoices])
 
-  const documentCount = documents?.length ?? 0
+  const totalCount = documents?.length ?? 0
+  const filteredCount = filteredDocuments.length
 
-  const handleUploadComplete = () => {
-    queryClient.invalidateQueries({ queryKey: ['documents'] })
+  // Clear selection when filters change
+  const handleFilterChange = useCallback((newFilters: InvoiceFilterState) => {
+    setFilters(newFilters)
+    setSelectedIds(new Set())
+  }, [])
+
+  // Handle sort column click
+  const handleSort = useCallback(
+    (column: DocumentSortColumn) => {
+      if (sortColumn === column) {
+        setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+      } else {
+        setSortColumn(column)
+        setSortDirection('desc')
+      }
+    },
+    [sortColumn]
+  )
+
+  const handleUploadComplete = async () => {
+    // Store current document IDs before refetch
+    const previousIds = new Set(documents?.map((d) => d.id) || [])
+
+    // Invalidate and refetch
+    await queryClient.invalidateQueries({ queryKey: ['documents'] })
+    const result = await refetch()
+
+    // Auto-extract if enabled
+    if (autoExtractOnUpload && result.data) {
+      // Find newly uploaded pending documents
+      const newPendingDocs = result.data.filter(
+        (doc) => !previousIds.has(doc.id) && doc.status === 'pending'
+      )
+
+      if (newPendingDocs.length > 0) {
+        console.log('[InvoicesPage] Auto-extracting', newPendingDocs.length, 'new documents')
+        const requests: ExtractionRequest[] = newPendingDocs.map((doc) => ({
+          fileId: doc.id,
+          storagePath: doc.storage_path,
+          fileType: doc.file_type || 'pdf',
+        }))
+
+        extractMultiple.mutate(requests, {
+          onSuccess: (duplicateInfos) => {
+            if (duplicateInfos && duplicateInfos.length > 0) {
+              console.log('[InvoicesPage] Auto-extract found duplicates in', duplicateInfos.length, 'documents')
+              setDuplicateQueue(duplicateInfos)
+            }
+          },
+        })
+      }
+    }
   }
 
   const handleExtract = () => {
@@ -99,10 +271,7 @@ export function InvoicesPage() {
         console.error('[InvoicesPage] Invoice delete failed:', invoiceDeleteError)
       }
 
-      const { error } = await supabase
-        .from('files')
-        .delete()
-        .in('id', idsToDelete)
+      const { error } = await supabase.from('files').delete().in('id', idsToDelete)
 
       if (error) {
         console.error('[InvoicesPage] Delete failed:', error)
@@ -121,7 +290,6 @@ export function InvoicesPage() {
   }
 
   const handleRowClick = (doc: DocumentWithInvoice) => {
-    // Store just the ID - the document data comes from the query (stays fresh)
     setSelectedDocumentId(doc.id)
   }
 
@@ -134,11 +302,9 @@ export function InvoicesPage() {
       fileType: selectedDocument.file_type || 'pdf',
     }
 
-    // Use single extraction to handle line item duplicates
     extractSingle.mutate(request, {
       onSuccess: (result) => {
         if (result.lineItemDuplicates) {
-          // Add to queue (will show modal immediately since queue was empty)
           setDuplicateQueue([result.lineItemDuplicates])
         }
       },
@@ -156,21 +322,25 @@ export function InvoicesPage() {
       console.error('Failed to handle line item duplicates:', err)
     } finally {
       setIsHandlingDuplicates(false)
-      // Remove current from queue, show next if any
       setDuplicateQueue((prev) => prev.slice(1))
     }
   }
 
   const handleLineItemDuplicateModalClose = () => {
-    // If user closes without action, default to keeping new items only (skip duplicates)
     handleLineItemDuplicateModalAction('skip')
   }
 
   const pendingCount = documents
-    ? documents.filter(
-        (doc) => selectedIds.has(doc.id) && doc.status === 'pending'
-      ).length
+    ? documents.filter((doc) => selectedIds.has(doc.id) && doc.status === 'pending').length
     : 0
+
+  // Check if any filters are active
+  const hasActiveFilters =
+    filters.search ||
+    filters.dateFrom ||
+    filters.dateTo ||
+    filters.fileTypes.length > 0 ||
+    filters.aiStatus !== 'all'
 
   return (
     <div className="p-6">
@@ -189,9 +359,9 @@ export function InvoicesPage() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-text">Your Documents</h2>
-            {documentCount > 0 && (
+            {totalCount > 0 && (
               <span className="px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
-                {documentCount}
+                {hasActiveFilters ? `${filteredCount} of ${totalCount}` : totalCount}
               </span>
             )}
           </div>
@@ -205,9 +375,7 @@ export function InvoicesPage() {
                 className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <SparklesIcon className="w-4 h-4" />
-                {extractMultiple.isPending
-                  ? 'Extracting...'
-                  : `Extract (${pendingCount})`}
+                {extractMultiple.isPending ? 'Extracting...' : `Extract (${pendingCount})`}
               </button>
 
               <button
@@ -222,13 +390,43 @@ export function InvoicesPage() {
             </div>
           )}
         </div>
-        <DocumentList
-          sourceType="invoice"
+
+        {/* Filters */}
+        {totalCount > 0 && (
+          <div className="mb-4">
+            <InvoiceFilters filters={filters} onChange={handleFilterChange} />
+          </div>
+        )}
+
+        {/* Table */}
+        <DocumentTable
+          documents={sortedDocuments}
+          isLoading={isLoading}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
           onRowClick={handleRowClick}
-          invoices={invoices ?? []}
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          onSort={handleSort}
         />
+
+        {/* Empty state when no documents */}
+        {!isLoading && totalCount === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <p className="text-lg font-medium text-text">No documents uploaded yet</p>
+            <p className="text-sm text-text-muted mt-1">
+              Upload invoices and receipts to get started
+            </p>
+          </div>
+        )}
+
+        {/* Empty state when filters return no results */}
+        {!isLoading && totalCount > 0 && filteredCount === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-center border border-text-muted/20 rounded-lg">
+            <p className="text-lg font-medium text-text">No matching documents</p>
+            <p className="text-sm text-text-muted mt-1">Try adjusting your filters</p>
+          </div>
+        )}
       </section>
 
       {/* Invoice Preview Modal */}

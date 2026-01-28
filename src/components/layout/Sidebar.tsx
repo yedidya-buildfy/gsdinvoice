@@ -29,7 +29,6 @@ const navItems: NavItem[] = [
     ],
   },
   { to: '/invoices', icon: DocumentTextIcon, label: 'Invoices & Receipts' },
-  { to: '/settings', icon: Cog6ToothIcon, label: 'Settings' },
 ]
 
 export function Sidebar() {
@@ -149,6 +148,22 @@ export function Sidebar() {
 
       {/* User section */}
       <div className="border-t border-text-muted/20 p-2">
+        {/* Settings link */}
+        <NavLink
+          to="/settings"
+          title={!isExpanded ? 'Settings' : undefined}
+          className={({ isActive }) =>
+            `flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
+              isActive
+                ? 'bg-primary/10 text-primary'
+                : 'text-text-muted hover:bg-background hover:text-text'
+            } ${!isExpanded ? 'justify-center' : ''}`
+          }
+        >
+          <Cog6ToothIcon className="h-5 w-5 shrink-0" />
+          {isExpanded && <span className="truncate">Settings</span>}
+        </NavLink>
+
         {isExpanded && user?.email && (
           <div className="px-3 py-2 mb-1">
             <p className="text-text-muted text-sm truncate" title={user.email}>

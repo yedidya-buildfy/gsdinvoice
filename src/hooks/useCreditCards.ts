@@ -87,6 +87,78 @@ export function useDeleteCreditCard() {
   })
 }
 
+interface CreateCreditCardInput {
+  cardLastFour: string
+  cardName?: string
+  cardType: string
+}
+
+/**
+ * Hook for creating a new credit card
+ */
+export function useCreateCreditCard() {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: CreateCreditCardInput) => {
+      if (!user) throw new Error('User not authenticated')
+
+      const { data, error } = await supabase
+        .from('credit_cards')
+        .insert({
+          user_id: user.id,
+          card_last_four: input.cardLastFour,
+          card_name: input.cardName || null,
+          card_type: input.cardType,
+        })
+        .select()
+        .single()
+
+      if (error) {
+        throw new Error(`Failed to create card: ${error.message}`)
+      }
+
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credit_cards'] })
+    },
+  })
+}
+
+interface UpdateCreditCardInput {
+  id: string
+  cardName?: string
+}
+
+/**
+ * Hook for updating a credit card (e.g., renaming)
+ */
+export function useUpdateCreditCard() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: UpdateCreditCardInput) => {
+      const { data, error } = await supabase
+        .from('credit_cards')
+        .update({ card_name: input.cardName || null })
+        .eq('id', input.id)
+        .select()
+        .single()
+
+      if (error) {
+        throw new Error(`Failed to update card: ${error.message}`)
+      }
+
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['credit_cards'] })
+    },
+  })
+}
+
 interface UseCreditCardTransactionsReturn {
   transactions: TransactionWithCard[]
   isLoading: boolean

@@ -5,21 +5,21 @@
 See: .planning/PROJECT.md (updated 2026-01-27)
 
 **Core value:** Automatically connect invoices and receipts to bank/credit card transactions, eliminating manual matching for VAT reporting.
-**Current focus:** Phase 7 - AI Document Extraction
+**Current focus:** Phase 8 - Credit Card to Bank Matching + Settings Page Foundation
 
 ## Current Position
 
-Phase: 7 of 13 (AI Document Extraction)
-Plan: 2 of 3 in current phase - COMPLETE
-Status: In progress
-Last activity: 2026-01-28 - Completed 07-02-PLAN.md (Extraction client hooks)
+Phase: 8 of 10 (Credit Card to Bank Matching)
+Plan: 0 of TBD in current phase
+Status: Not started
+Last activity: 2026-01-28 - Roadmap restructured, building Settings page foundation
 
-Progress: [████████░░] ~59%
+Progress: [████████░░] ~70%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 18
 - Average duration: 2.4 min
 - Total execution time: 0.68 hours
 
@@ -33,7 +33,7 @@ Progress: [████████░░] ~59%
 | 04-document-upload | 2 | 5 min | 2.5 min |
 | 05-bank-statement-import | 3 | 7 min | 2.3 min |
 | 06-credit-card-import-linking | 3 | 10 min | 3.3 min |
-| 07-ai-document-extraction | 2 | 5 min | 2.5 min |
+| 07-ai-document-extraction | 3 | 7 min | 2.3 min |
 
 **Recent Trend:**
 - Last 5 plans: 06-02 (4 min), 06-03 (4 min), 07-01 (3 min), 07-02 (2 min)
@@ -120,6 +120,11 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 13 added: VAT Fields for Bank Transactions - VAT boolean, percentage, and amount columns with merchant settings modal
+- Roadmap restructured (2026-01-28): Removed phases 8-12 (Extraction Review, Basic/Advanced Matching, Duplicate Detection, Dashboard & Export), replaced with:
+  - Phase 8: Credit Card to Bank Matching
+  - Phase 9: Invoice Line Items to Expenses Matching
+  - Phase 10: Dashboard & Reports
+  - Settings page built incrementally alongside phases 8-10
 
 ### Blockers/Concerns
 
@@ -127,9 +132,9 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-01-28 00:22 UTC
-Stopped at: Completed 07-02-PLAN.md (Extraction client hooks)
+Last session: 2026-01-28
+Stopped at: Roadmap restructured, building Settings page foundation
 Resume file: None
 
 ---
-*Next step: Continue Phase 7 with 07-03-PLAN.md (Extraction UI components)*
+*Next step: Build Settings page foundation, then Phase 8 - Credit Card to Bank Matching*

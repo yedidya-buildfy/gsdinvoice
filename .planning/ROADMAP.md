@@ -16,13 +16,13 @@ This roadmap delivers an AI-powered VAT declaration manager for Israeli SMBs. St
 - [x] **Phase 4: Document Upload** - File upload infrastructure with batch support
 - [x] **Phase 5: Bank Statement Import** - Bank xlsx/csv parsing and transaction list
 - [x] **Phase 6: Credit Card Import & Linking** - CC statements and linking to bank charges
-- [ ] **Phase 7: AI Document Extraction** - Gemini 3 Flash integration for invoice parsing
-- [ ] **Phase 8: Extraction Review** - Confidence scoring, thresholds, manual review
-- [ ] **Phase 9: Basic Matching** - Manual matching and AI auto-matching
-- [ ] **Phase 10: Advanced Matching** - Split/group matching with amount validation
-- [ ] **Phase 11: Duplicate Detection** - Fuzzy detection with side-by-side review
-- [ ] **Phase 12: Dashboard & Export** - Summary views, date range selection, CSV export
+- [x] **Phase 7: AI Document Extraction** - Gemini 3 Flash integration for invoice parsing
+- [ ] **Phase 8: Credit Card to Bank Matching** - Link credit card transactions to bank movement charges
+- [ ] **Phase 9: Invoice Line Items to Expenses Matching** - Match invoice rows to credit card/bank transactions
+- [ ] **Phase 10: Dashboard & Reports** - Summary views, date range selection, export capabilities
 - [x] **Phase 13: VAT Fields for Bank Transactions** - VAT boolean, percentage, and amount columns with merchant settings modal
+
+**Note:** Settings page is built incrementally alongside phases 8-10 (auto-extract, duplicate handling defaults, matching preferences)
 
 ## Phase Details
 
@@ -130,68 +130,47 @@ Plans:
   5. Extracted data stored with link to original document
 **Plans**: 3 plans
 Plans:
-- [ ] 07-01-PLAN.md - Edge Function for Gemini API extraction
-- [ ] 07-02-PLAN.md - Client extraction hooks and invoice query
-- [ ] 07-03-PLAN.md - UI integration with Extract button and status display
+- [x] 07-01-PLAN.md - Edge Function for Gemini API extraction
+- [x] 07-02-PLAN.md - Client extraction hooks and invoice query
+- [x] 07-03-PLAN.md - UI integration with Extract button and status display
 
-### Phase 8: Extraction Review
-**Goal**: Users can review and correct AI extractions with configurable auto-approval
-**Depends on**: Phase 7
-**Requirements**: EXTR-03, EXTR-04, EXTR-05
+### Phase 8: Credit Card to Bank Matching
+**Goal**: System links credit card transaction rows to their corresponding bank movement charges
+**Depends on**: Phase 6
+**Requirements**: Enhanced CC-Bank linking
 **Success Criteria** (what must be TRUE):
-  1. User can set auto-approval confidence threshold in settings (default 80%)
-  2. Low-confidence extractions flagged for manual review
-  3. User can edit all extracted fields (vendor, date, amount, VAT, invoice number)
-  4. Approved extractions move to "ready for matching" status
-  5. Audit trail records all manual corrections
+  1. System matches credit card detail rows to bank CC charge entries by amount/date
+  2. User can view which CC transactions are linked to which bank charge
+  3. User can manually link/unlink CC transactions to bank charges
+  4. Unlinked CC transactions are flagged for review
+  5. Settings: Configure auto-linking tolerance (amount %, date range)
 **Plans**: TBD
+**Settings Built**: Auto-link tolerance, date range matching
 
-### Phase 9: Basic Matching
-**Goal**: Users can match invoices to transactions manually and via AI auto-matching
-**Depends on**: Phase 6, Phase 8
-**Requirements**: MTCH-01, MTCH-02, SETT-01
+### Phase 9: Invoice Line Items to Expenses Matching
+**Goal**: Users can match invoice line items to credit card or bank transactions
+**Depends on**: Phase 7, Phase 8
+**Requirements**: Invoice-to-expense matching
 **Success Criteria** (what must be TRUE):
-  1. AI auto-matches invoices to transactions with confidence scoring
-  2. User can manually select an invoice and match it to a transaction
-  3. Matched pairs visible in both invoice and transaction views
-  4. User can configure matching trigger in settings (after uploads / on invoice upload / manual)
-  5. High-confidence matches (configurable threshold) applied automatically
+  1. User can select invoice line items and match to CC or bank transactions
+  2. System suggests matches based on amount, date, vendor similarity
+  3. Split matching: one invoice to multiple expenses with allocation
+  4. Group matching: multiple invoice rows to one expense
+  5. Duplicate line item detection with configurable default action (skip/replace/add)
+  6. Settings: Auto-extract on upload toggle, duplicate handling defaults
 **Plans**: TBD
+**Settings Built**: Auto-extract toggle, duplicate line item defaults, matching confidence threshold
 
-### Phase 10: Advanced Matching
-**Goal**: Users can perform complex matching with split and group scenarios
+### Phase 10: Dashboard & Reports
+**Goal**: Users have visibility into matching status and can export data for VAT reporting
 **Depends on**: Phase 9
-**Requirements**: MTCH-03, MTCH-04, MTCH-05
+**Requirements**: DASH-01, DASH-02, DASH-03, DASH-04
 **Success Criteria** (what must be TRUE):
-  1. User can split-match one invoice to multiple expense rows with amount allocation
-  2. User can group-match multiple invoices to one expense row
-  3. System validates that allocated amounts balance correctly (total matches)
-  4. Split/group matches display clearly in both invoice and transaction views
-  5. User can undo or modify existing split/group matches
-**Plans**: TBD
-
-### Phase 11: Duplicate Detection
-**Goal**: System detects duplicates and users can review/resolve them
-**Depends on**: Phase 5, Phase 7
-**Requirements**: DUPL-01, DUPL-02, DUPL-03
-**Success Criteria** (what must be TRUE):
-  1. System detects fuzzy duplicates (near-matches, typos, slight variations)
-  2. User sees existing vs new data side-by-side comparison
-  3. User can select multiple duplicate rows for batch action
-  4. User can apply action to selected duplicates: skip, replace, or add anyway
-  5. Duplicate resolution logged for audit trail
-**Plans**: TBD
-
-### Phase 12: Dashboard & Export
-**Goal**: Users have visibility into unmatched items and can export data for VAT reporting
-**Depends on**: Phase 10, Phase 11
-**Requirements**: DASH-01, DASH-02, DASH-03, DASH-04, SETT-02
-**Success Criteria** (what must be TRUE):
-  1. Dashboard shows count of expense rows without linked invoices
-  2. Dashboard shows count of invoices without linked expense rows
-  3. User can select date range for VAT summary
-  4. User can export filtered data to CSV or Excel format
-  5. Auto-approval confidence threshold accessible from Settings page
+  1. Dashboard shows count of unmatched expenses (no linked invoice)
+  2. Dashboard shows count of unmatched invoices (no linked expense)
+  3. Date range picker for VAT period selection
+  4. Export to CSV/Excel for accountant
+  5. Summary totals: income, expenses, VAT collected, VAT paid
 **Plans**: TBD
 
 ### Phase 13: VAT Fields for Bank Transactions
@@ -210,7 +189,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> ... -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> ... -> 10 (13 was inserted earlier)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -220,15 +199,15 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> ... -> 12
 | 4. Document Upload | 2/2 | Complete | 2026-01-27 |
 | 5. Bank Statement Import | 3/3 | Complete | 2026-01-27 |
 | 6. Credit Card Import & Linking | 3/3 | Complete | 2026-01-27 |
-| 7. AI Document Extraction | 0/3 | Not started | - |
-| 8. Extraction Review | 0/TBD | Not started | - |
-| 9. Basic Matching | 0/TBD | Not started | - |
-| 10. Advanced Matching | 0/TBD | Not started | - |
-| 11. Duplicate Detection | 0/TBD | Not started | - |
-| 12. Dashboard & Export | 0/TBD | Not started | - |
+| 7. AI Document Extraction | 3/3 | Complete | 2026-01-28 |
+| 8. Credit Card to Bank Matching | 0/TBD | Not started | - |
+| 9. Invoice Line Items to Expenses | 0/TBD | Not started | - |
+| 10. Dashboard & Reports | 0/TBD | Not started | - |
 | 13. VAT Fields for Bank Transactions | 1/1 | Complete | 2026-01-27 |
+
+**Settings Page:** Built incrementally with phases 8-10
 
 ---
 *Roadmap created: 2026-01-27*
-*Depth: comprehensive (13 phases)*
-*Requirements coverage: 35/35 mapped*
+*Roadmap restructured: 2026-01-28*
+*Depth: streamlined (10 phases)*

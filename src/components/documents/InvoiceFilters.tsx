@@ -1,0 +1,147 @@
+import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { RangeCalendarCard } from '@/components/ui/date-picker'
+import type { InvoiceFilterState } from './invoiceFilterTypes'
+
+interface InvoiceFiltersProps {
+  filters: InvoiceFilterState
+  onChange: (filters: InvoiceFilterState) => void
+}
+
+const FILE_TYPE_OPTIONS = [
+  { value: 'pdf', label: 'PDF' },
+  { value: 'xlsx', label: 'Excel' },
+  { value: 'csv', label: 'CSV' },
+  { value: 'image', label: 'Image' },
+]
+
+const AI_STATUS_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'processing', label: 'Processing' },
+  { value: 'processed', label: 'Processed' },
+  { value: 'failed', label: 'Failed' },
+]
+
+function FileTypeMultiSelect({
+  value,
+  onChange,
+}: {
+  value: string[]
+  onChange: (value: string[]) => void
+}) {
+  const toggleType = (type: string) => {
+    if (value.includes(type)) {
+      onChange(value.filter((t) => t !== type))
+    } else {
+      onChange([...value, type])
+    }
+  }
+
+  const displayText =
+    value.length === 0
+      ? 'File Type'
+      : value.length === 1
+        ? FILE_TYPE_OPTIONS.find((o) => o.value === value[0])?.label || value[0]
+        : `${value.length} types`
+
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        className="flex items-center gap-2 px-3 py-2 bg-surface border border-text-muted/20 rounded-lg text-text hover:border-text-muted/40 transition-colors text-sm"
+      >
+        <span>{displayText}</span>
+        {value.length > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange([])
+            }}
+            className="p-0.5 rounded hover:bg-background/50"
+          >
+            <XMarkIcon className="w-3.5 h-3.5 text-text-muted hover:text-text" />
+          </button>
+        )}
+      </button>
+      <div className="absolute top-full start-0 mt-1 z-50 hidden group-hover:block bg-surface border border-text-muted/20 rounded-lg shadow-lg min-w-[140px]">
+        {FILE_TYPE_OPTIONS.map((option) => (
+          <label
+            key={option.value}
+            className="flex items-center gap-2 px-3 py-2 hover:bg-background/50 cursor-pointer text-sm"
+          >
+            <input
+              type="checkbox"
+              checked={value.includes(option.value)}
+              onChange={() => toggleType(option.value)}
+              className="checkbox-dark"
+            />
+            <span className="text-text">{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function InvoiceFilters({ filters, onChange }: InvoiceFiltersProps) {
+  const handleDateChange = (startDate: string, endDate: string) => {
+    onChange({ ...filters, dateFrom: startDate, dateTo: endDate })
+  }
+
+  return (
+    <div className="flex flex-wrap gap-3 items-center">
+      {/* Date range picker */}
+      <RangeCalendarCard
+        startDate={filters.dateFrom}
+        endDate={filters.dateTo}
+        onChange={handleDateChange}
+      />
+
+      {/* File type multi-select */}
+      <FileTypeMultiSelect
+        value={filters.fileTypes}
+        onChange={(fileTypes) => onChange({ ...filters, fileTypes })}
+      />
+
+      {/* AI Status select */}
+      <select
+        value={filters.aiStatus}
+        onChange={(e) =>
+          onChange({
+            ...filters,
+            aiStatus: e.target.value as InvoiceFilterState['aiStatus'],
+          })
+        }
+        className="px-3 py-2 bg-surface border border-text-muted/20 rounded-lg text-text focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+      >
+        {AI_STATUS_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Search */}
+      <div className="relative flex-1 min-w-[200px]">
+        <MagnifyingGlassIcon className="absolute start-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
+        <input
+          type="text"
+          placeholder="Search name or vendor..."
+          value={filters.search}
+          onChange={(e) => onChange({ ...filters, search: e.target.value })}
+          className="w-full ps-10 pe-4 py-2 bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+        />
+        {filters.search && (
+          <button
+            type="button"
+            onClick={() => onChange({ ...filters, search: '' })}
+            className="absolute end-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-background/50"
+          >
+            <XMarkIcon className="w-4 h-4 text-text-muted hover:text-text" />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
