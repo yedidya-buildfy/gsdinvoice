@@ -1,6 +1,7 @@
 import { LineItemsTable } from './LineItemsTable'
 import type { UseInvoiceFormReturn } from './hooks/useInvoiceForm'
 import { getCurrenciesForSelect, getCurrencySymbol } from '@/lib/utils/currency'
+import { DatePicker } from '@/components/ui/date-picker'
 
 interface ExtractedDataPanelProps {
   form: UseInvoiceFormReturn
@@ -131,65 +132,56 @@ export function ExtractedDataPanel({
           <ConfidenceBadge score={confidenceScore} />
         </div>
 
-        {/* Basic Info */}
-        <div className="space-y-4">
+        {/* Basic Info - Row 1: Name, Invoice Number, Invoice Date */}
+        <div className="grid grid-cols-3 gap-4">
           <FormField
             label="Vendor Name"
             value={invoiceData.vendor_name}
             onChange={(value) => setInvoiceField('vendor_name', value)}
             placeholder="Enter vendor name"
           />
+          <FormField
+            label="Invoice Number"
+            value={invoiceData.invoice_number}
+            onChange={(value) => setInvoiceField('invoice_number', value)}
+            placeholder="INV-001"
+          />
+          <DatePicker
+            label="Invoice Date"
+            value={invoiceData.invoice_date}
+            onChange={(value) => setInvoiceField('invoice_date', value)}
+          />
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              label="Invoice Number"
-              value={invoiceData.invoice_number}
-              onChange={(value) => setInvoiceField('invoice_number', value)}
-              placeholder="INV-001"
-            />
-            <FormField
-              label="Invoice Date"
-              value={invoiceData.invoice_date}
-              onChange={(value) => setInvoiceField('invoice_date', value)}
-              type="date"
-            />
-          </div>
-
+        {/* Amounts - Row 2 (RTL): Currency, Subtotal, VAT Amount, Total Amount */}
+        <div className="grid grid-cols-4 gap-4" dir="rtl">
           <SelectField
             label="Currency"
             value={invoiceData.currency}
             onChange={(value) => setInvoiceField('currency', value)}
             options={CURRENCY_OPTIONS}
           />
-        </div>
-
-        {/* Amounts */}
-        <div className="space-y-4">
-          <h4 className="text-sm font-medium text-text-muted">Amounts</h4>
-
-          <div className="grid grid-cols-3 gap-4">
-            <FormField
-              label="Subtotal"
-              value={invoiceData.subtotal}
-              onChange={(value) => setInvoiceField('subtotal', value)}
-              type="number"
-              prefix={getCurrencySymbol(invoiceData.currency)}
-            />
-            <FormField
-              label="VAT Amount"
-              value={invoiceData.vat_amount}
-              onChange={(value) => setInvoiceField('vat_amount', value)}
-              type="number"
-              prefix={getCurrencySymbol(invoiceData.currency)}
-            />
-            <FormField
-              label="Total Amount"
-              value={invoiceData.total_amount}
-              onChange={(value) => setInvoiceField('total_amount', value)}
-              type="number"
-              prefix={getCurrencySymbol(invoiceData.currency)}
-            />
-          </div>
+          <FormField
+            label="Subtotal"
+            value={invoiceData.subtotal}
+            onChange={(value) => setInvoiceField('subtotal', value)}
+            type="number"
+            prefix={getCurrencySymbol(invoiceData.currency)}
+          />
+          <FormField
+            label="VAT Amount"
+            value={invoiceData.vat_amount}
+            onChange={(value) => setInvoiceField('vat_amount', value)}
+            type="number"
+            prefix={getCurrencySymbol(invoiceData.currency)}
+          />
+          <FormField
+            label="Total Amount"
+            value={invoiceData.total_amount}
+            onChange={(value) => setInvoiceField('total_amount', value)}
+            type="number"
+            prefix={getCurrencySymbol(invoiceData.currency)}
+          />
         </div>
 
         {/* Line Items */}
