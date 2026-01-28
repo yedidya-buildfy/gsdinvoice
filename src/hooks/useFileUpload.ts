@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { uploadFile, getFileType, isValidFileType } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
@@ -12,105 +12,82 @@ export interface UploadingFile {
 }
 
 interface UseFileUploadReturn {
-  files: UploadingFile[]
-  addFiles: (files: File[]) => void
-  removeFile: (index: number) => void
-  uploadAll: () => Promise<void>
-  clearCompleted: () => void
+  /** Currently uploading file (for display) */
+  currentFile: File | null
+  /** Progress percentage for current file (0-100) */
+  currentProgress: number
+  /** Whether any upload is in progress */
   isUploading: boolean
+  /** Add files and start uploading immediately */
+  addFiles: (files: File[]) => void
+  /** Last error message */
+  error: string | null
 }
 
 export function useFileUpload(): UseFileUploadReturn {
-  const [files, setFiles] = useState<UploadingFile[]>([])
+  const [currentFile, setCurrentFile] = useState<File | null>(null)
+  const [currentProgress, setCurrentProgress] = useState(0)
+  const [isUploading, setIsUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const { user } = useAuth()
 
-  const isUploading = files.some((f) => f.status === 'uploading')
+  // Queue for files to upload
+  const uploadQueueRef = useRef<File[]>([])
+  const isProcessingRef = useRef(false)
 
-  const addFiles = useCallback((newFiles: File[]) => {
-    const uploadingFiles: UploadingFile[] = newFiles.map((file) => {
-      // Validate file type
-      if (!isValidFileType(file)) {
-        return {
-          file,
-          progress: 0,
-          status: 'error' as const,
-          error: 'Invalid file type. Allowed: PDF, JPG, PNG, XLSX, CSV',
-        }
-      }
-
-      return {
-        file,
-        progress: 0,
-        status: 'pending' as const,
-      }
-    })
-
-    setFiles((prev) => [...prev, ...uploadingFiles])
-  }, [])
-
-  const removeFile = useCallback((index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index))
-  }, [])
-
-  const clearCompleted = useCallback(() => {
-    setFiles((prev) => prev.filter((f) => f.status !== 'success'))
-  }, [])
-
-  const uploadAll = useCallback(async () => {
-    if (!user) {
-      console.error('User not authenticated')
+  /**
+   * Process the upload queue sequentially
+   */
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current || uploadQueueRef.current.length === 0) {
       return
     }
 
-    // Get pending files indices
-    const pendingIndices = files
-      .map((f, i) => (f.status === 'pending' ? i : -1))
-      .filter((i) => i !== -1)
+    if (!user) {
+      setError('User not authenticated')
+      return
+    }
 
-    if (pendingIndices.length === 0) return
+    isProcessingRef.current = true
+    setIsUploading(true)
+    setError(null)
 
-    // Set all pending to uploading
-    setFiles((prev) =>
-      prev.map((f, i) =>
-        pendingIndices.includes(i) ? { ...f, status: 'uploading' as const } : f
-      )
-    )
+    while (uploadQueueRef.current.length > 0) {
+      const file = uploadQueueRef.current.shift()!
 
-    // Upload files sequentially to avoid overwhelming the server
-    for (const index of pendingIndices) {
-      const uploadingFile = files[index]
+      // Validate file type
+      if (!isValidFileType(file)) {
+        setError(`Invalid file type: ${file.name}`)
+        continue
+      }
+
+      setCurrentFile(file)
+      setCurrentProgress(0)
 
       try {
+        // Progress: 30% - Starting upload
+        setCurrentProgress(30)
+
         // Upload to Supabase Storage
-        const { path, error: uploadError } = await uploadFile(
-          uploadingFile.file,
-          user.id
-        )
+        const { path, error: uploadError } = await uploadFile(file, user.id)
 
         if (uploadError || !path) {
-          setFiles((prev) =>
-            prev.map((f, i) =>
-              i === index
-                ? {
-                    ...f,
-                    status: 'error' as const,
-                    error: uploadError?.message || 'Upload failed',
-                  }
-                : f
-            )
-          )
+          setError(uploadError?.message || 'Upload failed')
           continue
         }
+
+        // Progress: 60% - File uploaded, saving to database
+        setCurrentProgress(60)
 
         // Insert record into files table
         const fileRecord: FileInsert = {
           user_id: user.id,
           storage_path: path,
-          file_type: getFileType(uploadingFile.file),
+          file_type: getFileType(file),
           source_type: 'invoice',
-          original_name: uploadingFile.file.name,
-          file_size: uploadingFile.file.size,
-          status: 'pending', // Awaiting AI extraction
+          original_name: file.name,
+          file_size: file.size,
+          status: 'pending',
         }
 
         const { error: dbError } = await supabase
@@ -118,52 +95,44 @@ export function useFileUpload(): UseFileUploadReturn {
           .insert(fileRecord)
 
         if (dbError) {
-          // File uploaded but DB insert failed - set error status
-          setFiles((prev) =>
-            prev.map((f, i) =>
-              i === index
-                ? {
-                    ...f,
-                    status: 'error' as const,
-                    error: `Database error: ${dbError.message}`,
-                  }
-                : f
-            )
-          )
+          setError(`Database error: ${dbError.message}`)
           continue
         }
 
-        // Success - update progress to 100 and status to success
-        setFiles((prev) =>
-          prev.map((f, i) =>
-            i === index
-              ? { ...f, progress: 100, status: 'success' as const }
-              : f
-          )
-        )
+        // Progress: 100% - Complete
+        setCurrentProgress(100)
+
+        // Wait 2 seconds before clearing (so user sees completion)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+
       } catch (err) {
-        setFiles((prev) =>
-          prev.map((f, i) =>
-            i === index
-              ? {
-                  ...f,
-                  status: 'error' as const,
-                  error:
-                    err instanceof Error ? err.message : 'Unknown error',
-                }
-              : f
-          )
-        )
+        setError(err instanceof Error ? err.message : 'Unknown error')
       }
     }
-  }, [files, user])
+
+    // Clear display after all uploads complete
+    setCurrentFile(null)
+    setCurrentProgress(0)
+    setIsUploading(false)
+    isProcessingRef.current = false
+  }, [user])
+
+  /**
+   * Add files and start uploading immediately
+   */
+  const addFiles = useCallback((newFiles: File[]) => {
+    // Add to queue
+    uploadQueueRef.current.push(...newFiles)
+
+    // Start processing if not already
+    processQueue()
+  }, [processQueue])
 
   return {
-    files,
-    addFiles,
-    removeFile,
-    uploadAll,
-    clearCompleted,
+    currentFile,
+    currentProgress,
     isUploading,
+    addFiles,
+    error,
   }
 }

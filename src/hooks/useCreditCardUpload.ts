@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { parseCreditCardStatement, type ParsedCreditCardTransaction } from '@/lib/parsers/creditCardParser'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -12,70 +12,74 @@ function utf8ToBase64(str: string): string {
 }
 
 interface UseCreditCardUploadReturn {
-  file: File | null
+  /** Currently processing file */
+  currentFile: File | null
+  /** Processing status */
   status: 'idle' | 'parsing' | 'saving' | 'success' | 'error'
+  /** Progress percentage (0-100) */
+  progress: number
+  /** Error message if failed */
   error: string | null
-  parsedCount: number
+  /** Number of transactions saved */
   savedCount: number
+  /** Number of duplicates skipped */
   duplicateCount: number
-  selectFile: (file: File) => void
-  processFile: () => Promise<void>
-  reset: () => void
+  /** Whether processing is in progress */
+  isProcessing: boolean
+  /** Add file and start processing immediately */
+  addFile: (file: File) => void
 }
 
 export function useCreditCardUpload(): UseCreditCardUploadReturn {
-  const [file, setFile] = useState<File | null>(null)
+  const [currentFile, setCurrentFile] = useState<File | null>(null)
   const [status, setStatus] = useState<'idle' | 'parsing' | 'saving' | 'success' | 'error'>('idle')
+  const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [parsedCount, setParsedCount] = useState(0)
   const [savedCount, setSavedCount] = useState(0)
   const [duplicateCount, setDuplicateCount] = useState(0)
   const { user } = useAuth()
 
-  const selectFile = useCallback((newFile: File) => {
-    setFile(newFile)
-    setStatus('idle')
-    setError(null)
-    setParsedCount(0)
-    setSavedCount(0)
-    setDuplicateCount(0)
-  }, [])
+  const isProcessingRef = useRef(false)
 
-  const processFile = useCallback(async () => {
-    if (!file || !user) {
-      setError('No file selected or user not authenticated')
-      setStatus('error')
+  const isProcessing = status === 'parsing' || status === 'saving'
+
+  const addFile = useCallback(async (file: File) => {
+    if (isProcessingRef.current || !user) {
       return
     }
+
+    isProcessingRef.current = true
+    setCurrentFile(file)
+    setError(null)
+    setSavedCount(0)
+    setDuplicateCount(0)
+    setProgress(0)
 
     let parsedTransactions: ParsedCreditCardTransaction[] = []
 
     try {
-      // Step 1: Parse the file
+      // Step 1: Parse the file (0-30%)
       setStatus('parsing')
-      setError(null)
+      setProgress(10)
 
       parsedTransactions = await parseCreditCardStatement(file)
-      setParsedCount(parsedTransactions.length)
-      console.log('[CreditCardUpload] Parsed transactions:', parsedTransactions.length, parsedTransactions.slice(0, 2))
+      setProgress(30)
 
       if (parsedTransactions.length === 0) {
         setError('No transactions found in file')
         setStatus('error')
+        isProcessingRef.current = false
         return
       }
 
-      // Step 2: Auto-create credit cards for unique card numbers
+      // Step 2: Auto-create credit cards for unique card numbers (30-50%)
       setStatus('saving')
+      setProgress(40)
 
       const uniqueCards = [...new Set(parsedTransactions.map(tx => tx.cardLastFour))]
-      console.log('[CreditCardUpload] Unique cards found:', uniqueCards)
-
-      // Build map of cardLastFour -> card ID
       const cardIdMap: Record<string, string> = {}
 
       for (const cardLastFour of uniqueCards) {
-        // Check if card exists
         const { data: existing, error: fetchError } = await supabase
           .from('credit_cards')
           .select('id')
@@ -84,19 +88,16 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
           .maybeSingle()
 
         if (fetchError) {
-          console.error('[CreditCardUpload] Error fetching card:', fetchError)
           throw new Error(`Failed to check existing cards: ${fetchError.message}`)
         }
 
         if (existing) {
           cardIdMap[cardLastFour] = existing.id
-          console.log('[CreditCardUpload] Card already exists:', cardLastFour, existing.id)
         } else {
-          // Create new card
           const newCard: CreditCardInsert = {
             user_id: user.id,
             card_last_four: cardLastFour,
-            card_type: 'visa', // default, user can edit later
+            card_type: 'visa',
           }
 
           const { data: created, error: createError } = await supabase
@@ -106,22 +107,21 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
             .single()
 
           if (createError) {
-            console.error('[CreditCardUpload] Error creating card:', createError)
             throw new Error(`Failed to create card: ${createError.message}`)
           }
 
           cardIdMap[cardLastFour] = created.id
-          console.log('[CreditCardUpload] Created new card:', cardLastFour, created.id)
         }
       }
 
-      // Step 3: Generate hashes for all transactions
+      setProgress(50)
+
+      // Step 3: Generate hashes and check duplicates (50-70%)
       const txWithHashes = parsedTransactions.map((tx) => ({
         tx,
         hash: utf8ToBase64(`cc|${tx.date}|${tx.merchantName.trim()}|${tx.amountAgorot}|${tx.cardLastFour}`),
       }))
 
-      // Fetch existing hashes in ONE query
       const allHashes = txWithHashes.map((t) => t.hash)
       const { data: existingRows } = await supabase
         .from('transactions')
@@ -130,21 +130,28 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
         .in('hash', allHashes)
 
       const existingHashes = new Set((existingRows || []).map((r) => r.hash))
-
-      // Filter out duplicates client-side
       const newTransactions = txWithHashes.filter((t) => !existingHashes.has(t.hash))
       const duplicates = txWithHashes.length - newTransactions.length
 
-      console.log('[CreditCardUpload] Found', duplicates, 'duplicates,', newTransactions.length, 'new transactions')
+      setProgress(70)
 
       if (newTransactions.length === 0) {
         setSavedCount(0)
         setDuplicateCount(duplicates)
+        setProgress(100)
         setStatus('success')
+
+        // Auto-clear after 2 seconds
+        setTimeout(() => {
+          setCurrentFile(null)
+          setStatus('idle')
+          setProgress(0)
+          isProcessingRef.current = false
+        }, 2000)
         return
       }
 
-      // Step 4: Create insert objects for all new transactions
+      // Step 4: Insert transactions (70-100%)
       const inserts: TransactionInsert[] = newTransactions.map(({ tx, hash }) => ({
         user_id: user.id,
         date: tx.date,
@@ -152,61 +159,59 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
         description: tx.merchantName,
         reference: tx.transactionType,
         amount_agorot: tx.amountAgorot,
-        balance_agorot: null, // Credit card transactions don't have balances
-        is_income: tx.amountAgorot > 0,
-        is_credit_card_charge: false, // Detail rows, not bank charges
+        balance_agorot: null,
+        is_income: tx.amountAgorot < 0,
+        is_credit_card_charge: false,
         linked_credit_card_id: cardIdMap[tx.cardLastFour],
         channel: tx.notes,
         source_file_id: null,
         hash: hash,
         match_status: 'unmatched',
-        // Foreign currency info
         foreign_amount_cents: tx.foreignAmount ? Math.round(tx.foreignAmount * 100) : null,
         foreign_currency: tx.foreignCurrency,
       }))
 
-      // Batch insert ALL transactions in ONE query
+      setProgress(85)
+
       const { error: insertError, data: insertedData } = await supabase
         .from('transactions')
         .insert(inserts)
         .select()
 
       if (insertError) {
-        console.error('[CreditCardUpload] Batch insert failed:', insertError)
         throw new Error(`Failed to save transactions: ${insertError.message}`)
       }
 
       const saved = insertedData?.length || 0
-      console.log('[CreditCardUpload] Batch insert complete. Saved:', saved, 'Duplicates:', duplicates)
-
       setSavedCount(saved)
       setDuplicateCount(duplicates)
+      setProgress(100)
       setStatus('success')
+
+      // Auto-clear after 2 seconds
+      setTimeout(() => {
+        setCurrentFile(null)
+        setStatus('idle')
+        setProgress(0)
+        isProcessingRef.current = false
+      }, 2000)
+
     } catch (err) {
       console.error('Error processing credit card statement:', err)
       setError(err instanceof Error ? err.message : 'Unknown error occurred')
       setStatus('error')
+      isProcessingRef.current = false
     }
-  }, [file, user])
-
-  const reset = useCallback(() => {
-    setFile(null)
-    setStatus('idle')
-    setError(null)
-    setParsedCount(0)
-    setSavedCount(0)
-    setDuplicateCount(0)
-  }, [])
+  }, [user])
 
   return {
-    file,
+    currentFile,
     status,
+    progress,
     error,
-    parsedCount,
     savedCount,
     duplicateCount,
-    selectFile,
-    processFile,
-    reset,
+    isProcessing,
+    addFile,
   }
 }
