@@ -478,6 +478,63 @@ export interface Database {
           }
         ]
       }
+      profiles: {
+        Row: {
+          id: string
+          user_id: string
+          full_name: string | null
+          avatar_url: string | null
+          company_name: string | null
+          company_address: string | null
+          tax_id: string | null
+          currency: 'ILS' | 'USD' | 'EUR' | 'GBP'
+          date_format: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
+          number_format: 'comma_dot' | 'space_comma' | 'dot_comma'
+          email_new_invoice: boolean
+          email_payment_received: boolean
+          email_weekly_summary: boolean
+          email_bank_sync_alerts: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          full_name?: string | null
+          avatar_url?: string | null
+          company_name?: string | null
+          company_address?: string | null
+          tax_id?: string | null
+          currency?: 'ILS' | 'USD' | 'EUR' | 'GBP'
+          date_format?: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
+          number_format?: 'space_comma' | 'comma_dot' | 'dot_comma'
+          email_new_invoice?: boolean
+          email_payment_received?: boolean
+          email_weekly_summary?: boolean
+          email_bank_sync_alerts?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          full_name?: string | null
+          avatar_url?: string | null
+          company_name?: string | null
+          company_address?: string | null
+          tax_id?: string | null
+          currency?: 'ILS' | 'USD' | 'EUR' | 'GBP'
+          date_format?: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
+          number_format?: 'space_comma' | 'comma_dot' | 'dot_comma'
+          email_new_invoice?: boolean
+          email_payment_received?: boolean
+          email_weekly_summary?: boolean
+          email_bank_sync_alerts?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -530,6 +587,16 @@ export type MerchantVatPreferenceUpdate = Database['public']['Tables']['merchant
 export type CCBankMatchResult = Database['public']['Tables']['cc_bank_match_results']['Row']
 export type CCBankMatchResultInsert = Database['public']['Tables']['cc_bank_match_results']['Insert']
 export type CCBankMatchResultUpdate = Database['public']['Tables']['cc_bank_match_results']['Update']
+
+// Profile types
+export type Profile = Database['public']['Tables']['profiles']['Row']
+export type ProfileInsert = Database['public']['Tables']['profiles']['Insert']
+export type ProfileUpdate = Database['public']['Tables']['profiles']['Update']
+
+// Currency and format types
+export type Currency = Profile['currency']
+export type DateFormat = Profile['date_format']
+export type NumberFormat = Profile['number_format']
 
 // Transaction type enum for the new simplified CC schema
 export type TransactionType = 'bank_regular' | 'bank_cc_charge' | 'cc_purchase'

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { Key } from 'react-aria-components'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router'
 import {
   CogIcon,
   DocumentDuplicateIcon,
@@ -14,14 +14,23 @@ import {
   PencilIcon,
   CheckIcon,
   XMarkIcon,
+  BuildingOfficeIcon,
+  GlobeAltIcon,
+  BellIcon,
+  CameraIcon,
+  EnvelopeIcon,
 } from '@heroicons/react/24/outline'
 import { useSettingsStore, type DuplicateAction, type MatchingTrigger } from '@/stores/settingsStore'
 import { useCreditCards, useCreateCreditCard, useDeleteCreditCard, useUpdateCreditCard } from '@/hooks/useCreditCards'
-import { Tabs, type TabItem } from '@/components/ui/base/tabs/tabs'
+import { useProfile, useUpdateProfile, useUploadAvatar, useRemoveAvatar } from '@/hooks/useProfile'
+import { useAuth } from '@/contexts/AuthContext'
 import { ConfirmDialog } from '@/components/ui/base/modal/confirm-dialog'
 import { cx } from '@/utils/cx'
+import type { Currency, DateFormat, NumberFormat } from '@/types/database'
 
-const settingsTabs: TabItem[] = [
+type SettingsTabId = 'profile' | 'team' | 'rules' | 'credit-cards' | 'billing'
+
+const settingsTabs: { id: SettingsTabId; label: string }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'team', label: 'Team' },
   { id: 'rules', label: 'Rules' },
@@ -34,11 +43,13 @@ interface SettingsSectionProps {
   title: string
   description: string
   children: React.ReactNode
+  id?: string
+  sectionRef?: React.RefObject<HTMLDivElement | null>
 }
 
-function SettingsSection({ icon: Icon, title, description, children }: SettingsSectionProps) {
+function SettingsSection({ icon: Icon, title, description, children, id, sectionRef }: SettingsSectionProps) {
   return (
-    <div className="bg-surface rounded-lg p-6">
+    <div id={id} ref={sectionRef} className="bg-surface rounded-lg p-6 scroll-mt-24">
       <div className="flex items-start gap-4 mb-6">
         <div className="p-2 bg-primary/10 rounded-lg">
           <Icon className="w-5 h-5 text-primary" />
@@ -181,18 +192,465 @@ function Select<T extends string>({ label, description, value, options, onChange
   )
 }
 
+// Currency options
+const CURRENCY_OPTIONS: { value: Currency; label: string; symbol: string }[] = [
+  { value: 'ILS', label: 'Israeli Shekel', symbol: '₪' },
+  { value: 'USD', label: 'US Dollar', symbol: '$' },
+  { value: 'EUR', label: 'Euro', symbol: '€' },
+  { value: 'GBP', label: 'British Pound', symbol: '£' },
+]
+
+// Date format options
+const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string; example: string }[] = [
+  { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY', example: '29/01/2026' },
+  { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY', example: '01/29/2026' },
+  { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD', example: '2026-01-29' },
+]
+
+// Number format options
+const NUMBER_FORMAT_OPTIONS: { value: NumberFormat; label: string; example: string }[] = [
+  { value: 'space_comma', label: 'Space + Comma', example: '1 234,56' },
+  { value: 'comma_dot', label: 'Comma + Dot', example: '1,234.56' },
+  { value: 'dot_comma', label: 'Dot + Comma', example: '1.234,56' },
+]
+
+interface TextInputProps {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  disabled?: boolean
+  type?: 'text' | 'email' | 'tel'
+  description?: string
+}
+
+function TextInput({ label, value, onChange, placeholder, disabled, type = 'text', description }: TextInputProps) {
+  return (
+    <div className="py-2">
+      <label className="block text-sm font-medium text-text mb-1">{label}</label>
+      {description && <p className="text-xs text-text-muted mb-2">{description}</p>}
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        className={cx(
+          'w-full px-3 py-2 bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary transition-colors',
+          disabled && 'opacity-60 cursor-not-allowed bg-text-muted/10'
+        )}
+      />
+    </div>
+  )
+}
+
+interface TextAreaInputProps {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  rows?: number
+  description?: string
+}
+
+function TextAreaInput({ label, value, onChange, placeholder, rows = 3, description }: TextAreaInputProps) {
+  return (
+    <div className="py-2">
+      <label className="block text-sm font-medium text-text mb-1">{label}</label>
+      {description && <p className="text-xs text-text-muted mb-2">{description}</p>}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={rows}
+        className="w-full px-3 py-2 bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary resize-none transition-colors"
+      />
+    </div>
+  )
+}
+
+interface DropdownSelectProps<T extends string> {
+  label: string
+  value: T
+  options: { value: T; label: string; extra?: string }[]
+  onChange: (value: T) => void
+  description?: string
+}
+
+function DropdownSelect<T extends string>({ label, value, options, onChange, description }: DropdownSelectProps<T>) {
+  return (
+    <div className="py-2">
+      <label className="block text-sm font-medium text-text mb-1">{label}</label>
+      {description && <p className="text-xs text-text-muted mb-2">{description}</p>}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="w-full px-3 py-2 bg-surface border border-text-muted/20 rounded-lg text-text focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}{option.extra ? ` (${option.extra})` : ''}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 function ProfileTab() {
+  const { user } = useAuth()
+  const { profile, isLoading } = useProfile()
+  const updateProfile = useUpdateProfile()
+  const uploadAvatar = useUploadAvatar()
+  const removeAvatar = useRemoveAvatar()
+
+  // Form state
+  const [fullName, setFullName] = useState('')
+  const [companyName, setCompanyName] = useState('')
+  const [companyAddress, setCompanyAddress] = useState('')
+  const [taxId, setTaxId] = useState('')
+  const [currency, setCurrency] = useState<Currency>('ILS')
+  const [dateFormat, setDateFormat] = useState<DateFormat>('DD/MM/YYYY')
+  const [numberFormat, setNumberFormat] = useState<NumberFormat>('comma_dot')
+  const [emailNewInvoice, setEmailNewInvoice] = useState(true)
+  const [emailPaymentReceived, setEmailPaymentReceived] = useState(true)
+  const [emailWeeklySummary, setEmailWeeklySummary] = useState(false)
+  const [emailBankSyncAlerts, setEmailBankSyncAlerts] = useState(true)
+
+  // Track if form has unsaved changes
+  const [hasChanges, setHasChanges] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // File input ref
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Load profile data into form
+  useEffect(() => {
+    if (profile) {
+      setFullName(profile.full_name || '')
+      setCompanyName(profile.company_name || '')
+      setCompanyAddress(profile.company_address || '')
+      setTaxId(profile.tax_id || '')
+      setCurrency(profile.currency)
+      setDateFormat(profile.date_format)
+      setNumberFormat(profile.number_format)
+      setEmailNewInvoice(profile.email_new_invoice)
+      setEmailPaymentReceived(profile.email_payment_received)
+      setEmailWeeklySummary(profile.email_weekly_summary)
+      setEmailBankSyncAlerts(profile.email_bank_sync_alerts)
+    }
+  }, [profile])
+
+  // Track changes
+  const checkChanges = useCallback(() => {
+    if (!profile) {
+      // If no profile exists, any filled field is a change
+      return !!(fullName || companyName || companyAddress || taxId ||
+        currency !== 'ILS' || dateFormat !== 'DD/MM/YYYY' || numberFormat !== 'comma_dot' ||
+        !emailNewInvoice || !emailPaymentReceived || emailWeeklySummary || !emailBankSyncAlerts)
+    }
+    return (
+      fullName !== (profile.full_name || '') ||
+      companyName !== (profile.company_name || '') ||
+      companyAddress !== (profile.company_address || '') ||
+      taxId !== (profile.tax_id || '') ||
+      currency !== profile.currency ||
+      dateFormat !== profile.date_format ||
+      numberFormat !== profile.number_format ||
+      emailNewInvoice !== profile.email_new_invoice ||
+      emailPaymentReceived !== profile.email_payment_received ||
+      emailWeeklySummary !== profile.email_weekly_summary ||
+      emailBankSyncAlerts !== profile.email_bank_sync_alerts
+    )
+  }, [profile, fullName, companyName, companyAddress, taxId, currency, dateFormat, numberFormat, emailNewInvoice, emailPaymentReceived, emailWeeklySummary, emailBankSyncAlerts])
+
+  useEffect(() => {
+    setHasChanges(checkChanges())
+  }, [checkChanges])
+
+  // Handle save
+  const handleSave = async () => {
+    setIsSaving(true)
+    setSaveMessage(null)
+
+    try {
+      await updateProfile.mutateAsync({
+        full_name: fullName || null,
+        company_name: companyName || null,
+        company_address: companyAddress || null,
+        tax_id: taxId || null,
+        currency,
+        date_format: dateFormat,
+        number_format: numberFormat,
+        email_new_invoice: emailNewInvoice,
+        email_payment_received: emailPaymentReceived,
+        email_weekly_summary: emailWeeklySummary,
+        email_bank_sync_alerts: emailBankSyncAlerts,
+      })
+      setSaveMessage({ type: 'success', text: 'Profile saved successfully' })
+      setHasChanges(false)
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save profile' })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Handle avatar upload
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      await uploadAvatar.mutateAsync(file)
+      setSaveMessage({ type: 'success', text: 'Avatar uploaded successfully' })
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to upload avatar' })
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    try {
+      await removeAvatar.mutateAsync()
+      setSaveMessage({ type: 'success', text: 'Avatar removed' })
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to remove avatar' })
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
+      {/* Save message */}
+      {saveMessage && (
+        <div
+          className={cx(
+            'px-4 py-3 rounded-lg text-sm',
+            saveMessage.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+          )}
+        >
+          {saveMessage.text}
+        </div>
+      )}
+
+      {/* Personal Information */}
       <SettingsSection
         icon={UserIcon}
-        title="Profile"
-        description="Manage your personal information"
+        title="Personal Information"
+        description="Your personal details and profile picture"
       >
-        <div className="text-sm text-text-muted">
-          Profile settings coming soon...
+        {/* Avatar Section */}
+        <div className="flex items-center gap-6 py-4">
+          <div className="relative">
+            <div
+              className={cx(
+                'w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border-2 border-text-muted/20',
+                (uploadAvatar.isPending || removeAvatar.isPending) && 'opacity-50'
+              )}
+            >
+              {profile?.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <UserIcon className="w-12 h-12 text-text-muted" />
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleAvatarClick}
+              disabled={uploadAvatar.isPending}
+              className="absolute -bottom-1 -right-1 p-2 bg-primary rounded-full text-white hover:bg-primary/90 transition-colors shadow-lg disabled:opacity-50"
+              title="Upload photo"
+            >
+              <CameraIcon className="w-4 h-4" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm text-text">Profile Picture</p>
+            <p className="text-xs text-text-muted mt-1">JPEG, PNG, WebP or GIF. Max 5MB (auto-compressed).</p>
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                type="button"
+                onClick={handleAvatarClick}
+                disabled={uploadAvatar.isPending}
+                className="px-3 py-1.5 text-xs bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50"
+              >
+                {uploadAvatar.isPending ? 'Uploading...' : 'Upload'}
+              </button>
+              {profile?.avatar_url && (
+                <button
+                  type="button"
+                  onClick={handleRemoveAvatar}
+                  disabled={removeAvatar.isPending}
+                  className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                >
+                  {removeAvatar.isPending ? 'Removing...' : 'Remove'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-text-muted/10 pt-4">
+          <TextInput
+            label="Full Name"
+            value={fullName}
+            onChange={setFullName}
+            placeholder="Enter your full name"
+          />
+
+          <div className="py-2">
+            <label className="block text-sm font-medium text-text mb-1">Email</label>
+            <div className="flex items-center gap-2 px-3 py-2 bg-text-muted/10 border border-text-muted/20 rounded-lg">
+              <EnvelopeIcon className="w-4 h-4 text-text-muted" />
+              <span className="text-text">{user?.email}</span>
+              <span className="text-xs text-text-muted ml-auto">From your account</span>
+            </div>
+          </div>
         </div>
       </SettingsSection>
+
+      {/* Business Information */}
+      <SettingsSection
+        icon={BuildingOfficeIcon}
+        title="Business Information"
+        description="Your company details for invoices and reports"
+      >
+        <TextInput
+          label="Company Name"
+          value={companyName}
+          onChange={setCompanyName}
+          placeholder="Enter your company name"
+        />
+
+        <TextAreaInput
+          label="Business Address"
+          value={companyAddress}
+          onChange={setCompanyAddress}
+          placeholder="Enter your business address"
+          rows={3}
+        />
+
+        <TextInput
+          label="Tax ID / VAT Number"
+          value={taxId}
+          onChange={setTaxId}
+          placeholder="Enter your tax ID or VAT number"
+          description="Used for compliance and official documents"
+        />
+      </SettingsSection>
+
+      {/* Regional Preferences */}
+      <SettingsSection
+        icon={GlobeAltIcon}
+        title="Regional Preferences"
+        description="Format settings for your region"
+      >
+        <DropdownSelect
+          label="Currency"
+          value={currency}
+          options={CURRENCY_OPTIONS.map((c) => ({ value: c.value, label: c.label, extra: c.symbol }))}
+          onChange={setCurrency}
+          description="Default currency for transactions and reports"
+        />
+
+        <DropdownSelect
+          label="Date Format"
+          value={dateFormat}
+          options={DATE_FORMAT_OPTIONS.map((d) => ({ value: d.value, label: d.label, extra: d.example }))}
+          onChange={setDateFormat}
+        />
+
+        <DropdownSelect
+          label="Number Format"
+          value={numberFormat}
+          options={NUMBER_FORMAT_OPTIONS.map((n) => ({ value: n.value, label: n.label, extra: n.example }))}
+          onChange={setNumberFormat}
+          description="How numbers and decimals are displayed"
+        />
+      </SettingsSection>
+
+      {/* Notifications */}
+      <SettingsSection
+        icon={BellIcon}
+        title="Email Notifications"
+        description="Choose what notifications you want to receive"
+      >
+        <Toggle
+          label="New invoice uploaded"
+          description="Get notified when a new invoice is uploaded"
+          checked={emailNewInvoice}
+          onChange={setEmailNewInvoice}
+        />
+        <Toggle
+          label="Payment received"
+          description="Get notified when a payment is received"
+          checked={emailPaymentReceived}
+          onChange={setEmailPaymentReceived}
+        />
+        <Toggle
+          label="Weekly summary"
+          description="Receive a weekly summary of your activity"
+          checked={emailWeeklySummary}
+          onChange={setEmailWeeklySummary}
+        />
+        <Toggle
+          label="Bank sync alerts"
+          description="Get notified about bank synchronization events"
+          checked={emailBankSyncAlerts}
+          onChange={setEmailBankSyncAlerts}
+        />
+      </SettingsSection>
+
+      {/* Save Button */}
+      <div className="flex items-center justify-between pt-4 border-t border-text-muted/10">
+        <p className="text-xs text-text-muted">
+          {hasChanges ? 'You have unsaved changes' : 'All changes saved'}
+        </p>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!hasChanges || isSaving}
+          className={cx(
+            'px-6 py-2 rounded-lg font-medium transition-colors',
+            hasChanges
+              ? 'bg-primary text-white hover:bg-primary/90'
+              : 'bg-text-muted/20 text-text-muted cursor-not-allowed'
+          )}
+        >
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -229,7 +687,11 @@ function BillingTab() {
   )
 }
 
-function RulesTab() {
+interface RulesTabProps {
+  ccLinkingRef?: React.RefObject<HTMLDivElement | null>
+}
+
+function RulesTab({ ccLinkingRef }: RulesTabProps) {
   const {
     autoExtractOnUpload,
     setAutoExtractOnUpload,
@@ -301,6 +763,8 @@ function RulesTab() {
 
       {/* CC-Bank Linking */}
       <SettingsSection
+        id="cc-linking"
+        sectionRef={ccLinkingRef}
         icon={CreditCardIcon}
         title="Credit Card Linking"
         description="Settings for linking credit card transactions to bank charges"
@@ -645,7 +1109,62 @@ function CreditCardsTab() {
 }
 
 export function SettingsPage() {
-  const [selectedTab, setSelectedTab] = useState<Key>('rules')
+  const [searchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') as SettingsTabId | null
+  const sectionParam = searchParams.get('section')
+  const validTabs: SettingsTabId[] = ['profile', 'team', 'rules', 'credit-cards', 'billing']
+
+  const [selectedTab, setSelectedTab] = useState<SettingsTabId>(
+    tabParam && validTabs.includes(tabParam) ? tabParam : 'rules'
+  )
+  const ccLinkingRef = useRef<HTMLDivElement>(null)
+
+  // Get current tab index
+  const currentTabIndex = settingsTabs.findIndex((tab) => tab.id === selectedTab)
+
+  // Keyboard navigation for tabs
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle if user is interacting with form controls
+      const activeEl = document.activeElement
+      const isFormControl = activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl instanceof HTMLSelectElement ||
+        activeEl?.getAttribute('role') === 'slider'
+
+      if (isFormControl) {
+        return
+      }
+
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        setSelectedTab(settingsTabs[(currentTabIndex + 1) % settingsTabs.length].id)
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setSelectedTab(settingsTabs[(currentTabIndex - 1 + settingsTabs.length) % settingsTabs.length].id)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [currentTabIndex])
+
+  // Scroll to section when specified in URL
+  useEffect(() => {
+    if (sectionParam === 'cc-linking' && ccLinkingRef.current) {
+      // Small delay to ensure the tab content is rendered
+      setTimeout(() => {
+        ccLinkingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+    }
+  }, [sectionParam, selectedTab])
+
+  // Sync tab with URL param
+  useEffect(() => {
+    if (tabParam && validTabs.includes(tabParam) && tabParam !== selectedTab) {
+      setSelectedTab(tabParam)
+    }
+  }, [tabParam])
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -659,31 +1178,33 @@ export function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs selectedKey={selectedTab} onSelectionChange={setSelectedTab}>
-        <Tabs.List type="underline" items={settingsTabs}>
-          {(tab) => <Tabs.Item key={tab.id} id={tab.id} label={tab.label} type="underline" />}
-        </Tabs.List>
+      <div className="flex justify-center mb-6">
+        <div className="flex border-b border-border">
+          {settingsTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSelectedTab(tab.id)}
+              className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                selectedTab === tab.id
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-muted hover:text-text hover:border-text-muted/30'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <Tabs.Panel id="profile">
-          <ProfileTab />
-        </Tabs.Panel>
-
-        <Tabs.Panel id="team">
-          <TeamTab />
-        </Tabs.Panel>
-
-        <Tabs.Panel id="rules">
-          <RulesTab />
-        </Tabs.Panel>
-
-        <Tabs.Panel id="credit-cards">
-          <CreditCardsTab />
-        </Tabs.Panel>
-
-        <Tabs.Panel id="billing">
-          <BillingTab />
-        </Tabs.Panel>
-      </Tabs>
+      {/* Tab Content */}
+      <div className="pt-6">
+        {selectedTab === 'profile' && <ProfileTab />}
+        {selectedTab === 'team' && <TeamTab />}
+        {selectedTab === 'rules' && <RulesTab ccLinkingRef={ccLinkingRef} />}
+        {selectedTab === 'credit-cards' && <CreditCardsTab />}
+        {selectedTab === 'billing' && <BillingTab />}
+      </div>
     </div>
   )
 }
