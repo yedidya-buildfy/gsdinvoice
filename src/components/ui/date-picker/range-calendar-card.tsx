@@ -172,11 +172,18 @@ export function RangeCalendarCard({ startDate, endDate, onChange, className }: R
   return (
     <div ref={containerRef} className={clsx('relative', className)}>
       {/* Trigger button */}
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setIsOpen(!isOpen)
+          }
+        }}
         className={clsx(
-          'flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors',
+          'flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors cursor-pointer',
           'bg-surface border-text-muted/20 text-text hover:border-primary/50',
           isOpen && 'border-primary ring-2 ring-primary/20'
         )}
@@ -195,7 +202,7 @@ export function RangeCalendarCard({ startDate, endDate, onChange, className }: R
             <XMarkIcon className="w-4 h-4 text-text-muted hover:text-text" />
           </button>
         )}
-      </button>
+      </div>
 
       {/* Dropdown - force LTR for calendar layout, open towards center */}
       {isOpen && (

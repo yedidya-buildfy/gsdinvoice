@@ -258,8 +258,8 @@ export function CreditCardTable({
             // Get card last four from joined credit_card relation
             const cardLastFour = tx.credit_card?.card_last_four || '-';
 
-            // Linked status - check if this CC transaction has a credit card linked
-            const isLinked = tx.linked_credit_card_id !== null;
+            // Linked status - check if this CC transaction is linked to a bank charge
+            const isLinked = tx.credit_card_id !== null;
 
             // Determine amount and currency to display
             // If foreign currency exists, show that; otherwise show ILS

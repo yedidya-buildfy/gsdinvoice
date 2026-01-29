@@ -3,9 +3,8 @@ import { parseCreditCardStatement, type ParsedCreditCardTransaction } from '@/li
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { runCCBankMatching } from '@/lib/services/ccBankMatcher'
-import { normalizeMerchantName } from '@/lib/utils/merchantParser'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { TransactionInsert, CreditCardInsert, CreditCardTransactionInsert } from '@/types/database'
+import type { TransactionInsert, CreditCardInsert } from '@/types/database'
 
 // UTF-8 safe base64 encoding for Hebrew text
 function utf8ToBase64(str: string): string {
@@ -160,7 +159,8 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
         return
       }
 
-      // Step 4: Insert into transactions table (for CC page display) (70-80%)
+      // Step 4: Insert into transactions table with transaction_type = 'cc_purchase' (70-90%)
+      // NEW SCHEMA: All CC data now lives in transactions table
       const inserts: TransactionInsert[] = newTransactions.map(({ tx, hash }) => ({
         user_id: user.id,
         date: tx.date,
@@ -171,7 +171,9 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
         balance_agorot: null,
         is_income: tx.amountAgorot < 0,
         is_credit_card_charge: false,
-        linked_credit_card_id: cardIdMap[tx.cardLastFour],
+        // NEW SCHEMA: Use credit_card_id and transaction_type instead of linked_credit_card_id
+        credit_card_id: cardIdMap[tx.cardLastFour],
+        transaction_type: 'cc_purchase',
         channel: tx.notes,
         source_file_id: null,
         hash: hash,
@@ -194,54 +196,6 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
       const saved = insertedData?.length || 0
       setSavedCount(saved)
       setDuplicateCount(duplicates)
-      setProgress(80)
-
-      // Step 5: Also insert into credit_card_transactions (for CC-Bank matching) (80-90%)
-      const ccTxHash = (tx: ParsedCreditCardTransaction) =>
-        utf8ToBase64(`cctx|${tx.date}|${tx.merchantName.trim()}|${tx.amountAgorot}|${tx.cardLastFour}|${tx.billingDate || ''}`)
-
-      // Check for existing CC transactions
-      const ccHashes = newTransactions.map(({ tx }) => ccTxHash(tx))
-      const { data: existingCCRows } = await supabase
-        .from('credit_card_transactions')
-        .select('hash')
-        .eq('user_id', user.id)
-        .in('hash', ccHashes)
-
-      const existingCCHashes = new Set((existingCCRows || []).map((r) => r.hash))
-      const newCCTransactions = newTransactions.filter(({ tx }) => !existingCCHashes.has(ccTxHash(tx)))
-
-      if (newCCTransactions.length > 0) {
-        const ccInserts: CreditCardTransactionInsert[] = newCCTransactions.map(({ tx }) => ({
-          user_id: user.id,
-          transaction_date: tx.date,
-          merchant_name: tx.merchantName,
-          amount_agorot: tx.amountAgorot,
-          currency: tx.foreignCurrency || 'ILS',
-          foreign_amount_cents: tx.foreignAmount ? Math.round(tx.foreignAmount * 100) : null,
-          foreign_currency: tx.foreignCurrency,
-          card_last_four: tx.cardLastFour,
-          charge_date: tx.billingDate || tx.date,
-          transaction_type: tx.transactionType,
-          notes: tx.notes,
-          bank_transaction_id: null,
-          match_status: 'unmatched',
-          match_confidence: null,
-          normalized_merchant: normalizeMerchantName(tx.merchantName),
-          hash: ccTxHash(tx),
-          source_file_id: null,
-          credit_card_id: cardIdMap[tx.cardLastFour],
-        }))
-
-        const { error: ccInsertError } = await supabase
-          .from('credit_card_transactions')
-          .insert(ccInserts)
-
-        if (ccInsertError) {
-          console.warn('Failed to insert CC transactions for matching:', ccInsertError.message)
-        }
-      }
-
       setProgress(90)
 
       // Step 6: Run CC-Bank matching if enabled (90-100%)

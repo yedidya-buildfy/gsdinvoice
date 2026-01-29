@@ -93,13 +93,15 @@ export interface LinkingResult {
 }
 
 /**
- * Link credit card transactions to bank charges
+ * Link credit card bank charges to credit cards
+ *
+ * NEW SCHEMA: Uses transaction_type = 'bank_cc_charge' and credit_card_id
  *
  * Process:
- * 1. Fetch bank charges (is_credit_card_charge=true) without linked_credit_card_id
+ * 1. Fetch bank CC charges (transaction_type='bank_cc_charge') without credit_card_id
  * 2. For each charge, extract card last four from description
  * 3. Find matching credit card by card_last_four
- * 4. Update bank charge with linked_credit_card_id
+ * 4. Update bank charge with credit_card_id
  *
  * @param userId User ID to link for
  * @param cardId Optional card ID to link only specific card
@@ -111,13 +113,13 @@ export async function linkCreditCardTransactions(
   const result: LinkingResult = { linked: 0, unlinked: 0, errors: [] };
 
   try {
-    // Fetch bank charges needing linking
+    // Fetch bank CC charges needing linking (using transaction_type = 'bank_cc_charge')
     const { data: bankCharges, error: bankError } = await supabase
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
-      .eq('is_credit_card_charge', true)
-      .is('linked_credit_card_id', null);
+      .eq('transaction_type', 'bank_cc_charge')
+      .is('credit_card_id', null);
 
     if (bankError) {
       result.errors.push(`Failed to fetch bank charges: ${bankError.message}`);
@@ -170,12 +172,12 @@ export async function linkCreditCardTransactions(
       chargesByCardId.set(card.id, existing);
     }
 
-    // Batch update all charges for each card in parallel
+    // Batch update all charges for each card in parallel (using credit_card_id)
     const updatePromises = Array.from(chargesByCardId.entries()).map(
       async ([cardId, chargeIds]) => {
-        const { error: updateError, count } = await supabase
+        const { error: updateError } = await supabase
           .from('transactions')
-          .update({ linked_credit_card_id: cardId })
+          .update({ credit_card_id: cardId })
           .in('id', chargeIds);
 
         if (updateError) {

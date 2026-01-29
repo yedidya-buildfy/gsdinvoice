@@ -120,8 +120,10 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
       }
 
       // Step 3: Insert transactions (60-80%)
+      // NEW SCHEMA: Use transaction_type instead of is_credit_card_charge
       const inserts: TransactionInsert[] = newTransactions.map(({ tx, hash }) => {
         const cardLastFour = detectCreditCardCharge(tx.description)
+        const isCCCharge = cardLastFour !== null
 
         return {
           user_id: user.id,
@@ -132,7 +134,8 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
           amount_agorot: tx.amountAgorot,
           balance_agorot: tx.balanceAgorot,
           is_income: tx.amountAgorot > 0,
-          is_credit_card_charge: cardLastFour !== null,
+          is_credit_card_charge: isCCCharge, // Keep for backward compatibility
+          transaction_type: isCCCharge ? 'bank_cc_charge' : 'bank_regular',
           source_file_id: null,
           hash: hash,
           match_status: 'unmatched',

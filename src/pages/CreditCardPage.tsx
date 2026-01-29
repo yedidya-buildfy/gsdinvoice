@@ -128,11 +128,11 @@ export function CreditCardPage() {
   const [selectedCCChargeId, setSelectedCCChargeId] = useState<string | null>(null)
   const [ccTransactionToLink, setCCTransactionToLink] = useState<string | null>(null)
 
-  // Filter by selected cards first
+  // Filter by selected cards first (using new credit_card_id field)
   const transactions = useMemo(() => {
     if (selectedCardIds.length === 0) return allTransactions // All cards
     return allTransactions.filter((tx) =>
-      tx.linked_credit_card_id && selectedCardIds.includes(tx.linked_credit_card_id)
+      tx.credit_card_id && selectedCardIds.includes(tx.credit_card_id)
     )
   }, [allTransactions, selectedCardIds])
 

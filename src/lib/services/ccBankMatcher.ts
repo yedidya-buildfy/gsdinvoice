@@ -6,16 +6,31 @@
  * - Card last 4 digits matching
  * - Charge date (מועד חיוב) with configurable ±N days tolerance
  * - Amount validation with discrepancy calculation
+ *
+ * NEW SCHEMA: All CC data is now in `transactions` table with transaction_type = 'cc_purchase'
  */
 
 import { supabase } from '@/lib/supabase'
 import { detectCreditCardCharge } from './creditCardLinker'
-import { normalizeMerchantName } from '@/lib/utils/merchantParser'
 import type {
-  CreditCardTransaction,
   Transaction,
   CCBankMatchResultInsert,
 } from '@/types/database'
+
+// CC purchase transaction shape (from transactions table with transaction_type = 'cc_purchase')
+interface CCPurchaseTransaction {
+  id: string
+  user_id: string
+  date: string
+  value_date: string | null  // charge_date
+  description: string  // merchant_name
+  amount_agorot: number
+  credit_card_id: string | null
+  parent_bank_charge_id: string | null
+  match_status: string
+  match_confidence: number | null
+  credit_card?: { card_last_four: string } | null
+}
 
 export interface MatchingSettings {
   dateToleranceDays: number
@@ -32,7 +47,7 @@ export interface MatchingResult {
 interface CCGroup {
   cardLastFour: string
   chargeDate: string
-  transactions: CreditCardTransaction[]
+  transactions: CCPurchaseTransaction[]
   totalAmountAgorot: number
 }
 
@@ -84,18 +99,21 @@ function calculateConfidence(
 }
 
 /**
- * Group CC transactions by card_last_four and charge_date
+ * Group CC transactions by card_last_four and charge_date (value_date)
+ * NEW SCHEMA: Uses transactions table with credit_card relation
  */
-function groupCCTransactions(transactions: CreditCardTransaction[]): Map<string, CCGroup> {
+function groupCCTransactions(transactions: CCPurchaseTransaction[]): Map<string, CCGroup> {
   const groups = new Map<string, CCGroup>()
 
   for (const tx of transactions) {
-    const key = `${tx.card_last_four}|${tx.charge_date}`
+    const cardLastFour = tx.credit_card?.card_last_four || ''
+    const chargeDate = tx.value_date || tx.date  // value_date is the charge_date
+    const key = `${cardLastFour}|${chargeDate}`
 
     if (!groups.has(key)) {
       groups.set(key, {
-        cardLastFour: tx.card_last_four,
-        chargeDate: tx.charge_date,
+        cardLastFour,
+        chargeDate,
         transactions: [],
         totalAmountAgorot: 0,
       })
@@ -161,16 +179,18 @@ function findBestBankMatch(
 /**
  * Run CC-Bank matching algorithm
  *
+ * NEW SCHEMA: All CC data is now in `transactions` table with transaction_type = 'cc_purchase'
+ *
  * Algorithm:
- * 1. Fetch unmatched CC transactions
- * 2. Group by (card_last_four, charge_date) using Map
- * 3. Fetch bank CC charges (is_credit_card_charge = true)
+ * 1. Fetch unmatched CC purchase transactions
+ * 2. Group by (card_last_four, charge_date/value_date) using Map
+ * 3. Fetch bank CC charges (transaction_type = 'bank_cc_charge')
  * 4. For each group, find bank tx where:
  *    - detectCreditCardCharge(description) === card_last_four
  *    - date within ±N days of charge_date
  * 5. Score by date proximity + amount similarity
  * 6. Calculate discrepancy: bank_amount - SUM(cc_amounts)
- * 7. Batch update CC transactions with bank_transaction_id
+ * 7. Batch update CC transactions with parent_bank_charge_id
  * 8. Insert match result record
  */
 export async function runCCBankMatching(
@@ -185,11 +205,12 @@ export async function runCCBankMatching(
   }
 
   try {
-    // 1. Fetch unmatched CC transactions
+    // 1. Fetch unmatched CC purchase transactions with credit card info
     const { data: unmatchedCC, error: ccError } = await supabase
-      .from('credit_card_transactions')
-      .select('*')
+      .from('transactions')
+      .select('id, user_id, date, value_date, description, amount_agorot, credit_card_id, parent_bank_charge_id, match_status, match_confidence, credit_cards!credit_card_id(card_last_four)')
       .eq('user_id', userId)
+      .eq('transaction_type', 'cc_purchase')
       .eq('match_status', 'unmatched')
 
     if (ccError) {
@@ -201,15 +222,21 @@ export async function runCCBankMatching(
       return result // Nothing to match
     }
 
-    // 2. Group by (card_last_four, charge_date)
-    const ccGroups = groupCCTransactions(unmatchedCC)
+    // Transform to CCPurchaseTransaction shape
+    const ccTransactions: CCPurchaseTransaction[] = unmatchedCC.map(tx => ({
+      ...tx,
+      credit_card: tx.credit_cards as { card_last_four: string } | null,
+    }))
 
-    // 3. Fetch bank CC charges
+    // 2. Group by (card_last_four, charge_date)
+    const ccGroups = groupCCTransactions(ccTransactions)
+
+    // 3. Fetch bank CC charges (using transaction_type = 'bank_cc_charge')
     const { data: bankCharges, error: bankError } = await supabase
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
-      .eq('is_credit_card_charge', true)
+      .eq('transaction_type', 'bank_cc_charge')
 
     if (bankError) {
       result.errors.push(`Failed to fetch bank charges: ${bankError.message}`)
@@ -261,17 +288,17 @@ export async function runCCBankMatching(
       result.totalDiscrepancyAgorot += discrepancy
     }
 
-    // 7. Batch update CC transactions
+    // 7. Batch update CC transactions (using parent_bank_charge_id instead of bank_transaction_id)
     for (let i = 0; i < updateBatches.length; i += BATCH_SIZE) {
       const batch = updateBatches.slice(i, i + BATCH_SIZE)
 
       await Promise.all(
         batch.map(async ({ ccIds, bankTxId, confidence }) => {
-          // Update CC transactions
+          // Update CC purchase transactions with parent_bank_charge_id
           const { error: updateError } = await supabase
-            .from('credit_card_transactions')
+            .from('transactions')
             .update({
-              bank_transaction_id: bankTxId,
+              parent_bank_charge_id: bankTxId,
               match_status: 'matched',
               match_confidence: confidence,
             })
@@ -318,42 +345,6 @@ export async function runCCBankMatching(
   }
 }
 
-/**
- * Normalize merchant name for a CC transaction and update the record
- */
-export async function normalizeCCMerchant(
-  transactionId: string,
-  merchantName: string
-): Promise<void> {
-  const normalized = normalizeMerchantName(merchantName)
-  await supabase
-    .from('credit_card_transactions')
-    .update({ normalized_merchant: normalized })
-    .eq('id', transactionId)
-}
-
-/**
- * Batch normalize all CC transactions without normalized_merchant
- */
-export async function batchNormalizeCCMerchants(userId: string): Promise<number> {
-  const { data: transactions, error } = await supabase
-    .from('credit_card_transactions')
-    .select('id, merchant_name')
-    .eq('user_id', userId)
-    .is('normalized_merchant', null)
-
-  if (error || !transactions) return 0
-
-  let updated = 0
-  for (const tx of transactions) {
-    const normalized = normalizeMerchantName(tx.merchant_name)
-    const { error: updateError } = await supabase
-      .from('credit_card_transactions')
-      .update({ normalized_merchant: normalized })
-      .eq('id', tx.id)
-
-    if (!updateError) updated++
-  }
-
-  return updated
-}
+// Note: normalizeCCMerchant and batchNormalizeCCMerchants functions removed
+// as credit_card_transactions table no longer exists.
+// CC purchase data is now in transactions table with transaction_type = 'cc_purchase'

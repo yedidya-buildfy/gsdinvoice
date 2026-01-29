@@ -134,6 +134,11 @@ export interface Database {
           vat_percentage: number
           vat_amount_agorot: number | null
           created_at: string
+          // New simplified CC schema fields
+          transaction_type: 'bank_regular' | 'bank_cc_charge' | 'cc_purchase' | null
+          credit_card_id: string | null
+          parent_bank_charge_id: string | null
+          match_confidence: number | null
         }
         Insert: {
           id?: string
@@ -157,6 +162,11 @@ export interface Database {
           vat_percentage?: number
           vat_amount_agorot?: number | null
           created_at?: string
+          // New simplified CC schema fields
+          transaction_type?: 'bank_regular' | 'bank_cc_charge' | 'cc_purchase' | null
+          credit_card_id?: string | null
+          parent_bank_charge_id?: string | null
+          match_confidence?: number | null
         }
         Update: {
           id?: string
@@ -180,6 +190,11 @@ export interface Database {
           vat_percentage?: number
           vat_amount_agorot?: number | null
           created_at?: string
+          // New simplified CC schema fields
+          transaction_type?: 'bank_regular' | 'bank_cc_charge' | 'cc_purchase' | null
+          credit_card_id?: string | null
+          parent_bank_charge_id?: string | null
+          match_confidence?: number | null
         }
         Relationships: [
           {
@@ -192,6 +207,18 @@ export interface Database {
             foreignKeyName: 'transactions_source_file_id_fkey'
             columns: ['source_file_id']
             referencedRelation: 'files'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'transactions_credit_card_id_fkey'
+            columns: ['credit_card_id']
+            referencedRelation: 'credit_cards'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'transactions_parent_bank_charge_id_fkey'
+            columns: ['parent_bank_charge_id']
+            referencedRelation: 'transactions'
             referencedColumns: ['id']
           }
         ]
@@ -384,99 +411,15 @@ export interface Database {
         }
         Relationships: []
       }
-      credit_card_transactions: {
-        Row: {
-          id: string
-          user_id: string
-          transaction_date: string
-          merchant_name: string
-          amount_agorot: number
-          currency: string
-          foreign_amount_cents: number | null
-          foreign_currency: string | null
-          card_last_four: string
-          charge_date: string
-          transaction_type: string | null
-          notes: string | null
-          bank_transaction_id: string | null
-          match_status: string
-          match_confidence: number | null
-          normalized_merchant: string | null
-          hash: string | null
-          source_file_id: string | null
-          credit_card_id: string | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          transaction_date: string
-          merchant_name: string
-          amount_agorot: number
-          currency?: string
-          foreign_amount_cents?: number | null
-          foreign_currency?: string | null
-          card_last_four: string
-          charge_date: string
-          transaction_type?: string | null
-          notes?: string | null
-          bank_transaction_id?: string | null
-          match_status?: string
-          match_confidence?: number | null
-          normalized_merchant?: string | null
-          hash?: string | null
-          source_file_id?: string | null
-          credit_card_id?: string | null
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          transaction_date?: string
-          merchant_name?: string
-          amount_agorot?: number
-          currency?: string
-          foreign_amount_cents?: number | null
-          foreign_currency?: string | null
-          card_last_four?: string
-          charge_date?: string
-          transaction_type?: string | null
-          notes?: string | null
-          bank_transaction_id?: string | null
-          match_status?: string
-          match_confidence?: number | null
-          normalized_merchant?: string | null
-          hash?: string | null
-          source_file_id?: string | null
-          credit_card_id?: string | null
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: 'credit_card_transactions_bank_transaction_id_fkey'
-            columns: ['bank_transaction_id']
-            referencedRelation: 'transactions'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'credit_card_transactions_source_file_id_fkey'
-            columns: ['source_file_id']
-            referencedRelation: 'files'
-            referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'credit_card_transactions_credit_card_id_fkey'
-            columns: ['credit_card_id']
-            referencedRelation: 'credit_cards'
-            referencedColumns: ['id']
-          }
-        ]
-      }
+      // credit_card_transactions table REMOVED - all CC data now in transactions table
+      // with transaction_type = 'cc_purchase'
+
       cc_bank_match_results: {
         Row: {
           id: string
           user_id: string
           bank_transaction_id: string
+          bank_charge_id: string | null  // New field - preferred over bank_transaction_id
           card_last_four: string
           charge_date: string
           total_cc_amount_agorot: number
@@ -492,6 +435,7 @@ export interface Database {
           id?: string
           user_id: string
           bank_transaction_id: string
+          bank_charge_id?: string | null  // New field - preferred over bank_transaction_id
           card_last_four: string
           charge_date: string
           total_cc_amount_agorot: number
@@ -507,6 +451,7 @@ export interface Database {
           id?: string
           user_id?: string
           bank_transaction_id?: string
+          bank_charge_id?: string | null  // New field - preferred over bank_transaction_id
           card_last_four?: string
           charge_date?: string
           total_cc_amount_agorot?: number
@@ -522,6 +467,12 @@ export interface Database {
           {
             foreignKeyName: 'cc_bank_match_results_bank_transaction_id_fkey'
             columns: ['bank_transaction_id']
+            referencedRelation: 'transactions'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'cc_bank_match_results_bank_charge_id_fkey'
+            columns: ['bank_charge_id']
             referencedRelation: 'transactions'
             referencedColumns: ['id']
           }
@@ -574,10 +525,11 @@ export type MerchantVatPreference = Database['public']['Tables']['merchant_vat_p
 export type MerchantVatPreferenceInsert = Database['public']['Tables']['merchant_vat_preferences']['Insert']
 export type MerchantVatPreferenceUpdate = Database['public']['Tables']['merchant_vat_preferences']['Update']
 
-export type CreditCardTransaction = Database['public']['Tables']['credit_card_transactions']['Row']
-export type CreditCardTransactionInsert = Database['public']['Tables']['credit_card_transactions']['Insert']
-export type CreditCardTransactionUpdate = Database['public']['Tables']['credit_card_transactions']['Update']
+// CreditCardTransaction types REMOVED - use Transaction with transaction_type = 'cc_purchase' instead
 
 export type CCBankMatchResult = Database['public']['Tables']['cc_bank_match_results']['Row']
 export type CCBankMatchResultInsert = Database['public']['Tables']['cc_bank_match_results']['Insert']
 export type CCBankMatchResultUpdate = Database['public']['Tables']['cc_bank_match_results']['Update']
+
+// Transaction type enum for the new simplified CC schema
+export type TransactionType = 'bank_regular' | 'bank_cc_charge' | 'cc_purchase'

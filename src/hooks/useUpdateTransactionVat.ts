@@ -120,9 +120,10 @@ export function useUpdateTransactionVat() {
     setIsUpdating(true)
     try {
       // Fetch all transactions for this user (we'll filter in JS for smart matching)
+      // NEW SCHEMA: use credit_card_id instead of linked_credit_card_id
       const { data: allTransactions, error: fetchError } = await supabase
         .from('transactions')
-        .select('id, amount_agorot, description, is_income, linked_credit_card_id')
+        .select('id, amount_agorot, description, is_income, credit_card_id, transaction_type')
         .eq('user_id', userId)
 
       if (fetchError) throw fetchError
@@ -135,7 +136,7 @@ export function useUpdateTransactionVat() {
       // For bank transactions: exclude income (income doesn't need VAT)
       // For credit card transactions: include all (CC expenses may have is_income wrongly set)
       const matchingTransactions = allTransactions.filter((tx) => {
-        const isCreditCard = tx.linked_credit_card_id !== null
+        const isCreditCard = tx.transaction_type === 'cc_purchase' || tx.credit_card_id !== null
         // Skip bank income transactions (not CC transactions)
         if (!isCreditCard && tx.is_income) return false
         return isSameMerchant(tx.description, merchantName)

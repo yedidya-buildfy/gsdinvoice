@@ -239,7 +239,7 @@ export function TransactionTable({
                   />
                 </td>
                 <td className="px-4 py-3 text-start text-sm" dir="auto">
-                  {tx.is_credit_card_charge && onCCChargeClick ? (
+                  {(tx.is_credit_card_charge || tx.transaction_type === 'bank_cc_charge') && onCCChargeClick ? (
                     <button
                       type="button"
                       onClick={(e) => {

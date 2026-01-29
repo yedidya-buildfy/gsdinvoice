@@ -10,7 +10,7 @@ export interface TransactionWithCard extends Transaction {
     card_name: string | null
     card_type: string
   } | null
-  cc_bank_link_id?: string | null  // bank_transaction_id from credit_card_transactions
+  cc_bank_link_id?: string | null  // Now parent_bank_charge_id in transactions table
 }
 
 interface UseCreditCardsReturn {
@@ -59,11 +59,11 @@ export function useDeleteCreditCard() {
 
   return useMutation({
     mutationFn: async (cardId: string) => {
-      // First, unlink all transactions from this card
+      // First, unlink all transactions from this card (using new credit_card_id field)
       const { error: unlinkError } = await supabase
         .from('transactions')
-        .update({ linked_credit_card_id: null })
-        .eq('linked_credit_card_id', cardId)
+        .update({ credit_card_id: null })
+        .eq('credit_card_id', cardId)
 
       if (unlinkError) {
         throw new Error(`Failed to unlink transactions: ${unlinkError.message}`)
@@ -83,7 +83,7 @@ export function useDeleteCreditCard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['credit_cards'] })
-      queryClient.invalidateQueries({ queryKey: ['credit_card_transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['cc-purchases'] })
     },
   })
 }
@@ -173,23 +173,23 @@ async function fetchCreditCardTransactions(
 ): Promise<TransactionWithCard[]> {
   console.log('[useCreditCardTransactions] Fetching transactions for user:', userId, 'card:', cardId)
 
-  // Join with credit_cards to get card_last_four
+  // NEW SCHEMA: Query CC purchases from transactions table with transaction_type = 'cc_purchase'
+  // Join with credit_cards to get card_last_four using credit_card_id
   let query = supabase
     .from('transactions')
     .select(`
       *,
-      credit_card:credit_cards!linked_credit_card_id (
+      credit_card:credit_cards!credit_card_id (
         card_last_four,
         card_name,
         card_type
       )
     `)
     .eq('user_id', userId)
-    .eq('is_credit_card_charge', false)
-    .not('linked_credit_card_id', 'is', null)
+    .eq('transaction_type', 'cc_purchase')
 
   if (cardId) {
-    query = query.eq('linked_credit_card_id', cardId)
+    query = query.eq('credit_card_id', cardId)
   }
 
   const { data, error } = await query.order('date', { ascending: false })
@@ -199,35 +199,10 @@ async function fetchCreditCardTransactions(
 
   const transactions = (data || []) as TransactionWithCard[]
 
-  // Fetch credit_card_transactions to get bank_transaction_id via hash
-  // (Supabase doesn't support arbitrary LEFT JOINs on non-FK columns)
-  const hashes = transactions
-    .map((t) => t.hash)
-    .filter((h): h is string => h !== null)
-
-  if (hashes.length > 0) {
-    const { data: ccTxData } = await supabase
-      .from('credit_card_transactions')
-      .select('hash, bank_transaction_id')
-      .eq('user_id', userId)
-      .in('hash', hashes)
-
-    if (ccTxData && ccTxData.length > 0) {
-      // Build a map of hash -> bank_transaction_id
-      const hashToBankId = new Map<string, string | null>()
-      for (const ccTx of ccTxData) {
-        if (ccTx.hash) {
-          hashToBankId.set(ccTx.hash, ccTx.bank_transaction_id)
-        }
-      }
-
-      // Merge bank_transaction_id into transactions
-      for (const tx of transactions) {
-        if (tx.hash && hashToBankId.has(tx.hash)) {
-          tx.cc_bank_link_id = hashToBankId.get(tx.hash) ?? null
-        }
-      }
-    }
+  // NEW SCHEMA: parent_bank_charge_id is now directly on the transaction record
+  // No need to fetch from credit_card_transactions table
+  for (const tx of transactions) {
+    tx.cc_bank_link_id = tx.parent_bank_charge_id ?? null
   }
 
   return transactions
@@ -237,7 +212,7 @@ export function useCreditCardTransactions(cardId?: string): UseCreditCardTransac
   const { user } = useAuth()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['credit_card_transactions', user?.id, cardId],
+    queryKey: ['cc-purchases', user?.id, cardId],
     queryFn: () => fetchCreditCardTransactions(user!.id, cardId),
     enabled: !!user,
     staleTime: 30000, // 30s consistent with project pattern

@@ -3,9 +3,8 @@ import { parseCreditCardStatement, type ParsedCreditCardTransaction } from '@/li
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { runCCBankMatching, type MatchingResult } from '@/lib/services/ccBankMatcher'
-import { normalizeMerchantName } from '@/lib/utils/merchantParser'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { CreditCardTransactionInsert, CreditCardInsert } from '@/types/database'
+import type { TransactionInsert, CreditCardInsert } from '@/types/database'
 
 // UTF-8 safe base64 encoding for Hebrew text
 function utf8ToBase64(str: string): string {
@@ -126,6 +125,7 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
       setProgress(40)
 
       // Step 3: Generate hashes and check duplicates (40-60%)
+      // NEW SCHEMA: CC data is now in transactions table with transaction_type = 'cc_purchase'
       const txWithHashes = parsedTransactions.map((tx) => ({
         tx,
         // Hash based on transaction_date, merchant, amount, card, and charge_date
@@ -134,9 +134,10 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
 
       const allHashes = txWithHashes.map((t) => t.hash)
       const { data: existingRows } = await supabase
-        .from('credit_card_transactions')
+        .from('transactions')
         .select('hash')
         .eq('user_id', user.id)
+        .eq('transaction_type', 'cc_purchase')
         .in('hash', allHashes)
 
       const existingHashes = new Set((existingRows || []).map((r) => r.hash))
@@ -161,32 +162,32 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
         return
       }
 
-      // Step 4: Insert CC transactions (60-80%)
-      const inserts: CreditCardTransactionInsert[] = newTransactions.map(({ tx, hash }) => ({
+      // Step 4: Insert CC transactions into transactions table (60-80%)
+      // NEW SCHEMA: All CC data now in transactions table with transaction_type = 'cc_purchase'
+      const inserts: TransactionInsert[] = newTransactions.map(({ tx, hash }) => ({
         user_id: user.id,
-        transaction_date: tx.date,
-        merchant_name: tx.merchantName,
+        date: tx.date,
+        value_date: tx.billingDate || tx.date, // charge_date
+        description: tx.merchantName, // merchant_name
+        reference: tx.transactionType,
         amount_agorot: tx.amountAgorot,
-        currency: tx.foreignCurrency || 'ILS',
+        balance_agorot: null,
+        is_income: tx.amountAgorot < 0,
+        is_credit_card_charge: false,
+        transaction_type: 'cc_purchase',
+        credit_card_id: cardIdMap[tx.cardLastFour],
+        channel: tx.notes,
+        source_file_id: null,
+        hash: hash,
+        match_status: 'unmatched',
         foreign_amount_cents: tx.foreignAmount ? Math.round(tx.foreignAmount * 100) : null,
         foreign_currency: tx.foreignCurrency,
-        card_last_four: tx.cardLastFour,
-        charge_date: tx.billingDate || tx.date, // Use transaction date if no billing date
-        transaction_type: tx.transactionType,
-        notes: tx.notes,
-        bank_transaction_id: null,
-        match_status: 'unmatched',
-        match_confidence: null,
-        normalized_merchant: normalizeMerchantName(tx.merchantName),
-        hash: hash,
-        source_file_id: null,
-        credit_card_id: cardIdMap[tx.cardLastFour],
       }))
 
       setProgress(70)
 
       const { error: insertError, data: insertedData } = await supabase
-        .from('credit_card_transactions')
+        .from('transactions')
         .insert(inserts)
         .select()
 
