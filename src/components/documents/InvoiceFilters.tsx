@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { MagnifyingGlassIcon, XMarkIcon, FunnelIcon } from '@heroicons/react/24/outline'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import type { InvoiceFilterState } from './invoiceFilterTypes'
 
@@ -14,7 +14,7 @@ const FILE_TYPE_OPTIONS = [
   { value: 'image', label: 'Image' },
 ]
 
-const AI_STATUS_OPTIONS = [
+const AI_STATUS_OPTIONS: { value: InvoiceFilterState['aiStatus']; label: string }[] = [
   { value: 'all', label: 'All Statuses' },
   { value: 'pending', label: 'Pending' },
   { value: 'processing', label: 'Processing' },
@@ -48,7 +48,7 @@ function FileTypeMultiSelect({
     <div className="relative group">
       <button
         type="button"
-        className="flex items-center gap-2 px-3 py-2 bg-surface border border-text-muted/20 rounded-lg text-text hover:border-text-muted/40 transition-colors text-sm"
+        className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-text-muted/20 rounded-lg text-text hover:border-text-muted/40 transition-colors text-sm"
       >
         <span>{displayText}</span>
         {value.length > 0 && (
@@ -84,6 +84,56 @@ function FileTypeMultiSelect({
   )
 }
 
+function AIStatusSelect({
+  value,
+  onChange,
+}: {
+  value: InvoiceFilterState['aiStatus']
+  onChange: (value: InvoiceFilterState['aiStatus']) => void
+}) {
+  const selectedLabel = AI_STATUS_OPTIONS.find((opt) => opt.value === value)?.label || 'All Statuses'
+  const isFiltered = value !== 'all'
+
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-text-muted/20 rounded-lg text-text hover:border-text-muted/40 transition-colors text-sm"
+      >
+        <FunnelIcon className="w-4 h-4 text-text-muted" />
+        <span>{selectedLabel}</span>
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange('all')
+            }}
+            className="p-0.5 rounded hover:bg-background/50"
+          >
+            <XMarkIcon className="w-3.5 h-3.5 text-text-muted hover:text-text" />
+          </button>
+        )}
+      </button>
+      <div className="absolute top-full start-0 mt-1 z-50 hidden group-hover:block bg-surface border border-text-muted/20 rounded-lg shadow-lg min-w-[140px]">
+        {AI_STATUS_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`w-full flex items-center gap-2 px-3 py-2 hover:bg-background/50 text-start text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ${
+              value === option.value ? 'text-primary font-medium' : 'text-text'
+            }`}
+          >
+            {value === option.value && <span className="text-primary">&#10003;</span>}
+            <span className={value === option.value ? '' : 'ps-5'}>{option.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function InvoiceFilters({ filters, onChange }: InvoiceFiltersProps) {
   const handleDateChange = (startDate: string, endDate: string) => {
     onChange({ ...filters, dateFrom: startDate, dateTo: endDate })
@@ -105,22 +155,10 @@ export function InvoiceFilters({ filters, onChange }: InvoiceFiltersProps) {
       />
 
       {/* AI Status select */}
-      <select
+      <AIStatusSelect
         value={filters.aiStatus}
-        onChange={(e) =>
-          onChange({
-            ...filters,
-            aiStatus: e.target.value as InvoiceFilterState['aiStatus'],
-          })
-        }
-        className="px-3 py-2 bg-surface border border-text-muted/20 rounded-lg text-text focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
-      >
-        {AI_STATUS_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        onChange={(aiStatus) => onChange({ ...filters, aiStatus })}
+      />
 
       {/* Search */}
       <div className="relative flex-1 min-w-[200px]">

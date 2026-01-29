@@ -133,6 +133,12 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
   const [bankCCCharges, setBankCCCharges] = useState<Transaction[]>([])
   const [isFetchingCharges, setIsFetchingCharges] = useState(false)
 
+  // Link mode filters
+  const [linkSearch, setLinkSearch] = useState('')
+  const [linkFromDate, setLinkFromDate] = useState('')
+  const [linkToDate, setLinkToDate] = useState('')
+  const [linkSelectedCardIds, setLinkSelectedCardIds] = useState<string[]>([])
+
   // Mode: 'details' = show bank charge details, 'link' = select bank charge to link CC transaction
   const isLinkMode = !!ccTransactionIdToLink && !bankTransactionId
 
@@ -216,6 +222,46 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
 
     fetchBankCCCharges()
   }, [isOpen, isLinkMode])
+
+  // Filter bank CC charges for link mode
+  const filteredBankCCCharges = useMemo(() => {
+    let filtered = bankCCCharges
+
+    // Filter by date range
+    if (linkFromDate || linkToDate) {
+      filtered = filtered.filter(charge => {
+        if (!charge.date) return false
+        if (linkFromDate && charge.date < linkFromDate) return false
+        if (linkToDate && charge.date > linkToDate) return false
+        return true
+      })
+    }
+
+    // Filter by card (match card last 4 digits in description or linked credit_card_id)
+    if (linkSelectedCardIds.length > 0) {
+      const selectedCards = creditCards.filter(c => linkSelectedCardIds.includes(c.id))
+      filtered = filtered.filter(charge => {
+        // Check if charge has credit_card_id that matches
+        if (charge.credit_card_id && linkSelectedCardIds.includes(charge.credit_card_id)) {
+          return true
+        }
+        // Check if description contains any of the selected cards' last 4 digits
+        return selectedCards.some(card =>
+          card.card_last_four && charge.description?.includes(card.card_last_four)
+        )
+      })
+    }
+
+    // Filter by search
+    if (linkSearch.trim()) {
+      const searchLower = linkSearch.toLowerCase()
+      filtered = filtered.filter(charge =>
+        charge.description?.toLowerCase().includes(searchLower)
+      )
+    }
+
+    return filtered
+  }, [bankCCCharges, linkFromDate, linkToDate, linkSelectedCardIds, linkSearch, creditCards])
 
   // Fetch CC transactions for attach with flexible filters
   const { transactions: ccTxsFromDb, isLoading: isLoadingCCTxs } = useCCTransactions({
@@ -422,6 +468,11 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
     setAttachSelectedCardIds([])
     setBankCCCharges([])
     setAttachError(null)
+    // Reset link mode filters
+    setLinkSearch('')
+    setLinkFromDate('')
+    setLinkToDate('')
+    setLinkSelectedCardIds([])
     onClose()
   }
 
@@ -512,12 +563,55 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
           ) : bankCCCharges.length === 0 ? (
             <div className="text-center py-8 text-text-muted">No bank CC charges found</div>
           ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-text-muted mb-4">
+            <div className="space-y-4">
+              <p className="text-sm text-text-muted">
                 Select a bank charge to link this CC transaction to:
               </p>
+
+              {/* Filter controls */}
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Date picker */}
+                <RangeCalendarCard
+                  startDate={linkFromDate}
+                  endDate={linkToDate}
+                  onChange={(start, end) => {
+                    setLinkFromDate(start)
+                    setLinkToDate(end)
+                  }}
+                />
+
+                {/* Card filter */}
+                {creditCards.length > 0 && (
+                  <CardMultiSelect
+                    cards={creditCards}
+                    value={linkSelectedCardIds}
+                    onChange={setLinkSelectedCardIds}
+                  />
+                )}
+
+                {/* Search bar */}
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <div className="relative flex-1">
+                    <MagnifyingGlassIcon className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                    <input
+                      type="text"
+                      value={linkSearch}
+                      onChange={(e) => setLinkSearch(e.target.value)}
+                      placeholder="Search description..."
+                      className="w-full ps-9 pe-3 py-1.5 text-sm bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Results */}
+              {filteredBankCCCharges.length === 0 ? (
+                <div className="text-center py-4 text-text-muted text-sm">
+                  No bank charges match the filters
+                </div>
+              ) : (
               <div className="max-h-96 overflow-y-auto border border-text-muted/20 rounded-lg">
-                {bankCCCharges.map((charge) => (
+                {filteredBankCCCharges.map((charge) => (
                   <button
                     key={charge.id}
                     onClick={() => handleLinkToBankCharge(charge.id)}
@@ -542,6 +636,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                   </button>
                 ))}
               </div>
+              )}
             </div>
           )
         ) : isLoading || isFetchingBank ? (

@@ -16,10 +16,11 @@ interface ModalOverlayProps extends AriaModalOverlayProps {
   children: ReactNode
 }
 
-function ModalOverlay({ children, ...props }: ModalOverlayProps) {
+function ModalOverlay({ children, isDismissable = true, ...props }: ModalOverlayProps) {
   return (
     <AriaModalOverlay
       {...props}
+      isDismissable={isDismissable}
       className={(state) =>
         cx(
           'fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm',

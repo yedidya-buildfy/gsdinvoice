@@ -4,7 +4,7 @@ import { useCreditCards, useCreditCardTransactions, useDeleteCreditCard, type Tr
 import type { CreditCard } from '@/types/database'
 import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
 import { CreditCardUploader } from '@/components/creditcard/CreditCardUploader'
-import { CreditCardTable } from '@/components/creditcard/CreditCardTable'
+import { CreditCardTable, type CCSortColumn } from '@/components/creditcard/CreditCardTable'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { VatChangeModal } from '@/components/bank/VatChangeModal'
 import { CCChargeModal } from '@/components/bank/CCChargeModal'
@@ -119,7 +119,7 @@ export function CreditCardPage() {
     dateTo: '',
   })
 
-  const [sortColumn, setSortColumn] = useState<keyof TransactionWithCard>('date')
+  const [sortColumn, setSortColumn] = useState<CCSortColumn>('date')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isLinking, setIsLinking] = useState(false)
@@ -153,8 +153,36 @@ export function CreditCardPage() {
   // Apply sorting
   const sortedTransactions = useMemo(() => {
     return [...filteredTransactions].sort((a, b) => {
-      let aVal = a[sortColumn]
-      let bVal = b[sortColumn]
+      let aVal: string | number | boolean | null | undefined
+      let bVal: string | number | boolean | null | undefined
+
+      // Handle special columns
+      if (sortColumn === 'credit_card_id') {
+        // Sort by card last four digits
+        aVal = a.credit_card?.card_last_four || ''
+        bVal = b.credit_card?.card_last_four || ''
+      } else if (sortColumn === 'vat_amount') {
+        // Calculated VAT amount
+        const aHasVat = a.has_vat ?? false
+        const bHasVat = b.has_vat ?? false
+        const aVatPct = a.vat_percentage ?? 18
+        const bVatPct = b.vat_percentage ?? 18
+        aVal = aHasVat ? Math.round(a.amount_agorot * aVatPct / (100 + aVatPct)) : 0
+        bVal = bHasVat ? Math.round(b.amount_agorot * bVatPct / (100 + bVatPct)) : 0
+      } else if (sortColumn === 'linked_bank_transaction_id') {
+        // Sort by linked status (linked first when desc)
+        aVal = a.credit_card_id !== null ? 1 : 0
+        bVal = b.credit_card_id !== null ? 1 : 0
+      } else if (sortColumn === 'cc_bank_link_id') {
+        // Sort by whether has bank link
+        aVal = a.cc_bank_link_id ? 1 : 0
+        bVal = b.cc_bank_link_id ? 1 : 0
+      } else {
+        // Cast to keyof TransactionWithCard for actual fields
+        const col = sortColumn as keyof TransactionWithCard
+        aVal = a[col]
+        bVal = b[col]
+      }
 
       // Handle dates
       if (sortColumn === 'date' || sortColumn === 'value_date') {
@@ -162,8 +190,9 @@ export function CreditCardPage() {
         bVal = bVal ? new Date(bVal as string).getTime() : 0
       }
 
-      if (aVal === null || aVal === undefined) aVal = 0
-      if (bVal === null || bVal === undefined) bVal = 0
+      // Handle nulls
+      if (aVal === null || aVal === undefined) aVal = sortColumn === 'foreign_currency' ? '' : 0
+      if (bVal === null || bVal === undefined) bVal = sortColumn === 'foreign_currency' ? '' : 0
 
       if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
       if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
@@ -171,7 +200,7 @@ export function CreditCardPage() {
     })
   }, [filteredTransactions, sortColumn, sortDirection])
 
-  const handleSort = (column: keyof TransactionWithCard) => {
+  const handleSort = (column: CCSortColumn) => {
     if (column === sortColumn) {
       setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {

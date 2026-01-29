@@ -1,4 +1,6 @@
-import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, XMarkIcon, LinkIcon } from '@heroicons/react/24/outline'
+import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, XMarkIcon, LinkIcon, InformationCircleIcon } from '@heroicons/react/24/outline'
+import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState } from 'react'
 import type { TransactionWithCard } from '@/hooks/useCreditCards'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
 import { formatShekel } from '@/lib/utils/currency'
@@ -10,28 +12,80 @@ function formatAmount(cents: number): string {
   return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+// Sort column type includes actual fields plus synthetic columns
+export type CCSortColumn = keyof TransactionWithCard | 'vat_amount' | 'linked_bank_transaction_id'
+
 interface CreditCardTableProps {
   transactions: TransactionWithCard[]
   isLoading?: boolean
-  sortColumn: keyof TransactionWithCard
+  sortColumn: CCSortColumn
   sortDirection: 'asc' | 'desc'
-  onSort: (column: keyof TransactionWithCard) => void
+  onSort: (column: CCSortColumn) => void
   selectedIds?: Set<string>
   onSelectionChange?: (selectedIds: Set<string>) => void
   onBankChargeClick?: (bankTransactionId: string) => void
   onLinkCCTransaction?: (ccTransactionId: string) => void
 }
 
-interface SortHeaderProps {
-  column: keyof TransactionWithCard
-  label: string
-  sortColumn: keyof TransactionWithCard
-  sortDirection: 'asc' | 'desc'
-  onSort: (column: keyof TransactionWithCard) => void
-  align?: 'start' | 'center' | 'end'
+interface HeaderTooltipProps {
+  tooltip: string
 }
 
-function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 'start' }: SortHeaderProps) {
+function HeaderTooltip({ tooltip }: HeaderTooltipProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!isOpen || !triggerRef.current) return
+
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPosition({
+      top: rect.top - 8,
+      left: rect.left + rect.width / 2,
+    })
+  }, [isOpen])
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        onMouseEnter={() => setIsOpen(true)}
+        onMouseLeave={() => setIsOpen(false)}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex cursor-help"
+      >
+        <InformationCircleIcon className="w-3.5 h-3.5 text-text-muted/50 hover:text-text-muted" />
+      </span>
+
+      {isOpen &&
+        createPortal(
+          <div
+            className="fixed z-[9999] px-2 py-1 text-xs normal-case tracking-normal font-normal text-text bg-surface border border-text-muted/20 rounded shadow-lg whitespace-nowrap pointer-events-none -translate-x-1/2 -translate-y-full"
+            style={{
+              top: `${position.top}px`,
+              left: `${position.left}px`,
+            }}
+          >
+            {tooltip}
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
+interface SortHeaderProps {
+  column: CCSortColumn
+  label: string
+  sortColumn: CCSortColumn
+  sortDirection: 'asc' | 'desc'
+  onSort: (column: CCSortColumn) => void
+  align?: 'start' | 'center' | 'end'
+  tooltip?: string
+}
+
+function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 'start', tooltip }: SortHeaderProps) {
   const isActive = sortColumn === column
   const alignClass = align === 'end' ? 'text-end' : align === 'center' ? 'text-center' : 'text-start'
 
@@ -42,6 +96,7 @@ function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 
     >
       <div className={`flex items-center gap-1 ${align === 'end' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
         {label}
+        {tooltip && <HeaderTooltip tooltip={tooltip} />}
         {isActive && (
           sortDirection === 'asc'
             ? <ChevronUpIcon className="w-4 h-4" />
@@ -67,7 +122,7 @@ const checkboxClass = 'checkbox-dark'
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
-      {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
+      {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
@@ -77,8 +132,11 @@ function SkeletonRow() {
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-16 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-20 bg-surface rounded inline-block" />
+      <td className="ps-4 pe-1 py-3 text-end">
+        <div className="h-4 w-16 bg-surface rounded inline-block" />
+      </td>
+      <td className="ps-1 pe-4 py-3 text-start">
+        <div className="h-4 w-8 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
@@ -90,16 +148,13 @@ function SkeletonRow() {
         <div className="h-4 w-16 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
-        <div className="h-4 w-10 bg-surface rounded inline-block" />
+        <div className="h-4 w-16 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-12 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
@@ -148,20 +203,20 @@ export function CreditCardTable({
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
-              {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
+              {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
               <th className="px-4 py-3 text-center w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Merchant</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Amount</th>
+              <th className="ps-4 pe-1 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Amount</th>
+              <th className="ps-1 pe-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">Cur</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Currency</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Card</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Billing</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Status</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Card</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Link</th>
             </tr>
           </thead>
@@ -184,7 +239,7 @@ export function CreditCardTable({
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
-            {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
+            {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
             <th className="px-4 py-3 text-center w-12">
               <input
                 type="checkbox"
@@ -203,6 +258,7 @@ export function CreditCardTable({
               sortDirection={sortDirection}
               onSort={onSort}
               align="start"
+              tooltip="From CC statement"
             />
             <SortHeader
               column="date"
@@ -211,6 +267,7 @@ export function CreditCardTable({
               sortDirection={sortDirection}
               onSort={onSort}
               align="center"
+              tooltip="Transaction date"
             />
             <SortHeader
               column="amount_agorot"
@@ -218,7 +275,17 @@ export function CreditCardTable({
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="center"
+              align="end"
+              tooltip="In foreign currency if applicable"
+            />
+            <SortHeader
+              column="foreign_currency"
+              label="Cur"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="start"
+              tooltip="Original transaction currency"
             />
             <SortHeader
               column="has_vat"
@@ -227,28 +294,62 @@ export function CreditCardTable({
               sortDirection={sortDirection}
               onSort={onSort}
               align="center"
+              tooltip="Has VAT deduction"
             />
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
-              VAT %
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
-              VAT Amt
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">
-              Currency
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
-              Card
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
-              Billing
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">
-              Status
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">
-              Link
-            </th>
+            <SortHeader
+              column="vat_percentage"
+              label="VAT %"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="center"
+              tooltip="VAT rate (default 18%)"
+            />
+            <SortHeader
+              column="vat_amount"
+              label="VAT Amt"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="center"
+              tooltip="Calculated from ILS amount"
+            />
+            <SortHeader
+              column="value_date"
+              label="Billing"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="center"
+              tooltip="Date charged to bank"
+            />
+            <SortHeader
+              column="linked_bank_transaction_id"
+              label="Status"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="center"
+              tooltip="Matched to the credit card in column Card"
+            />
+            <SortHeader
+              column="credit_card_id"
+              label="Card"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="center"
+              tooltip="Last 4 digits"
+            />
+            <SortHeader
+              column="cc_bank_link_id"
+              label="Link"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="center"
+              tooltip="This expense connected to a credit card charge"
+            />
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -285,7 +386,7 @@ export function CreditCardTable({
                 onClick={() => handleSelectOne(tx.id)}
                 className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
+                {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
@@ -303,8 +404,11 @@ export function CreditCardTable({
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
                   {formatDate(tx.date)}
                 </td>
-                <td className="px-4 py-3 text-center text-sm font-medium text-red-400 whitespace-nowrap">
+                <td className="ps-4 pe-1 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
                   {displayAmount}
+                </td>
+                <td className="ps-1 pe-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
+                  {displayCurrency}
                 </td>
                 <td className="px-4 py-3 text-center">
                   {hasVat ? (
@@ -320,12 +424,6 @@ export function CreditCardTable({
                   {vatAmount !== null ? formatShekel(vatAmount) : '-'}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {displayCurrency}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
-                  {cardLastFour}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
                   {formatDate(tx.value_date)}
                 </td>
                 <td className="px-4 py-3 text-center">
@@ -334,6 +432,9 @@ export function CreditCardTable({
                   ) : (
                     <ClockIcon className="w-5 h-5 text-text-muted/50 inline-block" />
                   )}
+                </td>
+                <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
+                  {cardLastFour}
                 </td>
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <button

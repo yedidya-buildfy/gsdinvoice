@@ -84,3 +84,33 @@ input[type="checkbox"].checkbox-dark:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Auto-hide scrollbar - macOS style */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 4px;
+  transition: background-color 0.3s ease;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background-color: #475569;
+}
+
+*:hover::-webkit-scrollbar-thumb:hover {
+  background-color: #64748b;
+}
+
+/* Firefox - auto-hide not fully supported, use thin scrollbar */
+html {
+  scrollbar-color: #475569 transparent;
+  scrollbar-width: thin;
+}

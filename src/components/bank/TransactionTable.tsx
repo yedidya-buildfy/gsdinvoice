@@ -13,6 +13,8 @@ interface TransactionTableProps {
   selectedIds?: Set<string>
   onSelectionChange?: (selectedIds: Set<string>) => void
   onCCChargeClick?: (transactionId: string) => void
+  // Match data for CC charges (only shown when provided)
+  ccChargeMatchData?: Map<string, { matchPercentage: number; matchedCount: number }>
 }
 
 interface SortHeaderProps {
@@ -96,7 +98,10 @@ export function TransactionTable({
   selectedIds = new Set(),
   onSelectionChange,
   onCCChargeClick,
+  ccChargeMatchData,
 }: TransactionTableProps) {
+  // Check if we should show match columns (only when CC charge data is provided)
+  const showMatchColumns = !!ccChargeMatchData
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
 
@@ -209,6 +214,16 @@ export function TransactionTable({
             <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
               Reference
             </th>
+            {showMatchColumns && (
+              <>
+                <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+                  Match %
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+                  Matched
+                </th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -224,10 +239,21 @@ export function TransactionTable({
             // Parse description into merchant name and reference
             const { merchantName, reference } = parseDescriptionParts(tx.description)
 
+            // For CC charges, clicking row opens modal; for regular transactions, clicking row selects it
+            const isCCCharge = (tx.is_credit_card_charge || tx.transaction_type === 'bank_cc_charge') && onCCChargeClick
+
+            const handleRowClick = () => {
+              if (isCCCharge) {
+                onCCChargeClick(tx.id)
+              } else {
+                handleSelectOne(tx.id)
+              }
+            }
+
             return (
               <tr
                 key={tx.id}
-                onClick={() => handleSelectOne(tx.id)}
+                onClick={handleRowClick}
                 className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
               >
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -239,20 +265,10 @@ export function TransactionTable({
                   />
                 </td>
                 <td className="px-4 py-3 text-start text-sm" dir="auto">
-                  {(tx.is_credit_card_charge || tx.transaction_type === 'bank_cc_charge') && onCCChargeClick ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onCCChargeClick(tx.id)
-                      }}
-                      className="text-start underline cursor-pointer hover:text-primary transition-colors"
-                    >
-                      <span className="text-text font-medium">{merchantName}</span>
-                      {reference && (
-                        <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
-                      )}
-                    </button>
+                  {isCCCharge ? (
+                    <span className="text-text font-medium hover:text-primary transition-colors">
+                      {tx.description}
+                    </span>
                   ) : (
                     <>
                       <span className="text-text font-medium">{merchantName}</span>
@@ -286,6 +302,25 @@ export function TransactionTable({
                 <td className="px-4 py-3 text-center text-sm text-text-muted">
                   {tx.reference || '-'}
                 </td>
+                {showMatchColumns && (() => {
+                  const matchData = ccChargeMatchData?.get(tx.id)
+                  return (
+                    <>
+                      <td className="px-4 py-3 text-center text-sm whitespace-nowrap">
+                        {matchData ? (
+                          <span className={matchData.matchPercentage >= 100 ? 'text-green-400' : matchData.matchPercentage >= 90 ? 'text-yellow-400' : 'text-red-400'}>
+                            {matchData.matchPercentage}%
+                          </span>
+                        ) : (
+                          <span className="text-text-muted/30">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                        {matchData ? matchData.matchedCount : '-'}
+                      </td>
+                    </>
+                  )
+                })()}
               </tr>
             )
           })}

@@ -1,22 +1,44 @@
 import { useState, useMemo } from 'react'
+import type { Key } from 'react-aria-components'
 import { TrashIcon, ReceiptPercentIcon } from '@heroicons/react/24/outline'
 import { useTransactions } from '@/hooks/useTransactions'
 import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
+import { useCCBankMatchResults } from '@/hooks/useCCBankMatchResults'
 import { BankUploader } from '@/components/bank/BankUploader'
 import { TransactionFilters, type TransactionFilterState } from '@/components/bank/TransactionFilters'
 import { TransactionTable } from '@/components/bank/TransactionTable'
 import { VatChangeModal } from '@/components/bank/VatChangeModal'
 import { CCChargeModal } from '@/components/bank/CCChargeModal'
+import { Tabs, type TabItem } from '@/components/ui/base/tabs/tabs'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { parseMerchantName, getMerchantBaseKey } from '@/lib/utils/merchantParser'
+import { parseMerchantName } from '@/lib/utils/merchantParser'
 import type { Transaction } from '@/types/database'
+
+const transactionTabs: TabItem[] = [
+  { id: 'bank', label: 'Transactions' },
+  { id: 'cc', label: 'Credit Card Transactions' },
+]
 
 export function BankMovementsPage() {
   const { user } = useAuth()
   const { transactions, isLoading, refetch } = useTransactions()
   const { isUpdating, updateBatch, updateAllByMerchant, saveMerchantPreferencesBatch } = useUpdateTransactionVat()
+  const { matchResults } = useCCBankMatchResults()
 
+  // Create lookup map for CC charge match data
+  const ccChargeMatchData = useMemo(() => {
+    const map = new Map<string, { matchPercentage: number; matchedCount: number }>()
+    for (const result of matchResults) {
+      map.set(result.bank_transaction_id, {
+        matchPercentage: result.match_confidence,
+        matchedCount: result.cc_transaction_count,
+      })
+    }
+    return map
+  }, [matchResults])
+
+  const [selectedTab, setSelectedTab] = useState<Key>('bank')
   const [filters, setFilters] = useState<TransactionFilterState>({
     search: '',
     dateFrom: '',
@@ -32,9 +54,29 @@ export function BankMovementsPage() {
   const [showVatModal, setShowVatModal] = useState(false)
   const [selectedCCChargeId, setSelectedCCChargeId] = useState<string | null>(null)
 
+  // Separate transactions by type (regular bank vs CC charges)
+  const bankTransactions = useMemo(() => {
+    // Regular bank transactions (not CC charges)
+    return transactions.filter((tx) =>
+      tx.transaction_type === 'bank_regular' ||
+      (!tx.transaction_type && !tx.is_credit_card_charge)
+    )
+  }, [transactions])
+
+  const ccChargeTransactions = useMemo(() => {
+    // Bank CC charges (the rows that open CCChargeModal when clicked)
+    return transactions.filter((tx) =>
+      tx.transaction_type === 'bank_cc_charge' ||
+      tx.is_credit_card_charge
+    )
+  }, [transactions])
+
+  // Get the active transaction list based on selected tab
+  const activeTransactions = selectedTab === 'bank' ? bankTransactions : ccChargeTransactions
+
   // Apply filters
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
+    return activeTransactions.filter((tx) => {
       // Search filter
       if (filters.search && !tx.description.toLowerCase().includes(filters.search.toLowerCase())) {
         return false
@@ -47,7 +89,7 @@ export function BankMovementsPage() {
       if (filters.type === 'expense' && tx.is_income) return false
       return true
     })
-  }, [transactions, filters])
+  }, [activeTransactions, filters])
 
   // Apply sorting
   const sortedTransactions = useMemo(() => {
@@ -205,80 +247,132 @@ export function BankMovementsPage() {
 
       {/* Transactions section */}
       <div className="bg-surface rounded-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text">
-            Transactions
-            {!isLoading && transactions.length > 0 && (
-              <span className="text-sm font-normal text-text-muted ms-2">
-                ({filteredTransactions.length} of {transactions.length})
-              </span>
-            )}
-          </h2>
+        {/* Tabs with counts */}
+        <Tabs selectedKey={selectedTab} onSelectionChange={(key) => {
+          setSelectedTab(key)
+          setSelectedIds(new Set()) // Clear selection when switching tabs
+          setFilters({ search: '', dateFrom: '', dateTo: '', type: 'all' }) // Reset filters
+        }}>
+          <div className="flex items-center justify-between mb-4">
+            <Tabs.List type="underline" className="justify-start" items={transactionTabs.map(tab => {
+              // Show (filtered of total) for active tab, (total) for inactive tab
+              const isBankTab = tab.id === 'bank'
+              const total = isBankTab ? bankTransactions.length : ccChargeTransactions.length
+              const isActive = selectedTab === tab.id
+              const countLabel = !isLoading && total > 0
+                ? isActive
+                  ? ` (${filteredTransactions.length} of ${total})`
+                  : ` (${total})`
+                : ''
+              return {
+                ...tab,
+                label: isBankTab
+                  ? `Transactions${countLabel}`
+                  : `Credit Card Transactions${countLabel}`
+              }
+            })}>
+              {(tab) => <Tabs.Item key={tab.id} id={tab.id} label={tab.label} type="underline" />}
+            </Tabs.List>
 
-          {/* Action buttons - only show when items selected */}
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2">
-              {/* Set VAT button - only if expense transactions selected */}
-              {selectedTransactions.length > 0 && (
+            {/* Action buttons - only show when items selected */}
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                {/* Set VAT button - only if expense transactions selected */}
+                {selectedTransactions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleOpenVatModal}
+                    disabled={isUpdating}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ReceiptPercentIcon className="w-4 h-4" />
+                    {isUpdating ? 'Updating...' : `Set VAT (${selectedTransactions.length})`}
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  onClick={handleOpenVatModal}
-                  disabled={isUpdating}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ReceiptPercentIcon className="w-4 h-4" />
-                  {isUpdating ? 'Updating...' : `Set VAT (${selectedTransactions.length})`}
+                  <TrashIcon className="w-4 h-4" />
+                  {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
                 </button>
-              )}
+              </div>
+            )}
+          </div>
 
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <TrashIcon className="w-4 h-4" />
-                {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
-              </button>
+          {/* Filters - only show if there are transactions */}
+          {activeTransactions.length > 0 && (
+            <div className="mb-4">
+              <TransactionFilters filters={filters} onChange={handleFiltersChange} />
             </div>
           )}
-        </div>
 
-        {/* Filters - only show if there are transactions */}
-        {transactions.length > 0 && (
-          <div className="mb-4">
-            <TransactionFilters filters={filters} onChange={handleFiltersChange} />
-          </div>
-        )}
+          {/* Bank Transactions Tab Panel */}
+          <Tabs.Panel id="bank">
+            {isLoading ? (
+              <TransactionTable
+                transactions={[]}
+                isLoading
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+              />
+            ) : bankTransactions.length === 0 ? (
+              <p className="text-text-muted text-center py-8">
+                No bank transactions yet. Import a bank statement above to get started.
+              </p>
+            ) : filteredTransactions.length === 0 ? (
+              <p className="text-text-muted text-center py-8">
+                No transactions match your filters.
+              </p>
+            ) : (
+              <TransactionTable
+                transactions={sortedTransactions}
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                selectedIds={selectedIds}
+                onSelectionChange={setSelectedIds}
+              />
+            )}
+          </Tabs.Panel>
 
-        {/* Table or empty state */}
-        {isLoading ? (
-          <TransactionTable
-            transactions={[]}
-            isLoading
-            sortColumn={sortColumn}
-            sortDirection={sortDirection}
-            onSort={handleSort}
-          />
-        ) : transactions.length === 0 ? (
-          <p className="text-text-muted text-center py-8">
-            No transactions yet. Import a bank statement above to get started.
-          </p>
-        ) : filteredTransactions.length === 0 ? (
-          <p className="text-text-muted text-center py-8">
-            No transactions match your filters.
-          </p>
-        ) : (
-          <TransactionTable
-            transactions={sortedTransactions}
-            sortColumn={sortColumn}
-            sortDirection={sortDirection}
-            onSort={handleSort}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
-            onCCChargeClick={setSelectedCCChargeId}
-          />
-        )}
+          {/* Credit Card Transactions Tab Panel */}
+          <Tabs.Panel id="cc">
+            {isLoading ? (
+              <TransactionTable
+                transactions={[]}
+                isLoading
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                ccChargeMatchData={ccChargeMatchData}
+              />
+            ) : ccChargeTransactions.length === 0 ? (
+              <p className="text-text-muted text-center py-8">
+                No credit card charges yet. Import a bank statement with CC charges to get started.
+              </p>
+            ) : filteredTransactions.length === 0 ? (
+              <p className="text-text-muted text-center py-8">
+                No transactions match your filters.
+              </p>
+            ) : (
+              <TransactionTable
+                transactions={sortedTransactions}
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                selectedIds={selectedIds}
+                onSelectionChange={setSelectedIds}
+                ccChargeMatchData={ccChargeMatchData}
+                onCCChargeClick={setSelectedCCChargeId}
+              />
+            )}
+          </Tabs.Panel>
+        </Tabs>
       </div>
 
       {/* VAT Change Modal */}
