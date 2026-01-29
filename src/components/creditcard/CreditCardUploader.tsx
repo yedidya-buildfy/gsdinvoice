@@ -29,6 +29,7 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
     error,
     savedCount,
     duplicateCount,
+    matchedCount,
     isProcessing,
     addFile,
   } = useCreditCardUpload()
@@ -93,6 +94,7 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
   const getStatusText = () => {
     if (status === 'parsing') return 'Parsing file...'
     if (status === 'saving') return 'Saving transactions...'
+    if (status === 'matching') return 'Matching to bank charges...'
     if (status === 'success') return 'Import complete'
     return 'Processing...'
   }
@@ -206,6 +208,9 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
               <span className="text-green-400">{savedCount} imported</span>
               {duplicateCount > 0 && (
                 <span className="ml-2">{duplicateCount} duplicates skipped</span>
+              )}
+              {matchedCount > 0 && (
+                <span className="ml-2 text-blue-400">{matchedCount} matched to bank</span>
               )}
             </div>
           )}

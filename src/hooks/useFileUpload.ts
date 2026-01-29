@@ -241,12 +241,13 @@ export function useFileUpload(): UseFileUploadReturn {
           await new Promise(resolve => setTimeout(resolve, 2000))
           break
 
-        case 'keep_both':
+        case 'keep_both': {
           // Upload anyway with a new hash (append timestamp to make unique)
           const uniqueHash = `${pending.fileHash}_${Date.now()}`
           await uploadSingleFile(pending.file, uniqueHash)
           await new Promise(resolve => setTimeout(resolve, 2000))
           break
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { CCBankMatchWidget } from '@/components/dashboard/CCBankMatchWidget'
 
 type ConnectionStatus = 'checking' | 'connected' | 'error'
 
@@ -22,11 +23,13 @@ export function DashboardPage() {
   }, [])
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-text mb-4">Dashboard</h1>
-      <div className="bg-surface rounded-lg p-6">
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold text-text">Dashboard</h1>
+
+      {/* Welcome Card */}
+      <div className="bg-surface rounded-lg p-6 border border-border">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text">Welcome</h2>
+          <h2 className="text-lg font-semibold text-text">ברוכים הבאים</h2>
           <span
             className={`text-sm px-2 py-1 rounded ${
               connectionStatus === 'connected'
@@ -40,14 +43,17 @@ export function DashboardPage() {
           </span>
         </div>
         <p className="text-text-secondary mb-2">
-          Welcome to VAT Declaration Manager. Your authentication is complete.
+          מערכת ניהול מע״מ - ההתחברות הושלמה בהצלחה.
         </p>
         {user?.email && (
           <p className="text-text-muted text-sm">
-            Signed in as: {user.email}
+            מחובר כ: {user.email}
           </p>
         )}
       </div>
+
+      {/* CC-Bank Match Widget */}
+      <CCBankMatchWidget />
     </div>
   )
 }

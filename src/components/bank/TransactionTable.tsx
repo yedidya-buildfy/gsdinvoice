@@ -12,6 +12,7 @@ interface TransactionTableProps {
   onSort: (column: keyof Transaction) => void
   selectedIds?: Set<string>
   onSelectionChange?: (selectedIds: Set<string>) => void
+  onCCChargeClick?: (transactionId: string) => void
 }
 
 interface SortHeaderProps {
@@ -94,6 +95,7 @@ export function TransactionTable({
   onSort,
   selectedIds = new Set(),
   onSelectionChange,
+  onCCChargeClick,
 }: TransactionTableProps) {
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
@@ -237,9 +239,27 @@ export function TransactionTable({
                   />
                 </td>
                 <td className="px-4 py-3 text-start text-sm" dir="auto">
-                  <span className="text-text font-medium">{merchantName}</span>
-                  {reference && (
-                    <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
+                  {tx.is_credit_card_charge && onCCChargeClick ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onCCChargeClick(tx.id)
+                      }}
+                      className="text-start underline cursor-pointer hover:text-primary transition-colors"
+                    >
+                      <span className="text-text font-medium">{merchantName}</span>
+                      {reference && (
+                        <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
+                      )}
+                    </button>
+                  ) : (
+                    <>
+                      <span className="text-text font-medium">{merchantName}</span>
+                      {reference && (
+                        <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
+                      )}
+                    </>
                   )}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">

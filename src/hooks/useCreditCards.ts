@@ -10,13 +10,14 @@ export interface TransactionWithCard extends Transaction {
     card_name: string | null
     card_type: string
   } | null
+  cc_bank_link_id?: string | null  // bank_transaction_id from credit_card_transactions
 }
 
 interface UseCreditCardsReturn {
   creditCards: CreditCard[]
   isLoading: boolean
   error: Error | null
-  refetch: () => Promise<any>
+  refetch: () => Promise<unknown>
 }
 
 async function fetchCreditCards(userId: string): Promise<CreditCard[]> {
@@ -195,7 +196,41 @@ async function fetchCreditCardTransactions(
 
   console.log('[useCreditCardTransactions] Fetch result:', { count: data?.length, error })
   if (error) throw error
-  return (data || []) as TransactionWithCard[]
+
+  const transactions = (data || []) as TransactionWithCard[]
+
+  // Fetch credit_card_transactions to get bank_transaction_id via hash
+  // (Supabase doesn't support arbitrary LEFT JOINs on non-FK columns)
+  const hashes = transactions
+    .map((t) => t.hash)
+    .filter((h): h is string => h !== null)
+
+  if (hashes.length > 0) {
+    const { data: ccTxData } = await supabase
+      .from('credit_card_transactions')
+      .select('hash, bank_transaction_id')
+      .eq('user_id', userId)
+      .in('hash', hashes)
+
+    if (ccTxData && ccTxData.length > 0) {
+      // Build a map of hash -> bank_transaction_id
+      const hashToBankId = new Map<string, string | null>()
+      for (const ccTx of ccTxData) {
+        if (ccTx.hash) {
+          hashToBankId.set(ccTx.hash, ccTx.bank_transaction_id)
+        }
+      }
+
+      // Merge bank_transaction_id into transactions
+      for (const tx of transactions) {
+        if (tx.hash && hashToBankId.has(tx.hash)) {
+          tx.cc_bank_link_id = hashToBankId.get(tx.hash) ?? null
+        }
+      }
+    }
+  }
+
+  return transactions
 }
 
 export function useCreditCardTransactions(cardId?: string): UseCreditCardTransactionsReturn {

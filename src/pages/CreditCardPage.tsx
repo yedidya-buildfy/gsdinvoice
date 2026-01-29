@@ -7,6 +7,7 @@ import { CreditCardUploader } from '@/components/creditcard/CreditCardUploader'
 import { CreditCardTable } from '@/components/creditcard/CreditCardTable'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { VatChangeModal } from '@/components/bank/VatChangeModal'
+import { CCChargeModal } from '@/components/bank/CCChargeModal'
 import { linkCreditCardTransactions } from '@/lib/services/creditCardLinker'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -124,6 +125,8 @@ export function CreditCardPage() {
   const [isLinking, setIsLinking] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showVatModal, setShowVatModal] = useState(false)
+  const [selectedCCChargeId, setSelectedCCChargeId] = useState<string | null>(null)
+  const [ccTransactionToLink, setCCTransactionToLink] = useState<string | null>(null)
 
   // Filter by selected cards first
   const transactions = useMemo(() => {
@@ -454,6 +457,8 @@ export function CreditCardPage() {
             onSort={handleSort}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
+            onBankChargeClick={setSelectedCCChargeId}
+            onLinkCCTransaction={setCCTransactionToLink}
           />
         )}
       </div>
@@ -469,6 +474,18 @@ export function CreditCardPage() {
         onApplyToAllMerchant={handleApplyToAllMerchant}
         onApplyToFuture={handleApplyToFuture}
         isLoading={isUpdating}
+      />
+
+      {/* CC Charge Details Modal */}
+      <CCChargeModal
+        isOpen={!!selectedCCChargeId || !!ccTransactionToLink}
+        onClose={() => {
+          setSelectedCCChargeId(null)
+          setCCTransactionToLink(null)
+          refetch() // Refresh data after linking
+        }}
+        bankTransactionId={selectedCCChargeId}
+        ccTransactionIdToLink={ccTransactionToLink}
       />
     </div>
   )

@@ -7,7 +7,7 @@ interface UseTransactionsReturn {
   transactions: Transaction[]
   isLoading: boolean
   error: Error | null
-  refetch: () => Promise<any>
+  refetch: () => Promise<unknown>
 }
 
 async function fetchTransactions(userId: string): Promise<Transaction[]> {

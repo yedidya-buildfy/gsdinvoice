@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { agorotToShekel, shekelToAgorot } from '@/lib/utils/currency'
 import type { Invoice, InvoiceRow, InvoiceUpdate, InvoiceRowInsert, InvoiceRowUpdate } from '@/types/database'
 

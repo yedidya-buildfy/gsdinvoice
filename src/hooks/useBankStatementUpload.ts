@@ -1,8 +1,10 @@
 import { useState, useCallback, useRef } from 'react'
 import { parseBankStatement, type ParsedTransaction } from '@/lib/parsers/bankStatementParser'
 import { detectCreditCardCharge } from '@/lib/services/creditCardLinker'
+import { runCCBankMatching } from '@/lib/services/ccBankMatcher'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSettingsStore } from '@/stores/settingsStore'
 import type { TransactionInsert } from '@/types/database'
 
 // UTF-8 safe base64 encoding for Hebrew text
@@ -16,7 +18,7 @@ interface UseBankStatementUploadReturn {
   /** Currently processing file */
   currentFile: File | null
   /** Processing status */
-  status: 'idle' | 'parsing' | 'saving' | 'success' | 'error'
+  status: 'idle' | 'parsing' | 'saving' | 'matching' | 'success' | 'error'
   /** Progress percentage (0-100) */
   progress: number
   /** Error message if failed */
@@ -25,6 +27,8 @@ interface UseBankStatementUploadReturn {
   savedCount: number
   /** Number of duplicates skipped */
   duplicateCount: number
+  /** Number of CC transactions matched */
+  matchedCount: number
   /** Whether processing is in progress */
   isProcessing: boolean
   /** Add file and start processing immediately */
@@ -33,16 +37,19 @@ interface UseBankStatementUploadReturn {
 
 export function useBankStatementUpload(): UseBankStatementUploadReturn {
   const [currentFile, setCurrentFile] = useState<File | null>(null)
-  const [status, setStatus] = useState<'idle' | 'parsing' | 'saving' | 'success' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'parsing' | 'saving' | 'matching' | 'success' | 'error'>('idle')
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [savedCount, setSavedCount] = useState(0)
   const [duplicateCount, setDuplicateCount] = useState(0)
+  const [matchedCount, setMatchedCount] = useState(0)
   const { user } = useAuth()
+
+  const { ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger } = useSettingsStore()
 
   const isProcessingRef = useRef(false)
 
-  const isProcessing = status === 'parsing' || status === 'saving'
+  const isProcessing = status === 'parsing' || status === 'saving' || status === 'matching'
 
   const addFile = useCallback(async (file: File) => {
     if (isProcessingRef.current || !user) {
@@ -54,6 +61,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
     setError(null)
     setSavedCount(0)
     setDuplicateCount(0)
+    setMatchedCount(0)
     setProgress(0)
 
     let parsedTransactions: ParsedTransaction[] = []
@@ -111,7 +119,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
         return
       }
 
-      // Step 3: Insert transactions (60-100%)
+      // Step 3: Insert transactions (60-80%)
       const inserts: TransactionInsert[] = newTransactions.map(({ tx, hash }) => {
         const cardLastFour = detectCreditCardCharge(tx.description)
 
@@ -131,7 +139,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
         }
       })
 
-      setProgress(80)
+      setProgress(70)
 
       const { error: insertError, data: insertedData } = await supabase
         .from('transactions')
@@ -145,6 +153,25 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
       const saved = insertedData?.length || 0
       setSavedCount(saved)
       setDuplicateCount(duplicates)
+      setProgress(80)
+
+      // Step 4: Trigger CC-Bank matching if enabled (80-100%)
+      if (matchingTrigger === 'on_upload' || matchingTrigger === 'after_all_uploads') {
+        setStatus('matching')
+        setProgress(85)
+
+        const matchingResult = await runCCBankMatching(user.id, {
+          dateToleranceDays: ccBankDateRangeDays,
+          amountTolerancePercent: ccBankAmountTolerance,
+        })
+
+        setMatchedCount(matchingResult.matchedCCTransactions)
+
+        if (matchingResult.errors.length > 0) {
+          console.warn('Matching warnings:', matchingResult.errors)
+        }
+      }
+
       setProgress(100)
       setStatus('success')
 
@@ -162,7 +189,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
       setStatus('error')
       isProcessingRef.current = false
     }
-  }, [user])
+  }, [user, ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger])
 
   return {
     currentFile,
@@ -171,6 +198,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
     error,
     savedCount,
     duplicateCount,
+    matchedCount,
     isProcessing,
     addFile,
   }

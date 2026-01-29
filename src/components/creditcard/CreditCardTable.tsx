@@ -1,4 +1,4 @@
-import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, XMarkIcon, LinkIcon } from '@heroicons/react/24/outline'
 import type { TransactionWithCard } from '@/hooks/useCreditCards'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
 import { formatShekel } from '@/lib/utils/currency'
@@ -18,6 +18,8 @@ interface CreditCardTableProps {
   onSort: (column: keyof TransactionWithCard) => void
   selectedIds?: Set<string>
   onSelectionChange?: (selectedIds: Set<string>) => void
+  onBankChargeClick?: (bankTransactionId: string) => void
+  onLinkCCTransaction?: (ccTransactionId: string) => void
 }
 
 interface SortHeaderProps {
@@ -65,7 +67,7 @@ const checkboxClass = 'checkbox-dark'
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
-      {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+      {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
@@ -99,6 +101,9 @@ function SkeletonRow() {
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
+      <td className="px-4 py-3 text-center">
+        <div className="h-4 w-4 bg-surface rounded inline-block" />
+      </td>
     </tr>
   )
 }
@@ -111,6 +116,8 @@ export function CreditCardTable({
   onSort,
   selectedIds = new Set(),
   onSelectionChange,
+  onBankChargeClick,
+  onLinkCCTransaction,
 }: CreditCardTableProps) {
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
@@ -141,7 +148,7 @@ export function CreditCardTable({
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
-              {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+              {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
               <th className="px-4 py-3 text-center w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
@@ -155,6 +162,7 @@ export function CreditCardTable({
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Card</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Billing</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Status</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Link</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
@@ -176,7 +184,7 @@ export function CreditCardTable({
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
-            {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+            {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
             <th className="px-4 py-3 text-center w-12">
               <input
                 type="checkbox"
@@ -238,6 +246,9 @@ export function CreditCardTable({
             <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">
               Status
             </th>
+            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">
+              Link
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -274,7 +285,7 @@ export function CreditCardTable({
                 onClick={() => handleSelectOne(tx.id)}
                 className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status */}
+                {/* Columns: checkbox, merchant, date, amount, vat, vat%, vat amt, currency, card, billing, status, link */}
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
@@ -323,6 +334,21 @@ export function CreditCardTable({
                   ) : (
                     <ClockIcon className="w-5 h-5 text-text-muted/50 inline-block" />
                   )}
+                </td>
+                <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={() => {
+                      if (tx.cc_bank_link_id) {
+                        onBankChargeClick?.(tx.cc_bank_link_id)
+                      } else {
+                        onLinkCCTransaction?.(tx.id)
+                      }
+                    }}
+                    className="cursor-pointer hover:text-primary transition-colors"
+                    title={tx.cc_bank_link_id ? 'View linked bank charge' : 'Link to bank charge'}
+                  >
+                    <LinkIcon className={`w-5 h-5 inline-block ${tx.cc_bank_link_id ? 'text-green-400 hover:text-green-300' : 'text-text-muted/50 hover:text-primary'}`} />
+                  </button>
                 </td>
               </tr>
             )

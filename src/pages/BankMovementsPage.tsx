@@ -6,6 +6,7 @@ import { BankUploader } from '@/components/bank/BankUploader'
 import { TransactionFilters, type TransactionFilterState } from '@/components/bank/TransactionFilters'
 import { TransactionTable } from '@/components/bank/TransactionTable'
 import { VatChangeModal } from '@/components/bank/VatChangeModal'
+import { CCChargeModal } from '@/components/bank/CCChargeModal'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { parseMerchantName, getMerchantBaseKey } from '@/lib/utils/merchantParser'
@@ -29,6 +30,7 @@ export function BankMovementsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
   const [showVatModal, setShowVatModal] = useState(false)
+  const [selectedCCChargeId, setSelectedCCChargeId] = useState<string | null>(null)
 
   // Apply filters
   const filteredTransactions = useMemo(() => {
@@ -274,6 +276,7 @@ export function BankMovementsPage() {
             onSort={handleSort}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
+            onCCChargeClick={setSelectedCCChargeId}
           />
         )}
       </div>
@@ -289,6 +292,13 @@ export function BankMovementsPage() {
         onApplyToAllMerchant={handleApplyToAllMerchant}
         onApplyToFuture={handleApplyToFuture}
         isLoading={isUpdating}
+      />
+
+      {/* CC Charge Details Modal */}
+      <CCChargeModal
+        isOpen={!!selectedCCChargeId}
+        onClose={() => setSelectedCCChargeId(null)}
+        bankTransactionId={selectedCCChargeId}
       />
     </div>
   )
