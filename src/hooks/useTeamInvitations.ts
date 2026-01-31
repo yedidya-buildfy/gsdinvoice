@@ -37,7 +37,8 @@ export function useTeamInvitations() {
         throw new Error(error.message)
       }
 
-      return data || []
+      // Cast to TeamInvitation with proper role types
+      return (data || []) as TeamInvitation[]
     },
     enabled: !!currentTeam,
     staleTime: 30 * 1000,
@@ -58,18 +59,8 @@ export function useInviteMember() {
         throw new Error('No team selected')
       }
 
-      // Check if user is already a member
-      const { data: existingMember } = await supabase
-        .from('team_members')
-        .select('id')
-        .eq('team_id', currentTeam.id)
-        .eq('user_id', (await supabase.from('auth.users').select('id').eq('email', email).single()).data?.id || '')
-        .is('removed_at', null)
-        .single()
-
-      if (existingMember) {
-        throw new Error('User is already a team member')
-      }
+      // Note: We can't check if user is already a member by email since auth.users
+      // isn't queryable from client. The invitation will fail on acceptance if already a member.
 
       // Check if there's already a pending invitation
       const { data: existingInvite } = await supabase
@@ -242,11 +233,12 @@ export function useAcceptInvitation() {
         throw new Error(error.message)
       }
 
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to accept invitation')
+      const result = data as { success?: boolean; error?: string } | null
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to accept invitation')
       }
 
-      return data
+      return result
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teams'] })

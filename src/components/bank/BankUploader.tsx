@@ -6,6 +6,7 @@ import {
   CheckCircleIcon,
 } from '@heroicons/react/24/outline'
 import { useBankStatementUpload } from '@/hooks/useBankStatementUpload'
+import { TransactionDuplicateModal } from '@/components/duplicates/TransactionDuplicateModal'
 
 interface BankUploaderProps {
   onUploadComplete?: () => void
@@ -32,6 +33,9 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
     matchedCount,
     isProcessing,
     addFile,
+    duplicateCheckResult,
+    showDuplicateModal,
+    handleDuplicateAction,
   } = useBankStatementUpload()
 
   const prevStatusRef = useRef(status)
@@ -45,7 +49,7 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
   }, [status, onUploadComplete])
 
   const handleClick = () => {
-    if (!isProcessing) {
+    if (!isProcessing && status !== 'waiting_action') {
       inputRef.current?.click()
     }
   }
@@ -64,10 +68,10 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!isProcessing) {
+    if (!isProcessing && status !== 'waiting_action') {
       setIsDragOver(true)
     }
-  }, [isProcessing])
+  }, [isProcessing, status])
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -81,33 +85,37 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
       e.stopPropagation()
       setIsDragOver(false)
 
-      if (isProcessing) return
+      if (isProcessing || status === 'waiting_action') return
 
       const droppedFile = e.dataTransfer.files?.[0]
       if (droppedFile) {
         addFile(droppedFile)
       }
     },
-    [addFile, isProcessing]
+    [addFile, isProcessing, status]
   )
 
   const getStatusText = () => {
     if (status === 'parsing') return 'Parsing file...'
+    if (status === 'checking') return 'Checking for duplicates...'
+    if (status === 'waiting_action') return 'Waiting for action...'
     if (status === 'saving') return 'Saving transactions...'
     if (status === 'matching') return 'Matching to CC transactions...'
     if (status === 'success') return 'Import complete'
     return 'Processing...'
   }
 
+  const isDisabled = isProcessing || status === 'waiting_action'
+
   return (
     <div className="w-full">
       {/* Drop zone */}
       <div
         role="button"
-        tabIndex={isProcessing ? -1 : 0}
+        tabIndex={isDisabled ? -1 : 0}
         onClick={handleClick}
         onKeyDown={(e) => {
-          if (!isProcessing && (e.key === 'Enter' || e.key === ' ')) {
+          if (!isDisabled && (e.key === 'Enter' || e.key === ' ')) {
             handleClick()
           }
         }}
@@ -119,7 +127,7 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
           w-full min-h-[160px] p-6
           border-2 border-dashed rounded-lg
           transition-all duration-200
-          ${isProcessing
+          ${isDisabled
             ? 'border-gray-700 bg-gray-900/50 cursor-not-allowed opacity-50'
             : isDragOver
               ? 'border-green-500 bg-green-500/10 cursor-pointer'
@@ -149,7 +157,7 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
           onChange={handleFileChange}
           className="hidden"
           aria-label="Bank statement file input"
-          disabled={isProcessing}
+          disabled={isDisabled}
         />
       </div>
 
@@ -195,7 +203,9 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
                 className={`h-full transition-all duration-300 ${
                   status === 'success'
                     ? 'bg-green-500'
-                    : 'bg-gradient-to-r from-green-500 to-green-400'
+                    : status === 'waiting_action'
+                      ? 'bg-yellow-500'
+                      : 'bg-gradient-to-r from-green-500 to-green-400'
                 }`}
                 style={{ width: `${progress}%` }}
               />
@@ -216,6 +226,16 @@ export function BankUploader({ onUploadComplete }: BankUploaderProps) {
           )}
         </div>
       )}
+
+      {/* Transaction Duplicate Modal */}
+      <TransactionDuplicateModal
+        isOpen={showDuplicateModal}
+        onClose={() => handleDuplicateAction('skip')}
+        fileName={currentFile?.name || ''}
+        duplicateResult={duplicateCheckResult}
+        onAction={handleDuplicateAction}
+        isLoading={isProcessing}
+      />
     </div>
   )
 }

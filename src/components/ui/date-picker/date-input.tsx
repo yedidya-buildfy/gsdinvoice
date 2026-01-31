@@ -2,15 +2,14 @@ import {
   DateInput as AriaDateInput,
   DateSegment,
   type DateInputProps as AriaDateInputProps,
-  type DateValue,
 } from 'react-aria-components'
 import { clsx } from 'clsx'
 
-interface DateInputProps<T extends DateValue> extends AriaDateInputProps<T> {
+interface DateInputProps extends AriaDateInputProps {
   className?: string
 }
 
-export function DateInput<T extends DateValue>({ className, ...props }: DateInputProps<T>) {
+export function DateInput({ className, ...props }: DateInputProps) {
   return (
     <AriaDateInput
       {...props}

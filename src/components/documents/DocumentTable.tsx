@@ -5,10 +5,11 @@ import {
   PhotoIcon,
   ChevronUpIcon,
   ChevronDownIcon,
+  LinkIcon,
 } from '@heroicons/react/24/outline'
 import type { DocumentWithUrl } from '@/hooks/useDocuments'
 import type { InvoiceWithFile } from '@/hooks/useInvoices'
-import { formatCurrency } from '@/lib/utils/currency'
+import { formatCurrency } from '@/lib/currency'
 import { ExtractionStatus } from './ExtractionStatus'
 import type { ExtractionStatus as ExtractionStatusType } from '@/lib/extraction/types'
 import { isImageType } from '@/lib/storage'
@@ -27,6 +28,7 @@ export type DocumentSortColumn =
   | 'line_items_count'
   | 'confidence_score'
   | 'status'
+  | 'bank_link'
 
 interface DocumentTableProps {
   documents: DocumentWithInvoice[]
@@ -34,6 +36,7 @@ interface DocumentTableProps {
   selectedIds?: Set<string>
   onSelectionChange?: (selectedIds: Set<string>) => void
   onRowClick?: (document: DocumentWithInvoice) => void
+  onBankLinkClick?: (invoiceId: string, vendorName: string | null) => void
   sortColumn?: DocumentSortColumn
   sortDirection?: 'asc' | 'desc'
   onSort?: (column: DocumentSortColumn) => void
@@ -162,6 +165,75 @@ function ConfidenceBadge({ score }: { score: number | null }) {
   )
 }
 
+function BankLinkBadge({
+  status,
+  stats,
+  onClick,
+}: {
+  status?: 'yes' | 'partly' | 'no'
+  stats?: { total: number; linked: number }
+  onClick?: () => void
+}) {
+  const baseClass = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors'
+  const clickableClass = onClick ? 'cursor-pointer hover:ring-1 hover:ring-current' : ''
+
+  if (!status || status === 'no') {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          if (onClick) {
+            e.stopPropagation()
+            onClick()
+          }
+        }}
+        className={`${baseClass} ${clickableClass} bg-text-muted/20 text-text-muted hover:bg-text-muted/30`}
+        disabled={!onClick}
+      >
+        <LinkIcon className="w-3 h-3" />
+        No
+      </button>
+    )
+  }
+
+  if (status === 'partly') {
+    const label = stats ? `${stats.linked}/${stats.total}` : 'Partial'
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          if (onClick) {
+            e.stopPropagation()
+            onClick()
+          }
+        }}
+        className={`${baseClass} ${clickableClass} bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30`}
+        disabled={!onClick}
+      >
+        <LinkIcon className="w-3 h-3" />
+        {label}
+      </button>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        if (onClick) {
+          e.stopPropagation()
+          onClick()
+        }
+      }}
+      className={`${baseClass} ${clickableClass} bg-green-500/20 text-green-400 hover:bg-green-500/30`}
+      disabled={!onClick}
+    >
+      <LinkIcon className="w-3 h-3" />
+      Yes
+    </button>
+  )
+}
+
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
@@ -196,6 +268,9 @@ function SkeletonRow() {
         <div className="h-4 w-12 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-start">
+        <div className="h-4 w-12 bg-surface rounded inline-block" />
+      </td>
+      <td className="px-4 py-3 text-start">
         <div className="h-5 w-16 bg-surface rounded inline-block" />
       </td>
     </tr>
@@ -208,6 +283,7 @@ export function DocumentTable({
   selectedIds = new Set(),
   onSelectionChange,
   onRowClick,
+  onBankLinkClick,
   sortColumn,
   sortDirection,
   onSort,
@@ -253,6 +329,7 @@ export function DocumentTable({
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Added</th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-14">Items</th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Confidence</th>
+              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Bank Link</th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">AI Status</th>
             </tr>
           </thead>
@@ -360,6 +437,15 @@ export function DocumentTable({
               className="w-20"
             />
             <SortHeader
+              column="bank_link"
+              label="Bank Link"
+              sortColumn={sortColumn}
+              sortDirection={sortDirection}
+              onSort={onSort}
+              align="start"
+              className="w-20"
+            />
+            <SortHeader
               column="status"
               label="AI Status"
               sortColumn={sortColumn}
@@ -393,7 +479,7 @@ export function DocumentTable({
                   <FileTypeIcon fileType={doc.file_type || 'unknown'} />
                 </td>
                 <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
-                  {formatFileSize(doc.file_size)}
+                  {doc.file_size != null ? formatFileSize(doc.file_size) : '-'}
                 </td>
                 <td className="px-4 py-3 text-start">
                   <div className="flex items-center gap-3">
@@ -420,13 +506,20 @@ export function DocumentTable({
                   {invoice?.vat_amount_agorot ? formatCurrency(invoice.vat_amount_agorot, invoice.currency || 'ILS') : '-'}
                 </td>
                 <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
-                  {formatDate(doc.created_at)}
+                  {doc.created_at ? formatDate(doc.created_at) : '-'}
                 </td>
                 <td className="px-4 py-3 text-start text-sm text-text-muted">
                   {getLineItemsCount(invoice) > 0 ? getLineItemsCount(invoice) : '-'}
                 </td>
                 <td className="px-4 py-3 text-start">
                   <ConfidenceBadge score={invoice?.confidence_score ?? null} />
+                </td>
+                <td className="px-4 py-3 text-start">
+                  <BankLinkBadge
+                    status={invoice?.bankLinkStatus}
+                    stats={invoice?.line_item_stats}
+                    onClick={invoice?.id && onBankLinkClick ? () => onBankLinkClick(invoice.id, invoice.vendor_name) : undefined}
+                  />
                 </td>
                 <td className="px-4 py-3 text-start">
                   <ExtractionStatus

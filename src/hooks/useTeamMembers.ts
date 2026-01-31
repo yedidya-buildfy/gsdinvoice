@@ -50,12 +50,13 @@ export function useTeamMembers() {
         const profile = profileMap.get(member.user_id)
         return {
           ...member,
+          role: member.role as TeamMemberWithProfile['role'],
           user: {
             email: profile?.full_name || member.user_id.slice(0, 8) + '...', // Fallback to partial user_id
             profile: profile || null,
           },
         }
-      })
+      }) as TeamMemberWithProfile[]
     },
     enabled: !!currentTeam,
     staleTime: 30 * 1000,

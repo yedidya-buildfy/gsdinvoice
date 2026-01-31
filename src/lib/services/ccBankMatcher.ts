@@ -27,7 +27,7 @@ interface CCPurchaseTransaction {
   amount_agorot: number
   credit_card_id: string | null
   parent_bank_charge_id: string | null
-  match_status: string
+  match_status: string | null
   match_confidence: number | null
   credit_card?: { card_last_four: string } | null
 }

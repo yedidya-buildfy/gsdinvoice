@@ -5,7 +5,7 @@
 
 import { parseXlsxFile, xlsxToObjects } from './xlsxParser';
 import { parseCsvFile } from './csvParser';
-import { shekelToAgorot } from '@/lib/utils/currency';
+import { shekelToAgorot } from '@/lib/currency';
 import { parseIsraeliDate } from '@/lib/utils/dateUtils';
 
 /**

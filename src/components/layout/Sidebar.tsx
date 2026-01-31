@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, useLocation } from 'react-router'
+import { NavLink, useLocation, useSearchParams } from 'react-router'
 import {
   HomeIcon,
   BanknotesIcon,
@@ -8,24 +8,35 @@ import {
   Cog6ToothIcon,
   ArrowLeftStartOnRectangleIcon,
   ChevronDownIcon,
+  LinkIcon,
+  UserIcon,
 } from '@heroicons/react/24/outline'
 import { useAuth } from '@/contexts/AuthContext'
+import { useProfile } from '@/hooks/useProfile'
+
+interface NavChild {
+  to: string
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
+  label: string
+}
 
 interface NavItem {
   to?: string
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
   label: string
-  children?: NavItem[]
+  children?: NavChild[]
 }
 
 const navItems: NavItem[] = [
   { to: '/', icon: HomeIcon, label: 'Dashboard' },
   {
     icon: BanknotesIcon,
-    label: 'Bank Movements',
+    label: 'Money Movements',
     children: [
-      { to: '/bank-movements', icon: BanknotesIcon, label: 'Transactions' },
-      { to: '/credit-card', icon: CreditCardIcon, label: 'Credit Card' },
+      { to: '/money-movements?tab=bank', icon: BanknotesIcon, label: 'Bank' },
+      { to: '/money-movements?tab=cc-purchases', icon: CreditCardIcon, label: 'CC Purchases' },
+      { to: '/money-movements?tab=cc-charges', icon: CreditCardIcon, label: 'CC Charges' },
+      { to: '/money-movements?tab=matching', icon: LinkIcon, label: 'Matching' },
     ],
   },
   { to: '/invoices', icon: DocumentTextIcon, label: 'Invoices & Receipts' },
@@ -33,10 +44,14 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const { user, signOut } = useAuth()
+  const { profile } = useProfile()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const [loggingOut, setLoggingOut] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(['Bank Movements'])
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(['Money Movements'])
+
+  const displayName = profile?.full_name || user?.email || ''
 
   const handleSignOut = async () => {
     setLoggingOut(true)
@@ -50,9 +65,28 @@ export function Sidebar() {
     )
   }
 
-  const isChildActive = (item: NavItem) => {
+  // Check if a child nav item is active based on path and query params
+  const isChildActive = (child: NavChild) => {
+    const childUrl = new URL(child.to, window.location.origin)
+    const childPath = childUrl.pathname
+    const childTab = childUrl.searchParams.get('tab')
+    const currentTab = searchParams.get('tab') || 'bank' // Default to 'bank' if no tab param
+
+    // Path must match
+    if (location.pathname !== childPath) return false
+
+    // If child has a tab param, it must match current tab
+    if (childTab) {
+      return childTab === currentTab
+    }
+
+    return true
+  }
+
+  // Check if any child of a group is active
+  const isGroupChildActive = (item: NavItem) => {
     if (!item.children) return false
-    return item.children.some((child) => child.to === location.pathname)
+    return item.children.some((child) => isChildActive(child))
   }
 
   const isExpanded = isHovered
@@ -83,7 +117,7 @@ export function Sidebar() {
                     onClick={() => toggleGroup(item.label)}
                     title={!isExpanded ? item.label : undefined}
                     className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
-                      isChildActive(item)
+                      isGroupChildActive(item)
                         ? 'bg-primary/10 text-primary'
                         : 'text-text-muted hover:bg-background hover:text-text'
                     } ${!isExpanded ? 'justify-center' : ''}`}
@@ -105,10 +139,10 @@ export function Sidebar() {
                       {item.children.map((child) => (
                         <li key={child.to}>
                           <NavLink
-                            to={child.to!}
-                            className={({ isActive }) =>
+                            to={child.to}
+                            className={() =>
                               `flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
-                                isActive
+                                isChildActive(child)
                                   ? 'bg-primary/10 text-primary'
                                   : 'text-text-muted hover:bg-background hover:text-text'
                               }`
@@ -164,13 +198,25 @@ export function Sidebar() {
           {isExpanded && <span className="truncate">Settings</span>}
         </NavLink>
 
-        {isExpanded && user?.email && (
-          <div className="px-3 py-2 mb-1">
-            <p className="text-text-muted text-sm truncate" title={user.email}>
-              {user.email}
-            </p>
+        {/* User profile */}
+        <div className={`flex items-center gap-3 px-3 py-2 mb-1 ${!isExpanded ? 'justify-center' : ''}`}>
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt="Profile"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <UserIcon className="w-4 h-4 text-text-muted" />
+            )}
           </div>
-        )}
+          {isExpanded && displayName && (
+            <p className="text-text-muted text-sm truncate" title={displayName}>
+              {displayName}
+            </p>
+          )}
+        </div>
         <button
           onClick={handleSignOut}
           disabled={loggingOut}

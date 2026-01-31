@@ -401,6 +401,100 @@ export function useUnmatchedCCTransactions(filters: UnmatchedCCFilters): UseUnma
   })
 }
 
+// Hook to fetch bank CC charge transactions with connection status
+export interface BankCCChargeDisplay {
+  id: string
+  date: string
+  description: string
+  amount_agorot: number
+  has_linked_cc: boolean
+}
+
+interface BankCCChargeFilters {
+  fromDate?: string
+  toDate?: string
+  connectionStatus?: 'all' | 'connected' | 'not_connected'
+}
+
+interface UseBankCCChargesReturn {
+  charges: BankCCChargeDisplay[]
+  isLoading: boolean
+  error: Error | null
+  refetch: () => Promise<unknown>
+}
+
+export function useBankCCCharges(filters: BankCCChargeFilters): UseBankCCChargesReturn {
+  const { user } = useAuth()
+  const connectionStatus = filters.connectionStatus || 'all'
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['bank-cc-charges', user?.id, filters],
+    queryFn: async () => {
+      // Fetch bank CC charges (transaction_type = 'bank_cc_charge')
+      let query = supabase
+        .from('transactions')
+        .select('id, date, description, amount_agorot')
+        .eq('user_id', user!.id)
+        .eq('transaction_type', 'bank_cc_charge')
+        .order('date', { ascending: false })
+
+      if (filters.fromDate) {
+        query = query.gte('date', filters.fromDate)
+      }
+      if (filters.toDate) {
+        query = query.lte('date', filters.toDate)
+      }
+
+      const { data: charges, error: chargesError } = await query
+
+      if (chargesError) throw chargesError
+      if (!charges || charges.length === 0) return []
+
+      // Fetch CC purchases that are linked to these bank charges
+      const chargeIds = charges.map(c => c.id)
+      const { data: linkedCC, error: linkedError } = await supabase
+        .from('transactions')
+        .select('parent_bank_charge_id')
+        .eq('transaction_type', 'cc_purchase')
+        .in('parent_bank_charge_id', chargeIds)
+
+      if (linkedError) throw linkedError
+
+      // Create set of bank charge IDs that have linked CC
+      const linkedChargeIds = new Set(
+        (linkedCC || []).map(tx => tx.parent_bank_charge_id).filter(Boolean)
+      )
+
+      // Map charges with connection status
+      const mapped: BankCCChargeDisplay[] = charges.map(charge => ({
+        id: charge.id,
+        date: charge.date,
+        description: charge.description,
+        amount_agorot: charge.amount_agorot,
+        has_linked_cc: linkedChargeIds.has(charge.id),
+      }))
+
+      // Filter by connection status
+      if (connectionStatus === 'connected') {
+        return mapped.filter(c => c.has_linked_cc)
+      } else if (connectionStatus === 'not_connected') {
+        return mapped.filter(c => !c.has_linked_cc)
+      }
+
+      return mapped
+    },
+    enabled: !!user,
+    staleTime: 30000,
+  })
+
+  return {
+    charges: data || [],
+    isLoading,
+    error: error as Error | null,
+    refetch,
+  }
+}
+
 // Hook to attach CC transactions to a bank transaction
 interface UseAttachCCTransactionsReturn {
   attach: (bankTransactionId: string, ccTransactionIds: string[]) => Promise<void>

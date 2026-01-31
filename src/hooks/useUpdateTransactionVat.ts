@@ -8,6 +8,21 @@ interface VatUpdateData {
   vatPercentage: number
 }
 
+/**
+ * Helper to bulk update transactions using RPC to avoid URL length limits
+ */
+async function bulkUpdateTransactions(
+  ids: string[],
+  updateData: { has_vat?: boolean; vat_percentage?: number; vat_amount_agorot?: number | null }
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase.rpc('bulk_update_transactions', {
+    ids,
+    update_data: updateData
+  })
+  if (error) return { error }
+  return { error: null }
+}
+
 export function useUpdateTransactionVat() {
   const [isUpdating, setIsUpdating] = useState(false)
 
@@ -58,16 +73,13 @@ export function useUpdateTransactionVat() {
     try {
       const ids = transactions.map((tx) => tx.id)
 
-      // If no VAT, single bulk update
+      // If no VAT, bulk update in batches
       if (!hasVat) {
-        const { error } = await supabase
-          .from('transactions')
-          .update({
-            has_vat: false,
-            vat_percentage: vatPercentage,
-            vat_amount_agorot: null,
-          })
-          .in('id', ids)
+        const { error } = await bulkUpdateTransactions(ids, {
+          has_vat: false,
+          vat_percentage: vatPercentage,
+          vat_amount_agorot: null,
+        })
 
         if (error) throw error
         return { success: true, count: transactions.length }
@@ -85,18 +97,14 @@ export function useUpdateTransactionVat() {
       }
 
       // Batch update all transactions with the same VAT amount together
-      await Promise.all(
-        Array.from(byVatAmount.entries()).map(([vatAmountAgorot, ids]) =>
-          supabase
-            .from('transactions')
-            .update({
-              has_vat: true,
-              vat_percentage: vatPercentage,
-              vat_amount_agorot: vatAmountAgorot,
-            })
-            .in('id', ids)
-        )
-      )
+      for (const [vatAmountAgorot, groupIds] of byVatAmount.entries()) {
+        const { error } = await bulkUpdateTransactions(groupIds, {
+          has_vat: true,
+          vat_percentage: vatPercentage,
+          vat_amount_agorot: vatAmountAgorot,
+        })
+        if (error) throw error
+      }
 
       return { success: true, count: transactions.length }
     } catch (error) {
@@ -120,15 +128,38 @@ export function useUpdateTransactionVat() {
     setIsUpdating(true)
     try {
       // Fetch all transactions for this user (we'll filter in JS for smart matching)
-      // NEW SCHEMA: use credit_card_id instead of linked_credit_card_id
-      const { data: allTransactions, error: fetchError } = await supabase
-        .from('transactions')
-        .select('id, amount_agorot, description, is_income, credit_card_id, transaction_type')
-        .eq('user_id', userId)
+      // Paginate to handle >1000 transactions (Supabase default limit)
+      const allTransactions: Array<{
+        id: string
+        amount_agorot: number
+        description: string
+        is_income: boolean
+        credit_card_id: string | null
+        transaction_type: string | null
+      }> = []
+      const PAGE_SIZE = 1000
+      let offset = 0
+      let hasMore = true
 
-      if (fetchError) throw fetchError
+      while (hasMore) {
+        const { data, error: fetchError } = await supabase
+          .from('transactions')
+          .select('id, amount_agorot, description, is_income, credit_card_id, transaction_type')
+          .eq('user_id', userId)
+          .range(offset, offset + PAGE_SIZE - 1)
 
-      if (!allTransactions || allTransactions.length === 0) {
+        if (fetchError) throw fetchError
+
+        if (data && data.length > 0) {
+          allTransactions.push(...data)
+          offset += PAGE_SIZE
+          hasMore = data.length === PAGE_SIZE
+        } else {
+          hasMore = false
+        }
+      }
+
+      if (allTransactions.length === 0) {
         return { success: true, count: 0 }
       }
 
@@ -148,16 +179,13 @@ export function useUpdateTransactionVat() {
 
       const matchingIds = matchingTransactions.map((tx) => tx.id)
 
-      // If no VAT, we can do a single bulk update (no per-row calculation needed)
+      // If no VAT, bulk update in batches
       if (!hasVat) {
-        const { error } = await supabase
-          .from('transactions')
-          .update({
-            has_vat: false,
-            vat_percentage: vatPercentage,
-            vat_amount_agorot: null,
-          })
-          .in('id', matchingIds)
+        const { error } = await bulkUpdateTransactions(matchingIds, {
+          has_vat: false,
+          vat_percentage: vatPercentage,
+          vat_amount_agorot: null,
+        })
 
         if (error) throw error
         return { success: true, count: matchingTransactions.length }
@@ -175,18 +203,14 @@ export function useUpdateTransactionVat() {
       }
 
       // Batch update all transactions with the same VAT amount together
-      await Promise.all(
-        Array.from(byVatAmount.entries()).map(([vatAmountAgorot, ids]) =>
-          supabase
-            .from('transactions')
-            .update({
-              has_vat: true,
-              vat_percentage: vatPercentage,
-              vat_amount_agorot: vatAmountAgorot,
-            })
-            .in('id', ids)
-        )
-      )
+      for (const [vatAmountAgorot, groupIds] of byVatAmount.entries()) {
+        const { error } = await bulkUpdateTransactions(groupIds, {
+          has_vat: true,
+          vat_percentage: vatPercentage,
+          vat_amount_agorot: vatAmountAgorot,
+        })
+        if (error) throw error
+      }
 
       return { success: true, count: matchingTransactions.length }
     } catch (error) {

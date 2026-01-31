@@ -75,12 +75,12 @@ export function DocumentCard({ document }: DocumentCardProps) {
 
         {/* File size */}
         <p className="text-xs text-text-muted">
-          {formatFileSize(document.file_size)}
+          {document.file_size != null ? formatFileSize(document.file_size) : '-'}
         </p>
 
         {/* Upload date */}
         <p className="text-xs text-text-muted">
-          {formatDate(document.created_at)}
+          {document.created_at ? formatDate(document.created_at) : '-'}
         </p>
 
         {/* Status badge */}

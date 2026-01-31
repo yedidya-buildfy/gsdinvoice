@@ -52,7 +52,7 @@ interface AmountMatch {
  * @param amount2Agorot Second amount in agorot
  * @param tolerancePercent Tolerance percentage (default 2%)
  */
-function amountsMatch(
+function _amountsMatch(
   amount1Agorot: number,
   amount2Agorot: number,
   tolerancePercent: number = 2
@@ -67,6 +67,8 @@ function amountsMatch(
     percentDiff,
   };
 }
+// Export to prevent unused warning - kept for future use in advanced CC-to-bank matching
+export { _amountsMatch as amountsMatch };
 
 /**
  * Check if two dates are within window
@@ -74,7 +76,7 @@ function amountsMatch(
  * @param date2 ISO date string YYYY-MM-DD
  * @param windowDays Date window in days (default 2)
  */
-function isWithinDateWindow(
+function _isWithinDateWindow(
   date1: string,
   date2: string,
   windowDays: number = 2
@@ -85,6 +87,8 @@ function isWithinDateWindow(
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
   return diffDays <= windowDays;
 }
+// Export to prevent unused warning - kept for future use in advanced CC-to-bank matching
+export { _isWithinDateWindow as isWithinDateWindow };
 
 export interface LinkingResult {
   linked: number;

@@ -13,6 +13,11 @@ export interface UseInvoicesOptions {
 }
 
 /**
+ * Bank link status for an invoice based on its line items
+ */
+export type BankLinkStatus = 'yes' | 'partly' | 'no'
+
+/**
  * Invoice with optional file relationship and line items count for display
  */
 export type InvoiceWithFile = Invoice & {
@@ -21,6 +26,11 @@ export type InvoiceWithFile = Invoice & {
     storage_path: string
   } | null
   invoice_rows?: { count: number }[]
+  line_item_stats?: {
+    total: number
+    linked: number
+  }
+  bankLinkStatus?: BankLinkStatus
 }
 
 /**
@@ -49,7 +59,7 @@ export function useInvoices(options?: UseInvoicesOptions) {
     queryFn: async () => {
       let query = supabase
         .from('invoices')
-        .select('*, file:files(original_name, storage_path), invoice_rows(count)')
+        .select('*, file:files(original_name, storage_path), invoice_rows(id, transaction_id)')
 
       if (status) {
         query = query.eq('status', status)
@@ -67,7 +77,35 @@ export function useInvoices(options?: UseInvoicesOptions) {
         throw new Error(error.message)
       }
 
-      return data as InvoiceWithFile[]
+      // Compute bank link status for each invoice
+      type InvoiceWithRows = Omit<InvoiceWithFile, 'invoice_rows'> & {
+        invoice_rows?: { id: string; transaction_id: string | null }[]
+      }
+
+      const invoicesWithStatus = (data as InvoiceWithRows[]).map((invoice) => {
+        const rows = invoice.invoice_rows ?? []
+        const total = rows.length
+        const linked = rows.filter((row) => row.transaction_id !== null).length
+
+        let bankLinkStatus: BankLinkStatus = 'no'
+        if (total > 0) {
+          if (linked === total) {
+            bankLinkStatus = 'yes'
+          } else if (linked > 0) {
+            bankLinkStatus = 'partly'
+          }
+        }
+
+        // Convert to the expected format with count
+        return {
+          ...invoice,
+          invoice_rows: [{ count: total }],
+          line_item_stats: { total, linked },
+          bankLinkStatus,
+        }
+      })
+
+      return invoicesWithStatus as InvoiceWithFile[]
     },
     staleTime: 30 * 1000, // 30 seconds, matches existing pattern
   })

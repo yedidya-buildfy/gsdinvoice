@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon, XMarkIcon, FunnelIcon } from '@heroicons/react/24/outline'
+import { MagnifyingGlassIcon, XMarkIcon, FunnelIcon, LinkIcon } from '@heroicons/react/24/outline'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import type { InvoiceFilterState } from './invoiceFilterTypes'
 
@@ -20,6 +20,13 @@ const AI_STATUS_OPTIONS: { value: InvoiceFilterState['aiStatus']; label: string 
   { value: 'processing', label: 'Processing' },
   { value: 'processed', label: 'Processed' },
   { value: 'failed', label: 'Failed' },
+]
+
+const BANK_LINK_OPTIONS: { value: InvoiceFilterState['bankLinkStatus']; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'yes', label: 'Linked' },
+  { value: 'partly', label: 'Partial' },
+  { value: 'no', label: 'Not Linked' },
 ]
 
 function FileTypeMultiSelect({
@@ -134,6 +141,56 @@ function AIStatusSelect({
   )
 }
 
+function BankLinkStatusSelect({
+  value,
+  onChange,
+}: {
+  value: InvoiceFilterState['bankLinkStatus']
+  onChange: (value: InvoiceFilterState['bankLinkStatus']) => void
+}) {
+  const selectedLabel = BANK_LINK_OPTIONS.find((opt) => opt.value === value)?.label || 'All'
+  const isFiltered = value !== 'all'
+
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-text-muted/20 rounded-lg text-text hover:border-text-muted/40 transition-colors text-sm"
+      >
+        <LinkIcon className="w-4 h-4 text-text-muted" />
+        <span>Bank: {selectedLabel}</span>
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange('all')
+            }}
+            className="p-0.5 rounded hover:bg-background/50"
+          >
+            <XMarkIcon className="w-3.5 h-3.5 text-text-muted hover:text-text" />
+          </button>
+        )}
+      </button>
+      <div className="absolute top-full start-0 mt-1 z-50 hidden group-hover:block bg-surface border border-text-muted/20 rounded-lg shadow-lg min-w-[140px]">
+        {BANK_LINK_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`w-full flex items-center gap-2 px-3 py-2 hover:bg-background/50 text-start text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ${
+              value === option.value ? 'text-primary font-medium' : 'text-text'
+            }`}
+          >
+            {value === option.value && <span className="text-primary">&#10003;</span>}
+            <span className={value === option.value ? '' : 'ps-5'}>{option.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function InvoiceFilters({ filters, onChange }: InvoiceFiltersProps) {
   const handleDateChange = (startDate: string, endDate: string) => {
     onChange({ ...filters, dateFrom: startDate, dateTo: endDate })
@@ -158,6 +215,12 @@ export function InvoiceFilters({ filters, onChange }: InvoiceFiltersProps) {
       <AIStatusSelect
         value={filters.aiStatus}
         onChange={(aiStatus) => onChange({ ...filters, aiStatus })}
+      />
+
+      {/* Bank Link Status select */}
+      <BankLinkStatusSelect
+        value={filters.bankLinkStatus}
+        onChange={(bankLinkStatus) => onChange({ ...filters, bankLinkStatus })}
       />
 
       {/* Search */}

@@ -67,7 +67,7 @@ export function InviteMemberModal({ isOpen, onClose }: InviteMemberModalProps) {
       const trimmedEmail = email.trim().toLowerCase()
       const data = await inviteMember.mutateAsync({ email: trimmedEmail, role })
       setSuccess(true)
-      setInviteData(data)
+      setInviteData(data as unknown as InviteDataWithEmail)
       setInvitedEmail(trimmedEmail)
       setEmail('')
     } catch (err) {

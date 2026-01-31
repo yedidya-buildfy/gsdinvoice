@@ -120,6 +120,7 @@ export interface LineItemDuplicateInfo {
       reference_id: string | null
       transaction_date: string | null
       amount_agorot: number | null
+      currency: string | null
       description: string | null
     }
     existingItems: Array<{

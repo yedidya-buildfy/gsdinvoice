@@ -1,8 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { CurrencyCode } from '@/lib/currency'
 
 export type DuplicateAction = 'skip' | 'replace' | 'add'
 export type MatchingTrigger = 'manual' | 'on_upload' | 'after_all_uploads'
+export type LinkingAmountTolerance = -1 | 0 | 5 | 10 | 20 | 50
+export type LinkingCurrencyFilter = 'all' | CurrencyCode
+export type TablePageSize = 25 | 50 | 100 | 200 | 999
 
 interface SettingsState {
   // Extraction settings
@@ -31,6 +35,20 @@ interface SettingsState {
   // Matching confidence
   matchingConfidenceThreshold: number // 0-100
   setMatchingConfidenceThreshold: (value: number) => void
+
+  // Transaction linking defaults (for line item to transaction linking)
+  linkingDateRangeDays: number // days before/after line item date (default 14)
+  setLinkingDateRangeDays: (value: number) => void
+
+  linkingAmountTolerance: LinkingAmountTolerance // -1 = not relevant, 0 = exact, or percentage
+  setLinkingAmountTolerance: (value: LinkingAmountTolerance) => void
+
+  linkingDefaultCurrency: LinkingCurrencyFilter // 'all', 'ILS', 'USD', 'EUR'
+  setLinkingDefaultCurrency: (value: LinkingCurrencyFilter) => void
+
+  // Table display settings
+  tablePageSize: TablePageSize // 25, 50, 100, 200, 999 (999 = all)
+  setTablePageSize: (value: TablePageSize) => void
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -62,6 +80,20 @@ export const useSettingsStore = create<SettingsState>()(
       // Matching confidence
       matchingConfidenceThreshold: 70,
       setMatchingConfidenceThreshold: (value) => set({ matchingConfidenceThreshold: value }),
+
+      // Transaction linking defaults
+      linkingDateRangeDays: 14,
+      setLinkingDateRangeDays: (value) => set({ linkingDateRangeDays: value }),
+
+      linkingAmountTolerance: 20,
+      setLinkingAmountTolerance: (value) => set({ linkingAmountTolerance: value }),
+
+      linkingDefaultCurrency: 'all',
+      setLinkingDefaultCurrency: (value) => set({ linkingDefaultCurrency: value }),
+
+      // Table display settings
+      tablePageSize: 50,
+      setTablePageSize: (value) => set({ tablePageSize: value }),
     }),
     {
       name: 'vat-manager-settings',
@@ -73,6 +105,10 @@ export const useSettingsStore = create<SettingsState>()(
         ccBankAmountTolerance: state.ccBankAmountTolerance,
         ccBankDateRangeDays: state.ccBankDateRangeDays,
         matchingConfidenceThreshold: state.matchingConfidenceThreshold,
+        linkingDateRangeDays: state.linkingDateRangeDays,
+        linkingAmountTolerance: state.linkingAmountTolerance,
+        linkingDefaultCurrency: state.linkingDefaultCurrency,
+        tablePageSize: state.tablePageSize,
       }),
     }
   )

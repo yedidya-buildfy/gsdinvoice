@@ -106,7 +106,7 @@ export function useUpdateTeam() {
       await supabase.from('team_audit_logs').insert({
         team_id: currentTeam.id,
         action: 'team.updated',
-        metadata: { updates },
+        metadata: { updates: JSON.parse(JSON.stringify(updates)) },
       })
     },
     onSuccess: () => {

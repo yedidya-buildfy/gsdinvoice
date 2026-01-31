@@ -1,4 +1,4 @@
-import type { Key, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import {
   Tabs as AriaTabs,
   TabList as AriaTabList,

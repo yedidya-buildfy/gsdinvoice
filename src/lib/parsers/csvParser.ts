@@ -17,9 +17,28 @@ export function parseCsvFile<T>(file: File): Promise<T[]> {
       encoding: 'UTF-8',
       skipEmptyLines: true,
       dynamicTyping: false, // Keep as strings for consistent parsing
-      transformHeader: (header) => header.trim().replace(/\r\n/g, ' '),
-      complete: (results) => resolve(results.data as T[]),
-      error: (error) => reject(new Error(`CSV parse error: ${error.message}`)),
+      transformHeader: (header, index) => {
+        const trimmed = header.trim().replace(/\r\n/g, ' ');
+        console.log(`[CSV Parser] Header ${index}: "${header}" -> "${trimmed}"`);
+        return trimmed;
+      },
+      complete: (results) => {
+        console.log('[CSV Parser] Parse complete');
+        console.log('[CSV Parser] Total rows parsed:', results.data.length);
+        console.log('[CSV Parser] Fields/Headers:', results.meta.fields);
+        console.log('[CSV Parser] Errors:', results.errors);
+        if (results.data.length > 0) {
+          console.log('[CSV Parser] First row sample:', results.data[0]);
+        }
+        if (results.data.length > 1) {
+          console.log('[CSV Parser] Second row sample:', results.data[1]);
+        }
+        resolve(results.data as T[]);
+      },
+      error: (error) => {
+        console.error('[CSV Parser] Parse error:', error);
+        reject(new Error(`CSV parse error: ${error.message}`));
+      },
     });
   });
 }

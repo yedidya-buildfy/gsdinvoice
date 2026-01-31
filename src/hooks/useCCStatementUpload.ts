@@ -4,14 +4,8 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { runCCBankMatching, type MatchingResult } from '@/lib/services/ccBankMatcher'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { utf8ToBase64 } from '@/lib/utils/hashUtils'
 import type { TransactionInsert, CreditCardInsert } from '@/types/database'
-
-// UTF-8 safe base64 encoding for Hebrew text
-function utf8ToBase64(str: string): string {
-  const bytes = new TextEncoder().encode(str)
-  const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join('')
-  return btoa(binString)
-}
 
 interface UseCCStatementUploadReturn {
   /** Currently processing file */
@@ -124,7 +118,7 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
 
       setProgress(40)
 
-      // Step 3: Generate hashes and check duplicates (40-60%)
+      // Step 3: Generate hashes and prepare transactions (40-60%)
       // NEW SCHEMA: CC data is now in transactions table with transaction_type = 'cc_purchase'
       const txWithHashes = parsedTransactions.map((tx) => ({
         tx,
@@ -132,39 +126,11 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
         hash: utf8ToBase64(`cctx|${tx.date}|${tx.merchantName.trim()}|${tx.amountAgorot}|${tx.cardLastFour}|${tx.billingDate || ''}`),
       }))
 
-      const allHashes = txWithHashes.map((t) => t.hash)
-      const { data: existingRows } = await supabase
-        .from('transactions')
-        .select('hash')
-        .eq('user_id', user.id)
-        .eq('transaction_type', 'cc_purchase')
-        .in('hash', allHashes)
+      setProgress(50)
 
-      const existingHashes = new Set((existingRows || []).map((r) => r.hash))
-      const newTransactions = txWithHashes.filter((t) => !existingHashes.has(t.hash))
-      const duplicates = txWithHashes.length - newTransactions.length
-
-      setProgress(60)
-
-      if (newTransactions.length === 0) {
-        setSavedCount(0)
-        setDuplicateCount(duplicates)
-        setProgress(100)
-        setStatus('success')
-
-        // Auto-clear after 2 seconds
-        setTimeout(() => {
-          setCurrentFile(null)
-          setStatus('idle')
-          setProgress(0)
-          isProcessingRef.current = false
-        }, 2000)
-        return
-      }
-
-      // Step 4: Insert CC transactions into transactions table (60-80%)
+      // Prepare all transactions for upsert
       // NEW SCHEMA: All CC data now in transactions table with transaction_type = 'cc_purchase'
-      const inserts: TransactionInsert[] = newTransactions.map(({ tx, hash }) => ({
+      const inserts: TransactionInsert[] = txWithHashes.map(({ tx, hash }) => ({
         user_id: user.id,
         date: tx.date,
         value_date: tx.billingDate || tx.date, // charge_date
@@ -184,11 +150,24 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
         foreign_currency: tx.foreignCurrency,
       }))
 
+      setProgress(60)
+
+      // Step 4: Upsert CC transactions with ON CONFLICT DO NOTHING (60-80%)
+      // This is database-level duplicate protection - much more reliable than pre-checking
+      // The unique constraint on (user_id, hash) ensures duplicates are ignored
       setProgress(70)
 
+      // Use upsert with ignoreDuplicates: true which generates ON CONFLICT DO NOTHING
+      // This is efficient because:
+      // 1. No URL length limits (single request handles all data)
+      // 2. Database handles duplicate detection atomically
+      // 3. No race conditions between check and insert
       const { error: insertError, data: insertedData } = await supabase
         .from('transactions')
-        .insert(inserts)
+        .upsert(inserts, {
+          onConflict: 'user_id,hash',
+          ignoreDuplicates: true
+        })
         .select()
 
       if (insertError) {
@@ -196,6 +175,7 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
       }
 
       const saved = insertedData?.length || 0
+      const duplicates = txWithHashes.length - saved
       setSavedCount(saved)
       setDuplicateCount(duplicates)
       setProgress(80)

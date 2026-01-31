@@ -35,14 +35,16 @@ function createEmptyInvoice(documentId: string): Invoice {
     vendor_name: null,
     invoice_number: null,
     invoice_date: null,
+    due_date: null,
     subtotal_agorot: null,
     vat_amount_agorot: null,
     total_amount_agorot: null,
     currency: 'ILS',
     confidence_score: null,
     status: 'pending',
+    is_income: null,
+    team_id: null,
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
   }
 }
 

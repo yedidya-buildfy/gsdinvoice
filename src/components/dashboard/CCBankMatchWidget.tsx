@@ -1,373 +1,332 @@
-import { useState } from 'react'
+import { useMemo } from 'react'
+import { Link } from 'react-router'
 import {
-  ChevronDownIcon,
-  ChevronUpIcon,
   CreditCardIcon,
   BanknotesIcon,
+  ArrowTopRightOnSquareIcon,
   ExclamationTriangleIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  ArrowPathIcon,
 } from '@heroicons/react/24/outline'
-import {
-  useCCBankMatchResults,
-  useCCBankMatchSummary,
-  useUpdateMatchStatus,
-  useUnmatchCCTransactions,
-  type MatchResultWithDetails,
-} from '@/hooks/useCCBankMatchResults'
-import { runCCBankMatching } from '@/lib/services/ccBankMatcher'
-import { useAuth } from '@/contexts/AuthContext'
-import { useSettingsStore } from '@/stores/settingsStore'
-import { agorotToShekel } from '@/lib/utils/currency'
-import { Badge, BadgeWithDot } from '@/components/ui/base/badges/badges'
+import { MagicBento, type BentoCardData } from '@/components/ui/magic-bento'
+import { useCCTransactions, useBankCCCharges } from '@/hooks/useCCBankMatchResults'
+import { formatCurrency as formatAmount } from '@/lib/currency'
 
+interface CCBankMatchWidgetProps {
+  fromDate: string
+  toDate: string
+}
+
+// Use centralized currency formatter
 function formatCurrency(agorot: number): string {
-  const shekel = agorotToShekel(agorot)
-  return new Intl.NumberFormat('he-IL', {
-    style: 'currency',
-    currency: 'ILS',
-  }).format(shekel)
+  return formatAmount(agorot, 'ILS')
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('he-IL')
+interface ProgressBarProps {
+  percentage: number
+  className?: string
 }
 
-interface SummaryCardProps {
-  title: string
-  value: string | number
-  subtitle?: string
-  color?: 'default' | 'success' | 'warning' | 'error'
-}
-
-function SummaryCard({ title, value, subtitle, color = 'default' }: SummaryCardProps) {
-  const colorClasses = {
-    default: 'text-text',
-    success: 'text-utility-success-600',
-    warning: 'text-utility-warning-600',
-    error: 'text-utility-error-600',
-  }
+function ProgressBar({ percentage, className = '' }: ProgressBarProps) {
+  const clampedPercentage = Math.min(100, Math.max(0, percentage))
 
   return (
-    <div className="bg-surface rounded-lg p-4 border border-border">
-      <div className="text-text-secondary text-sm">{title}</div>
-      <div className={`text-2xl font-semibold mt-1 ${colorClasses[color]}`}>{value}</div>
-      {subtitle && <div className="text-text-muted text-xs mt-1">{subtitle}</div>}
+    <div className={`w-full h-1.5 bg-background rounded-full overflow-hidden ${className}`}>
+      <div
+        className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+        style={{ width: `${clampedPercentage}%` }}
+      />
     </div>
   )
 }
 
-interface MatchRowProps {
-  result: MatchResultWithDetails
-  isExpanded: boolean
-  onToggle: () => void
-  onApprove: () => void
-  onReject: () => void
-  onUnmatch: () => void
-  isUpdating: boolean
+interface StatRowProps {
+  icon: React.ReactNode
+  label: string
+  mainValue: string
+  totalValue: string
+  percentage: number
 }
 
-function MatchRow({
-  result,
-  isExpanded,
-  onToggle,
-  onApprove,
-  onReject,
-  onUnmatch,
-  isUpdating,
-}: MatchRowProps) {
-  const discrepancyColor = result.discrepancy_agorot === 0
-    ? 'success'
-    : Math.abs(result.discrepancy_agorot) <= result.bank_amount_agorot * 0.02
-      ? 'warning'
-      : 'error'
-
-  const statusBadge = {
-    pending: <BadgeWithDot color="warning" size="sm">ממתין</BadgeWithDot>,
-    approved: <BadgeWithDot color="success" size="sm">מאושר</BadgeWithDot>,
-    rejected: <BadgeWithDot color="error" size="sm">נדחה</BadgeWithDot>,
-  }[result.status] || <BadgeWithDot color="gray" size="sm">{result.status}</BadgeWithDot>
-
+function StatRow({ icon, label, mainValue, totalValue, percentage }: StatRowProps) {
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      {/* Header Row */}
-      <div
-        className="flex items-center gap-4 p-4 bg-surface cursor-pointer hover:bg-surface-hover transition-colors"
-        onClick={onToggle}
-      >
-        <button type="button" className="text-text-secondary">
-          {isExpanded ? (
-            <ChevronUpIcon className="w-5 h-5" />
-          ) : (
-            <ChevronDownIcon className="w-5 h-5" />
-          )}
-        </button>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="text-xs text-text-muted uppercase tracking-wide">{label}</span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-lg font-semibold text-primary">{mainValue}</span>
+        <span className="text-sm text-text-muted">/ {totalValue}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <ProgressBar percentage={percentage} className="flex-1" />
+        <span className="text-xs text-text-muted min-w-[40px] text-right">{percentage.toFixed(0)}%</span>
+      </div>
+    </div>
+  )
+}
 
-        <div className="flex items-center gap-2 min-w-[120px]">
-          <CreditCardIcon className="w-4 h-4 text-text-muted" />
-          <span className="font-mono text-sm">{result.card_last_four}</span>
-        </div>
+export function CCBankMatchWidget({ fromDate, toDate }: CCBankMatchWidgetProps) {
+  // Fetch all CC transactions in date range
+  const { transactions: allTransactions, isLoading: isLoadingAll } = useCCTransactions({
+    fromDate,
+    toDate,
+    connectionStatus: 'all',
+    dateField: 'charge_date',
+  })
 
-        <div className="min-w-[100px] text-sm text-text-secondary">
-          {formatDate(result.charge_date)}
-        </div>
+  // Fetch connected CC transactions in date range
+  const { transactions: connectedTransactions, isLoading: isLoadingConnected } = useCCTransactions({
+    fromDate,
+    toDate,
+    connectionStatus: 'connected',
+    dateField: 'charge_date',
+  })
 
-        <div className="flex-1 truncate text-sm text-text">
-          {result.bank_transaction?.description || 'Unknown'}
-        </div>
+  // Fetch all bank CC charges in date range
+  const { charges: allBankCharges, isLoading: isLoadingBankAll } = useBankCCCharges({
+    fromDate,
+    toDate,
+    connectionStatus: 'all',
+  })
 
-        <div className="min-w-[100px] text-left">
-          <div className="text-sm font-medium text-text">
-            {formatCurrency(result.bank_amount_agorot)}
-          </div>
-          <div className="text-xs text-text-muted">חיוב בנק</div>
-        </div>
+  // Fetch not connected bank CC charges
+  const { charges: notConnectedBankCharges, isLoading: isLoadingBankNotConnected } = useBankCCCharges({
+    fromDate,
+    toDate,
+    connectionStatus: 'not_connected',
+  })
 
-        <div className="min-w-[100px] text-left">
-          <div className="text-sm font-medium text-text">
-            {formatCurrency(result.total_cc_amount_agorot)}
-          </div>
-          <div className="text-xs text-text-muted">
-            {result.cc_transaction_count} עסקאות CC
-          </div>
-        </div>
+  const isLoading = isLoadingAll || isLoadingConnected || isLoadingBankAll || isLoadingBankNotConnected
 
-        <div className="min-w-[100px] text-left">
-          <div className={`text-sm font-medium ${
-            discrepancyColor === 'success' ? 'text-utility-success-600' :
-            discrepancyColor === 'warning' ? 'text-utility-warning-600' :
-            'text-utility-error-600'
-          }`}>
-            {result.discrepancy_agorot >= 0 ? '+' : ''}
-            {formatCurrency(result.discrepancy_agorot)}
-          </div>
-          <div className="text-xs text-text-muted">הפרש</div>
-        </div>
+  // Calculate stats
+  const stats = useMemo(() => {
+    // CC Purchases stats
+    const totalCCCount = allTransactions.length
+    const connectedCount = connectedTransactions.length
+    const transactionPercentage = totalCCCount > 0 ? (connectedCount / totalCCCount) * 100 : 0
+    const notConnectedCCCount = totalCCCount - connectedCount
+    const notConnectedCCPercentage = totalCCCount > 0 ? (notConnectedCCCount / totalCCCount) * 100 : 0
 
-        <div className="min-w-[80px] text-center">
-          <Badge
-            color={result.match_confidence >= 80 ? 'success' : result.match_confidence >= 60 ? 'warning' : 'error'}
-            size="sm"
+    const totalCCAmount = allTransactions.reduce((sum, tx) => sum + Math.abs(tx.amount_agorot), 0)
+    const matchedAmount = connectedTransactions.reduce((sum, tx) => sum + Math.abs(tx.amount_agorot), 0)
+    const amountPercentage = totalCCAmount > 0 ? (matchedAmount / totalCCAmount) * 100 : 0
+
+    // Bank CC charges stats
+    const totalBankCharges = allBankCharges.length
+    const notConnectedBankCount = notConnectedBankCharges.length
+    const notConnectedBankPercentage = totalBankCharges > 0 ? (notConnectedBankCount / totalBankCharges) * 100 : 0
+
+    const totalBankAmount = allBankCharges.reduce((sum, c) => sum + Math.abs(c.amount_agorot), 0)
+    const notConnectedBankAmount = notConnectedBankCharges.reduce((sum, c) => sum + Math.abs(c.amount_agorot), 0)
+
+    return {
+      connectedCount,
+      totalCCCount,
+      transactionPercentage,
+      notConnectedCCCount,
+      notConnectedCCPercentage,
+      matchedAmount,
+      totalCCAmount,
+      amountPercentage,
+      totalBankCharges,
+      notConnectedBankCount,
+      notConnectedBankPercentage,
+      totalBankAmount,
+      notConnectedBankAmount,
+    }
+  }, [allTransactions, connectedTransactions, allBankCharges, notConnectedBankCharges])
+
+  // CC Matching card (connected stats)
+  const matchingCard: BentoCardData = useMemo(() => ({
+    id: 'cc-matching',
+    title: 'CC Matching',
+    content: (
+      <div className="flex flex-col h-full p-1">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-text">CC Matching</h3>
+          <Link
+            to="/money-movements?tab=matching"
+            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
           >
-            {Math.round(result.match_confidence)}%
-          </Badge>
+            Details
+            <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+          </Link>
         </div>
 
-        <div className="min-w-[80px]">
-          {statusBadge}
-        </div>
+        {/* Stats stacked vertically */}
+        <div className="flex-1 space-y-4">
+          <StatRow
+            icon={<CreditCardIcon className="w-4 h-4 text-primary" />}
+            label="CC Transactions"
+            mainValue={stats.connectedCount.toString()}
+            totalValue={`${stats.totalCCCount} connected`}
+            percentage={stats.transactionPercentage}
+          />
 
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          {result.status === 'pending' && (
-            <>
-              <button
-                type="button"
-                onClick={onApprove}
-                disabled={isUpdating}
-                className="p-1.5 rounded hover:bg-utility-success-50 text-utility-success-600 transition-colors disabled:opacity-50"
-                title="אישור התאמה"
-              >
-                <CheckCircleIcon className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={onReject}
-                disabled={isUpdating}
-                className="p-1.5 rounded hover:bg-utility-error-50 text-utility-error-600 transition-colors disabled:opacity-50"
-                title="דחיית התאמה"
-              >
-                <XCircleIcon className="w-5 h-5" />
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={onUnmatch}
-            disabled={isUpdating}
-            className="p-1.5 rounded hover:bg-utility-gray-50 text-utility-gray-600 transition-colors disabled:opacity-50"
-            title="ביטול התאמה"
-          >
-            <ArrowPathIcon className="w-5 h-5" />
-          </button>
+          <StatRow
+            icon={<BanknotesIcon className="w-4 h-4 text-primary" />}
+            label="Total Amount"
+            mainValue={formatCurrency(stats.matchedAmount)}
+            totalValue={formatCurrency(stats.totalCCAmount)}
+            percentage={stats.amountPercentage}
+          />
         </div>
       </div>
+    ),
+  }), [stats])
 
-      {/* Expanded Content - CC Transactions */}
-      {isExpanded && (
-        <div className="bg-background border-t border-border">
-          <div className="p-4">
-            <div className="text-sm font-medium text-text mb-3">
-              עסקאות כרטיס אשראי ({result.cc_transactions.length})
+  // Not Connected card
+  const notConnectedCard: BentoCardData = useMemo(() => ({
+    id: 'not-connected',
+    title: 'Not Connected',
+    content: (
+      <div className="flex flex-col h-full p-1">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <ExclamationTriangleIcon className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-semibold text-text">Not Connected</h3>
+          </div>
+          <Link
+            to="/invoices"
+            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
+          >
+            Fix
+            <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+          </Link>
+        </div>
+
+        {/* Stats */}
+        <div className="flex-1 space-y-4">
+          {/* CC Purchases not connected */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <CreditCardIcon className="w-4 h-4 text-amber-500" />
+              <span className="text-xs text-text-muted uppercase tracking-wide">CC Purchases</span>
             </div>
-            <div className="space-y-2">
-              {result.cc_transactions.map((ccTx) => (
+            <div className="flex items-baseline gap-1">
+              <span className="text-lg font-semibold text-amber-500">{stats.notConnectedCCCount}</span>
+              <span className="text-sm text-text-muted">/ {stats.totalCCCount}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-background rounded-full overflow-hidden">
                 <div
-                  key={ccTx.id}
-                  className="flex items-center gap-4 p-3 bg-surface rounded border border-border"
-                >
-                  <div className="min-w-[100px] text-sm text-text-secondary">
-                    {formatDate(ccTx.transaction_date)}
-                  </div>
-                  <div className="flex-1 text-sm text-text">
-                    {ccTx.merchant_name}
-                  </div>
-                  <div className="min-w-[100px] text-left text-sm font-medium text-text">
-                    {formatCurrency(ccTx.amount_agorot)}
-                  </div>
-                  {ccTx.foreign_amount_cents && ccTx.foreign_currency && (
-                    <div className="min-w-[80px] text-left text-xs text-text-muted">
-                      {(ccTx.foreign_amount_cents / 100).toFixed(2)} {ccTx.foreign_currency}
-                    </div>
-                  )}
-                </div>
-              ))}
+                  className="h-full bg-amber-500 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${Math.min(100, stats.notConnectedCCPercentage)}%` }}
+                />
+              </div>
+              <span className="text-xs text-text-muted min-w-[40px] text-right">{stats.notConnectedCCPercentage.toFixed(0)}%</span>
+            </div>
+          </div>
+
+          {/* Bank Charges not connected */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <BanknotesIcon className="w-4 h-4 text-amber-500" />
+              <span className="text-xs text-text-muted uppercase tracking-wide">Bank Charges</span>
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-lg font-semibold text-amber-500">{stats.notConnectedBankCount}</span>
+              <span className="text-sm text-text-muted">/ {stats.totalBankCharges}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-background rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${Math.min(100, stats.notConnectedBankPercentage)}%` }}
+                />
+              </div>
+              <span className="text-xs text-text-muted min-w-[40px] text-right">{stats.notConnectedBankPercentage.toFixed(0)}%</span>
             </div>
           </div>
         </div>
-      )}
-    </div>
-  )
-}
-
-export function CCBankMatchWidget() {
-  const { user } = useAuth()
-  const { ccBankDateRangeDays, ccBankAmountTolerance } = useSettingsStore()
-  const { matchResults, isLoading, error, refetch } = useCCBankMatchResults()
-  const { summary } = useCCBankMatchSummary()
-  const { updateStatus, isUpdating: isStatusUpdating } = useUpdateMatchStatus()
-  const { unmatch, isUnmatching } = useUnmatchCCTransactions()
-
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [isRerunning, setIsRerunning] = useState(false)
-
-  const handleRerunMatching = async () => {
-    if (!user || isRerunning) return
-
-    setIsRerunning(true)
-    try {
-      await runCCBankMatching(user.id, {
-        dateToleranceDays: ccBankDateRangeDays,
-        amountTolerancePercent: ccBankAmountTolerance,
-      })
-      refetch()
-    } catch (err) {
-      console.error('Failed to rerun matching:', err)
-    } finally {
-      setIsRerunning(false)
-    }
-  }
-
-  const handleApprove = async (matchId: string) => {
-    await updateStatus(matchId, 'approved')
-  }
-
-  const handleReject = async (matchId: string) => {
-    await updateStatus(matchId, 'rejected')
-  }
-
-  const handleUnmatch = async (result: MatchResultWithDetails) => {
-    const ccIds = result.cc_transactions.map(tx => tx.id)
-    await unmatch(result.id, ccIds)
-    refetch()
-  }
+      </div>
+    ),
+  }), [stats])
 
   if (isLoading) {
     return (
-      <div className="bg-surface rounded-lg p-6 border border-border">
-        <div className="animate-pulse">
-          <div className="h-6 bg-surface-hover rounded w-48 mb-4"></div>
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-24 bg-surface-hover rounded"></div>
-            ))}
+      <>
+        <div className="bg-surface rounded-lg p-4 border border-border h-[200px]">
+          <div className="animate-pulse h-full">
+            <div className="h-4 bg-surface-hover rounded w-24 mb-4" />
+            <div className="space-y-4">
+              <div className="h-12 bg-surface-hover rounded" />
+              <div className="h-12 bg-surface-hover rounded" />
+            </div>
           </div>
         </div>
-      </div>
+        <div className="bg-surface rounded-lg p-4 border border-border h-[200px]">
+          <div className="animate-pulse h-full">
+            <div className="h-4 bg-surface-hover rounded w-24 mb-4" />
+            <div className="space-y-4">
+              <div className="h-12 bg-surface-hover rounded" />
+              <div className="h-12 bg-surface-hover rounded" />
+            </div>
+          </div>
+        </div>
+      </>
     )
   }
 
-  if (error) {
+  // Empty state
+  if (stats.totalCCCount === 0 && stats.totalBankCharges === 0) {
     return (
-      <div className="bg-surface rounded-lg p-6 border border-border">
-        <div className="flex items-center gap-2 text-utility-error-600">
-          <ExclamationTriangleIcon className="w-5 h-5" />
-          <span>שגיאה בטעינת התאמות: {error.message}</span>
+      <div className="bg-surface rounded-lg border border-border p-4 h-[200px] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-text">CC Matching</h3>
+          <Link
+            to="/money-movements?tab=matching"
+            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
+          >
+            Details
+            <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+          </Link>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center text-text-muted">
+          <CreditCardIcon className="w-8 h-8 mb-2 opacity-50" />
+          <p className="text-sm">No CC transactions</p>
+          <p className="text-xs">Upload a credit card file</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-surface rounded-lg border border-border overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
-        <div className="flex items-center gap-2">
-          <BanknotesIcon className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold text-text">התאמת כרטיס אשראי לבנק</h2>
-          <Badge color="brand" size="sm">{matchResults.length}</Badge>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleRerunMatching}
-          disabled={isRerunning}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          <ArrowPathIcon className={`w-4 h-4 ${isRerunning ? 'animate-spin' : ''}`} />
-          הרץ התאמה מחדש
-        </button>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-background">
-        <SummaryCard
-          title="סה״כ התאמות"
-          value={summary.totalMatches}
-          subtitle={`${summary.totalCCTransactions} עסקאות CC`}
-        />
-        <SummaryCard
-          title="ממתינים לאישור"
-          value={summary.pendingCount}
-          color={summary.pendingCount > 0 ? 'warning' : 'default'}
-        />
-        <SummaryCard
-          title="סה״כ הפרשים"
-          value={formatCurrency(summary.totalDiscrepancyAgorot)}
-          color={summary.totalDiscrepancyAgorot === 0 ? 'success' : 'warning'}
-        />
-        <SummaryCard
-          title="ביטחון ממוצע"
-          value={`${Math.round(summary.avgConfidence)}%`}
-          color={summary.avgConfidence >= 80 ? 'success' : summary.avgConfidence >= 60 ? 'warning' : 'error'}
+    <>
+      <div className="[&_.magic-bento-grid]:!grid-cols-1 [&_.magic-bento-card]:!min-h-[200px]">
+        <MagicBento
+          cards={[matchingCard]}
+          textAutoHide={false}
+          enableStars
+          enableSpotlight
+          enableBorderGlow={true}
+          enableTilt={false}
+          enableMagnetism={false}
+          clickEffect
+          spotlightRadius={210}
+          particleCount={12}
+          glowColor="16, 185, 129"
+          disableAnimations={false}
         />
       </div>
-
-      {/* Match Results List */}
-      <div className="p-4 space-y-3">
-        {matchResults.length === 0 ? (
-          <div className="text-center py-8 text-text-muted">
-            <CreditCardIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>אין התאמות להצגה</p>
-            <p className="text-sm mt-1">
-              העלה קובץ כרטיס אשראי וקובץ בנק כדי לראות התאמות
-            </p>
-          </div>
-        ) : (
-          matchResults.map((result) => (
-            <MatchRow
-              key={result.id}
-              result={result}
-              isExpanded={expandedId === result.id}
-              onToggle={() => setExpandedId(expandedId === result.id ? null : result.id)}
-              onApprove={() => handleApprove(result.id)}
-              onReject={() => handleReject(result.id)}
-              onUnmatch={() => handleUnmatch(result)}
-              isUpdating={isStatusUpdating || isUnmatching}
-            />
-          ))
-        )}
+      <div className="[&_.magic-bento-grid]:!grid-cols-1 [&_.magic-bento-card]:!min-h-[200px]">
+        <MagicBento
+          cards={[notConnectedCard]}
+          textAutoHide={false}
+          enableStars
+          enableSpotlight
+          enableBorderGlow={true}
+          enableTilt={false}
+          enableMagnetism={false}
+          clickEffect
+          spotlightRadius={210}
+          particleCount={12}
+          glowColor="245, 158, 11"
+          disableAnimations={false}
+        />
       </div>
-    </div>
+    </>
   )
 }

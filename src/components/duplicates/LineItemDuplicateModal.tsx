@@ -9,7 +9,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/base/modal/modal'
 import { DuplicateActionButton } from './DuplicateActionButton'
-import { formatCurrency } from '@/lib/utils/currency'
+import { formatCurrency } from '@/lib/currency'
 import type { LineItemDuplicateMatch, DuplicateAction } from '@/lib/duplicates/types'
 
 type TabType = 'all' | 'duplicates' | 'new'

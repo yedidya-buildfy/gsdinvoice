@@ -36,11 +36,17 @@ export async function parseXlsxFile(file: File): Promise<unknown[][]> {
  * @returns Array of objects with header keys
  */
 export function xlsxToObjects<T>(data: unknown[][], headerRow = 0): T[] {
+  console.log('[xlsxToObjects] Converting data, headerRow:', headerRow);
+  console.log('[xlsxToObjects] Total rows in data:', data.length);
+
   if (data.length <= headerRow) {
+    console.warn('[xlsxToObjects] No data rows after header!');
     return [];
   }
 
   const headers = data[headerRow] as string[];
+  console.log('[xlsxToObjects] Headers from data:', headers);
+
   const result: T[] = [];
 
   for (let i = headerRow + 1; i < data.length; i++) {
@@ -54,6 +60,12 @@ export function xlsxToObjects<T>(data: unknown[][], headerRow = 0): T[] {
     });
 
     result.push(obj as T);
+  }
+
+  console.log('[xlsxToObjects] Created', result.length, 'row objects');
+  if (result.length > 0) {
+    console.log('[xlsxToObjects] First row keys:', Object.keys(result[0] as object));
+    console.log('[xlsxToObjects] First row values:', Object.values(result[0] as object));
   }
 
   return result;

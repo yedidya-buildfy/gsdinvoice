@@ -9,19 +9,28 @@ import {
   type CCTransactionDisplay
 } from '@/hooks/useCCBankMatchResults'
 import { useCreditCards } from '@/hooks/useCreditCards'
-import { formatShekel } from '@/lib/utils/currency'
+import { formatCurrency, getCurrencySymbol, formatTransactionAmount } from '@/lib/currency'
+import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { supabase } from '@/lib/supabase'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import type { Transaction, CreditCard } from '@/types/database'
 
-// Format amount with correct currency (foreign if available, otherwise ILS)
+// Format CC transaction amount (uses formatTransactionAmount which handles foreign currency)
+// CCTransactionDisplay has same amount fields as Transaction, so we can use the centralized helper
 function formatDisplayAmount(tx: CCTransactionDisplay): string {
-  if (tx.foreign_amount_cents !== null && tx.foreign_currency) {
-    const amount = Math.abs(tx.foreign_amount_cents) / 100
-    const formatted = amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    return `${formatted} ${tx.foreign_currency}`
+  return formatTransactionAmount(tx)
+}
+
+// Get foreign currency totals from CC transactions (grouped by currency)
+function getForeignCurrencyTotals(ccTransactions: { foreign_amount_cents: number | null; foreign_currency: string | null }[]): Map<string, number> {
+  const totals = new Map<string, number>()
+  for (const tx of ccTransactions) {
+    if (tx.foreign_amount_cents !== null && tx.foreign_currency) {
+      const current = totals.get(tx.foreign_currency) || 0
+      totals.set(tx.foreign_currency, current + Math.abs(tx.foreign_amount_cents))
+    }
   }
-  return formatShekel(tx.amount_agorot)
+  return totals
 }
 
 // Card multi-select component (same pattern as CreditCardPage)
@@ -138,6 +147,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
   const [linkFromDate, setLinkFromDate] = useState('')
   const [linkToDate, setLinkToDate] = useState('')
   const [linkSelectedCardIds, setLinkSelectedCardIds] = useState<string[]>([])
+  const [linkStatusFilter, setLinkStatusFilter] = useState<'all' | 'approved' | 'not_approved'>('all')
 
   // Mode: 'details' = show bank charge details, 'link' = select bank charge to link CC transaction
   const isLinkMode = !!ccTransactionIdToLink && !bankTransactionId
@@ -223,6 +233,15 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
     fetchBankCCCharges()
   }, [isOpen, isLinkMode])
 
+  // Create a map of bank transaction ID to match status for link mode filtering
+  const bankTxMatchStatus = useMemo(() => {
+    const map = new Map<string, 'pending' | 'approved' | 'rejected'>()
+    for (const result of matchResults) {
+      map.set(result.bank_transaction_id, result.status as 'pending' | 'approved' | 'rejected')
+    }
+    return map
+  }, [matchResults])
+
   // Filter bank CC charges for link mode
   const filteredBankCCCharges = useMemo(() => {
     let filtered = bankCCCharges
@@ -260,8 +279,21 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
       )
     }
 
+    // Filter by status
+    if (linkStatusFilter !== 'all') {
+      filtered = filtered.filter(charge => {
+        const status = bankTxMatchStatus.get(charge.id)
+        if (linkStatusFilter === 'approved') {
+          return status === 'approved'
+        } else {
+          // 'not_approved' = no match, pending, or rejected
+          return !status || status === 'pending' || status === 'rejected'
+        }
+      })
+    }
+
     return filtered
-  }, [bankCCCharges, linkFromDate, linkToDate, linkSelectedCardIds, linkSearch, creditCards])
+  }, [bankCCCharges, linkFromDate, linkToDate, linkSelectedCardIds, linkSearch, creditCards, linkStatusFilter, bankTxMatchStatus])
 
   // Fetch CC transactions for attach with flexible filters
   const { transactions: ccTxsFromDb, isLoading: isLoadingCCTxs } = useCCTransactions({
@@ -361,11 +393,50 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
   const ccAmount = matchResult?.total_cc_amount_agorot ?? 0
   const ccCount = matchResult?.cc_transaction_count ?? 0
 
-  // Calculate match percentage
+  // Check if bank transaction has foreign currency
+  const bankHasForeignCurrency = bankTransaction?.foreign_amount_cents !== null && bankTransaction?.foreign_currency
+  const bankForeignCurrency = bankTransaction?.foreign_currency || null
+  const bankForeignAmountCents = bankTransaction?.foreign_amount_cents || null
+
+  // Get foreign currency totals from connected CC transactions
+  const ccForeignCurrencyTotals = useMemo(() => {
+    if (!matchResult?.cc_transactions.length) return new Map<string, number>()
+    return getForeignCurrencyTotals(matchResult.cc_transactions)
+  }, [matchResult])
+
+  // Calculate match percentage (ILS amounts only - these are the official amounts)
   const matchPercentage = useMemo(() => {
     if (bankAmount === 0) return 0
     return Math.round((ccAmount / Math.abs(bankAmount)) * 100)
   }, [ccAmount, bankAmount])
+
+  // Format the match display string - show ILS amounts, with foreign currency note if applicable
+  const matchDisplay = useMemo(() => {
+    // CC amount is always stored in agorot (ILS)
+    const ccFormatted = formatCurrency(ccAmount, 'ILS')
+
+    // Bank amount - check for foreign currency
+    let bankFormatted: string
+    if (bankHasForeignCurrency && bankForeignAmountCents !== null && bankForeignCurrency) {
+      bankFormatted = formatCurrency(Math.abs(bankForeignAmountCents), bankForeignCurrency)
+    } else {
+      bankFormatted = formatCurrency(Math.abs(bankAmount), 'ILS')
+    }
+
+    // Build foreign currency notes for CC transactions
+    const foreignNotes: string[] = []
+    ccForeignCurrencyTotals.forEach((totalCents, currency) => {
+      const symbol = getCurrencySymbol(currency)
+      const amount = (totalCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      foreignNotes.push(`${symbol}${amount}`)
+    })
+
+    return {
+      ccFormatted,
+      bankFormatted,
+      foreignNotes,
+    }
+  }, [ccAmount, bankAmount, bankHasForeignCurrency, bankForeignAmountCents, bankForeignCurrency, ccForeignCurrencyTotals])
 
   // Toggle selection for disconnect
   const handleToggleSelect = (id: string) => {
@@ -473,6 +544,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
     setLinkFromDate('')
     setLinkToDate('')
     setLinkSelectedCardIds([])
+    setLinkStatusFilter('all')
     onClose()
   }
 
@@ -515,11 +587,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                   {cardName && ' '}
                   {cardLastFour && `-${cardLastFour}`}
                   {(cardName || cardLastFour) && ' - '}
-                  {new Date(bankTransaction.date).toLocaleDateString('he-IL', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: '2-digit',
-                  })}
+                  {formatDisplayDate(bankTransaction.date, 'he-IL')}
                 </span>
               )
             })()}
@@ -536,7 +604,14 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
               <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-background/50 border border-text-muted/20 rounded-lg">
                 <CurrencyDollarIcon className="w-4 h-4 text-text-muted" />
                 <span className="text-text-muted">Match:</span>
-                <span className="font-medium text-text">{formatShekel(ccAmount)} / {formatShekel(Math.abs(bankAmount))}</span>
+                <span className="font-medium text-text">
+                  {matchDisplay.ccFormatted} / {matchDisplay.bankFormatted}
+                  {matchDisplay.foreignNotes.length > 0 && (
+                    <span className="text-text-muted text-xs ms-1">
+                      ({matchDisplay.foreignNotes.join(', ')})
+                    </span>
+                  )}
+                </span>
                 <span className="text-text-muted">({matchPercentage}%)</span>
               </div>
               <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-background/50 border border-text-muted/20 rounded-lg">
@@ -589,6 +664,46 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                   />
                 )}
 
+                {/* Status filter */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-text-muted">Status:</span>
+                  <div className="flex rounded-lg border border-text-muted/20 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setLinkStatusFilter('all')}
+                      className={`px-3 py-1.5 text-xs transition-colors ${
+                        linkStatusFilter === 'all'
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-text-muted hover:bg-surface/50'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLinkStatusFilter('approved')}
+                      className={`px-3 py-1.5 text-xs transition-colors border-s border-text-muted/20 ${
+                        linkStatusFilter === 'approved'
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-text-muted hover:bg-surface/50'
+                      }`}
+                    >
+                      Approved
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLinkStatusFilter('not_approved')}
+                      className={`px-3 py-1.5 text-xs transition-colors border-s border-text-muted/20 ${
+                        linkStatusFilter === 'not_approved'
+                          ? 'bg-primary/20 text-primary'
+                          : 'text-text-muted hover:bg-surface/50'
+                      }`}
+                    >
+                      Not Approved
+                    </button>
+                  </div>
+                </div>
+
                 {/* Search bar */}
                 <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                   <div className="relative flex-1">
@@ -623,15 +738,11 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                         {charge.description}
                       </div>
                       <div className="text-xs text-text-muted">
-                        {new Date(charge.date).toLocaleDateString('he-IL', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: '2-digit',
-                        })}
+                        {formatDisplayDate(charge.date, 'he-IL')}
                       </div>
                     </div>
                     <div className="text-sm text-red-400 font-medium">
-                      {formatShekel(charge.amount_agorot)}
+                      {formatTransactionAmount(charge)}
                     </div>
                   </button>
                 ))}
@@ -787,9 +898,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                               {tx.merchant_name || '-'}
                             </td>
                             <td className="py-2 px-2 text-text text-end whitespace-nowrap">
-                              {tx.foreign_amount_cents !== null && tx.foreign_currency
-                                ? `${(Math.abs(tx.foreign_amount_cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${tx.foreign_currency}`
-                                : formatShekel(tx.amount_agorot)}
+                              {formatTransactionAmount(tx)}
                             </td>
                           </tr>
                         ))}

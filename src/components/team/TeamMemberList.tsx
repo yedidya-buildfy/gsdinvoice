@@ -3,7 +3,6 @@ import {
   UserIcon,
   EllipsisVerticalIcon,
   TrashIcon,
-  ArrowPathIcon,
   ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 import { useTeamMembers, useUpdateMemberRole, useRemoveMember } from '@/hooks/useTeamMembers'
@@ -12,7 +11,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { RoleBadge } from './RoleBadge'
 import { ConfirmDialog } from '@/components/ui/base/modal/confirm-dialog'
 import { canRemoveMember, canChangeRole, getInvitableRoles, getRoleLabel } from '@/lib/permissions'
-import { cx } from '@/utils/cx'
 import type { TeamRole, TeamMemberWithProfile } from '@/types/team'
 
 export function TeamMemberList() {
@@ -196,7 +194,7 @@ export function TeamMemberList() {
         message={`Change ${roleChangeTarget?.member.user.profile?.full_name || roleChangeTarget?.member.user.email}'s role to ${roleChangeTarget?.newRole ? getRoleLabel(roleChangeTarget.newRole) : ''}?`}
         confirmLabel={updateRole.isPending ? 'Updating...' : 'Change Role'}
         cancelLabel="Cancel"
-        variant="primary"
+        variant="warning"
       />
     </>
   )

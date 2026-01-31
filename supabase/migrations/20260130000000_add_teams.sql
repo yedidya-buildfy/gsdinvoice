@@ -148,7 +148,7 @@ CREATE POLICY "Team admins can remove members"
 -- Team invitations policies
 CREATE POLICY "Team members can view invitations"
   ON team_invitations FOR SELECT TO authenticated
-  USING (is_active_team_member(team_id) OR email = (SELECT email FROM auth.users WHERE id = auth.uid()));
+  USING (is_active_team_member(team_id) OR email = (auth.jwt() ->> 'email'));
 
 CREATE POLICY "Team admins can create invitations"
   ON team_invitations FOR INSERT TO authenticated
@@ -156,7 +156,7 @@ CREATE POLICY "Team admins can create invitations"
 
 CREATE POLICY "Team admins can update invitations"
   ON team_invitations FOR UPDATE TO authenticated
-  USING (is_team_admin(team_id) OR email = (SELECT email FROM auth.users WHERE id = auth.uid()));
+  USING (is_team_admin(team_id) OR email = (auth.jwt() ->> 'email'));
 
 CREATE POLICY "Team admins can delete invitations"
   ON team_invitations FOR DELETE TO authenticated

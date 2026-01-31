@@ -1,59 +1,36 @@
-import { useEffect, useState } from 'react'
-import { useAuth } from '@/contexts/AuthContext'
-import { supabase } from '@/lib/supabase'
+import { useState } from 'react'
+import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { CCBankMatchWidget } from '@/components/dashboard/CCBankMatchWidget'
 
-type ConnectionStatus = 'checking' | 'connected' | 'error'
-
 export function DashboardPage() {
-  const { user } = useAuth()
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('checking')
+  // Global date filter for all dashboard widgets - default to no filter (show all data)
+  const [fromDate, setFromDate] = useState<string>('')
+  const [toDate, setToDate] = useState<string>('')
 
-  useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        const { error } = await supabase.from('user_settings').select('id').limit(1)
-        if (error) throw error
-        setConnectionStatus('connected')
-      } catch {
-        setConnectionStatus('error')
-      }
-    }
-    checkConnection()
-  }, [])
+  const handleDateChange = (startDate: string, endDate: string) => {
+    setFromDate(startDate)
+    setToDate(endDate)
+  }
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-text">Dashboard</h1>
-
-      {/* Welcome Card */}
-      <div className="bg-surface rounded-lg p-6 border border-border">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text">ברוכים הבאים</h2>
-          <span
-            className={`text-sm px-2 py-1 rounded ${
-              connectionStatus === 'connected'
-                ? 'bg-primary/10 text-primary'
-                : connectionStatus === 'error'
-                  ? 'bg-red-500/10 text-red-500'
-                  : 'bg-text-muted/10 text-text-muted'
-            }`}
-          >
-            Supabase: {connectionStatus}
-          </span>
-        </div>
-        <p className="text-text-secondary mb-2">
-          מערכת ניהול מע״מ - ההתחברות הושלמה בהצלחה.
-        </p>
-        {user?.email && (
-          <p className="text-text-muted text-sm">
-            מחובר כ: {user.email}
-          </p>
-        )}
+      {/* Header */}
+      <div className="space-y-3">
+        <h1 className="text-2xl font-bold text-text">Dashboard</h1>
+        <RangeCalendarCard
+          startDate={fromDate}
+          endDate={toDate}
+          onChange={handleDateChange}
+        />
       </div>
 
-      {/* CC-Bank Match Widget */}
-      <CCBankMatchWidget />
+      {/* Dashboard Widgets Grid - future widgets will go here */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* CC Matching Widget */}
+        <CCBankMatchWidget fromDate={fromDate} toDate={toDate} />
+
+        {/* Future widgets can be added here */}
+      </div>
     </div>
   )
 }

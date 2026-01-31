@@ -8,8 +8,8 @@ export interface Team {
   slug: string
   owner_id: string
   avatar_url: string | null
-  created_at: string
-  updated_at: string
+  created_at: string | null
+  updated_at: string | null
 }
 
 export interface TeamInsert {
@@ -31,7 +31,7 @@ export interface TeamMember {
   user_id: string
   role: TeamRole
   invited_by: string | null
-  joined_at: string
+  joined_at: string | null
   removed_at: string | null
 }
 

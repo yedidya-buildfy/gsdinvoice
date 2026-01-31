@@ -1,6 +1,6 @@
 import { LineItemsTable } from './LineItemsTable'
 import type { UseInvoiceFormReturn } from './hooks/useInvoiceForm'
-import { getCurrenciesForSelect, getCurrencySymbol } from '@/lib/utils/currency'
+import { getCurrenciesForSelect, getCurrencySymbol } from '@/lib/currency'
 import { DatePicker } from '@/components/ui/date-picker'
 
 interface ExtractedDataPanelProps {

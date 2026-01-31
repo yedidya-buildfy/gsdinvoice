@@ -1,0 +1,63 @@
+/**
+ * Hash generation utilities for transaction deduplication
+ * Handles UTF-8 safe encoding for Hebrew text and other unicode characters
+ */
+
+/**
+ * UTF-8 safe base64 encoding
+ * Properly handles Hebrew text and other multi-byte characters
+ * @param str - The string to encode
+ * @returns Base64 encoded string
+ */
+export function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str)
+  const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join('')
+  return btoa(binString)
+}
+
+/**
+ * Generate a unique hash by appending a random suffix
+ * Used when keeping both duplicate transactions
+ * @param baseHash - The original hash value
+ * @returns A new unique hash with a random suffix
+ */
+export function generateUniqueHash(baseHash: string): string {
+  const suffix = Math.random().toString(36).substring(2, 10)
+  return `${baseHash}_dup_${suffix}`
+}
+
+/**
+ * Generate a transaction hash from its key fields
+ * @param date - Transaction date
+ * @param description - Transaction description
+ * @param amountAgorot - Amount in agorot
+ * @param reference - Optional reference number
+ * @returns Base64 encoded hash string
+ */
+export function generateTransactionHash(
+  date: string,
+  description: string,
+  amountAgorot: number,
+  reference?: string | null
+): string {
+  return utf8ToBase64(`${date}|${description.trim()}|${amountAgorot}|${reference || ''}`)
+}
+
+/**
+ * Generate a credit card transaction hash from its key fields
+ * @param date - Transaction date
+ * @param merchantName - Merchant name
+ * @param amountAgorot - Amount in agorot
+ * @param cardLastFour - Last 4 digits of card
+ * @param billingDate - Optional billing/charge date
+ * @returns Base64 encoded hash string
+ */
+export function generateCCTransactionHash(
+  date: string,
+  merchantName: string,
+  amountAgorot: number,
+  cardLastFour: string,
+  billingDate?: string | null
+): string {
+  return utf8ToBase64(`cctx|${date}|${merchantName.trim()}|${amountAgorot}|${cardLastFour}|${billingDate || ''}`)
+}

@@ -2,15 +2,13 @@ import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, 
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
 import type { TransactionWithCard } from '@/hooks/useCreditCards'
+import type { Transaction } from '@/types/database'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
-import { formatShekel } from '@/lib/utils/currency'
+import { formatShekel, formatTransactionAmount } from '@/lib/currency'
+import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { parseDescriptionParts } from '@/lib/utils/merchantParser'
+import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
 
-// Format amount without currency symbol
-function formatAmount(cents: number): string {
-  const amount = Math.abs(cents) / 100
-  return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
 
 // Sort column type includes actual fields plus synthetic columns
 export type CCSortColumn = keyof TransactionWithCard | 'vat_amount' | 'linked_bank_transaction_id'
@@ -25,6 +23,9 @@ interface CreditCardTableProps {
   onSelectionChange?: (selectedIds: Set<string>) => void
   onBankChargeClick?: (bankTransactionId: string) => void
   onLinkCCTransaction?: (ccTransactionId: string) => void
+  // Line item link data
+  lineItemLinkCounts?: Map<string, number>
+  onLineItemLinkClick?: (transaction: Transaction) => void
 }
 
 interface HeaderTooltipProps {
@@ -107,15 +108,6 @@ function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 
   )
 }
 
-function formatDate(dateString: string | null): string {
-  if (!dateString) return '-';
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  }).format(new Date(dateString))
-}
-
 // Checkbox styling: dark background with green border (uses custom CSS class)
 const checkboxClass = 'checkbox-dark'
 
@@ -173,7 +165,11 @@ export function CreditCardTable({
   onSelectionChange,
   onBankChargeClick,
   onLinkCCTransaction,
+  lineItemLinkCounts,
+  onLineItemLinkClick,
 }: CreditCardTableProps) {
+  // Check if we should show line item link column (only when handler is provided)
+  const showLineItemLinkColumn = !!onLineItemLinkClick
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
 
@@ -350,6 +346,11 @@ export function CreditCardTable({
               align="center"
               tooltip="This expense connected to a credit card charge"
             />
+            {showLineItemLinkColumn && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+                Invoice
+              </th>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -362,13 +363,9 @@ export function CreditCardTable({
             // Linked status - check if this CC transaction is linked to a bank charge
             const isLinked = tx.credit_card_id !== null;
 
-            // Determine amount and currency to display
-            // If foreign currency exists, show that; otherwise show ILS
-            const hasForeign = tx.foreign_amount_cents !== null && tx.foreign_currency !== null
-            const displayAmount = hasForeign
-              ? formatAmount(tx.foreign_amount_cents!)
-              : formatAmount(tx.amount_agorot)
-            const displayCurrency = hasForeign ? tx.foreign_currency : 'ILS'
+            // Determine amount to display using the centralized formatter
+            // formatTransactionAmount handles foreign currency logic automatically
+            const displayAmount = formatTransactionAmount(tx)
 
             // VAT state
             const hasVat = tx.has_vat ?? false
@@ -402,13 +399,10 @@ export function CreditCardTable({
                   )}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {formatDate(tx.date)}
+                  {formatDisplayDate(tx.date)}
                 </td>
-                <td className="ps-4 pe-1 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
+                <td className="ps-4 pe-1 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap" colSpan={2}>
                   {displayAmount}
-                </td>
-                <td className="ps-1 pe-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
-                  {displayCurrency}
                 </td>
                 <td className="px-4 py-3 text-center">
                   {hasVat ? (
@@ -424,7 +418,7 @@ export function CreditCardTable({
                   {vatAmount !== null ? formatShekel(vatAmount) : '-'}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {formatDate(tx.value_date)}
+                  {formatDisplayDate(tx.value_date)}
                 </td>
                 <td className="px-4 py-3 text-center">
                   {isLinked ? (
@@ -451,6 +445,14 @@ export function CreditCardTable({
                     <LinkIcon className={`w-5 h-5 inline-block ${tx.cc_bank_link_id ? 'text-green-400 hover:text-green-300' : 'text-text-muted/50 hover:text-primary'}`} />
                   </button>
                 </td>
+                {showLineItemLinkColumn && (
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    <TransactionMatchBadge
+                      linkedCount={lineItemLinkCounts?.get(tx.id) || 0}
+                      onClick={() => onLineItemLinkClick?.(tx as Transaction)}
+                    />
+                  </td>
+                )}
               </tr>
             )
           })}

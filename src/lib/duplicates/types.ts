@@ -16,8 +16,8 @@ export interface FileDuplicateMatch {
   existingFile: {
     id: string
     original_name: string
-    created_at: string
-    storage_path: string
+    created_at: string | null
+    storage_path: string | null
   }
   matchType: 'exact' | 'semantic'
   confidence?: number
@@ -62,5 +62,34 @@ export interface LineItemDuplicateCheckResult {
   duplicateCount: number
   matches: LineItemDuplicateMatch[]
   newItems: LineItemForCheck[]
+}
+
+// ============================================================================
+// Level 3: Transaction/Bank Statement Duplicate Detection
+// ============================================================================
+
+export interface TransactionDuplicateMatch {
+  newTransaction: {
+    date: string
+    description: string
+    amountAgorot: number
+    reference: string | null
+    hash: string
+  }
+  existingTransaction: {
+    id: string
+    date: string
+    description: string
+    amount_agorot: number
+    reference: string | null
+    created_at: string | null
+  }
+}
+
+export interface TransactionDuplicateCheckResult {
+  totalTransactions: number
+  duplicateCount: number
+  newCount: number
+  matches: TransactionDuplicateMatch[]
 }
 

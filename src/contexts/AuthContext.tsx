@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Session, User, AuthError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { identifyUser, resetUser, captureEvent } from '@/lib/posthog'
 
 interface AuthContextType {
   session: Session | null
@@ -26,13 +27,39 @@ export function AuthProvider({ children }: AuthProviderProps) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
+
+      // Identify user with PostHog if already logged in
+      if (session?.user) {
+        identifyUser(session.user.id, {
+          email: session.user.email,
+          name: session.user.user_metadata?.full_name,
+          created_at: session.user.created_at,
+        })
+      }
     })
 
     // Listen for auth state changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session)
+
+      // Identify user with PostHog on sign in
+      if (session?.user) {
+        identifyUser(session.user.id, {
+          email: session.user.email,
+          name: session.user.user_metadata?.full_name,
+          created_at: session.user.created_at,
+        })
+      }
+
+      // Track auth events
+      if (event === 'SIGNED_IN') {
+        captureEvent('user_signed_in')
+      } else if (event === 'SIGNED_OUT') {
+        captureEvent('user_signed_out')
+        resetUser()
+      }
     })
 
     // Cleanup subscription on unmount

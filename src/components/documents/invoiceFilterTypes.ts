@@ -4,6 +4,7 @@ export interface InvoiceFilterState {
   dateTo: string
   fileTypes: string[] // 'pdf' | 'xlsx' | 'csv' | 'image'
   aiStatus: 'all' | 'pending' | 'processing' | 'processed' | 'failed'
+  bankLinkStatus: 'all' | 'yes' | 'partly' | 'no'
 }
 
 export function getDefaultInvoiceFilters(): InvoiceFilterState {
@@ -13,5 +14,6 @@ export function getDefaultInvoiceFilters(): InvoiceFilterState {
     dateTo: '',
     fileTypes: [],
     aiStatus: 'all',
+    bankLinkStatus: 'all',
   }
 }

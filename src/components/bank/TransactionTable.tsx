@@ -1,8 +1,10 @@
 import { ChevronUpIcon, ChevronDownIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { Transaction } from '@/types/database'
-import { formatShekel } from '@/lib/utils/currency'
+import { formatShekel, formatTransactionAmount } from '@/lib/currency'
+import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
 import { parseDescriptionParts } from '@/lib/utils/merchantParser'
+import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
 
 interface TransactionTableProps {
   transactions: Transaction[]
@@ -15,6 +17,9 @@ interface TransactionTableProps {
   onCCChargeClick?: (transactionId: string) => void
   // Match data for CC charges (only shown when provided)
   ccChargeMatchData?: Map<string, { matchPercentage: number; matchedCount: number }>
+  // Line item link data
+  lineItemLinkCounts?: Map<string, number>
+  onLineItemLinkClick?: (transaction: Transaction) => void
 }
 
 interface SortHeaderProps {
@@ -45,14 +50,6 @@ function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 
       </div>
     </th>
   )
-}
-
-function formatDate(dateString: string): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  }).format(new Date(dateString))
 }
 
 // Checkbox styling: dark background with green border (uses custom CSS class)
@@ -99,9 +96,13 @@ export function TransactionTable({
   onSelectionChange,
   onCCChargeClick,
   ccChargeMatchData,
+  lineItemLinkCounts,
+  onLineItemLinkClick,
 }: TransactionTableProps) {
   // Check if we should show match columns (only when CC charge data is provided)
   const showMatchColumns = !!ccChargeMatchData
+  // Check if we should show link column (only when handler is provided)
+  const showLinkColumn = !!onLineItemLinkClick
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
 
@@ -214,6 +215,11 @@ export function TransactionTable({
             <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
               Reference
             </th>
+            {showLinkColumn && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+                Invoice
+              </th>
+            )}
             {showMatchColumns && (
               <>
                 <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
@@ -279,10 +285,10 @@ export function TransactionTable({
                   )}
                 </td>
                 <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {formatDate(tx.date)}
+                  {formatDisplayDate(tx.date)}
                 </td>
                 <td className={`px-4 py-3 text-center text-sm font-medium ${amountColor} whitespace-nowrap`}>
-                  {formatShekel(tx.amount_agorot)}
+                  {formatTransactionAmount(tx)}
                 </td>
                 <td className="px-4 py-3 text-center">
                   {tx.is_income ? (
@@ -302,6 +308,14 @@ export function TransactionTable({
                 <td className="px-4 py-3 text-center text-sm text-text-muted">
                   {tx.reference || '-'}
                 </td>
+                {showLinkColumn && (
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    <TransactionMatchBadge
+                      linkedCount={lineItemLinkCounts?.get(tx.id) || 0}
+                      onClick={() => onLineItemLinkClick?.(tx)}
+                    />
+                  </td>
+                )}
                 {showMatchColumns && (() => {
                   const matchData = ccChargeMatchData?.get(tx.id)
                   return (

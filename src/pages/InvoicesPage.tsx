@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { TrashIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import { FileUploader } from '@/components/upload/FileUploader'
@@ -13,7 +13,9 @@ import {
   type InvoiceFilterState,
 } from '@/components/documents/invoiceFilterTypes'
 import { InvoicePreviewModal } from '@/components/invoice-preview/InvoicePreviewModal'
+import { InvoiceBankLinkModal } from '@/components/invoices/InvoiceBankLinkModal'
 import { LineItemDuplicateModal } from '@/components/duplicates/LineItemDuplicateModal'
+import { Pagination } from '@/components/ui/Pagination'
 import { useDocuments, getDocumentsWithUrls } from '@/hooks/useDocuments'
 import {
   useExtractDocument,
@@ -33,7 +35,7 @@ export function InvoicesPage() {
   const { data: invoices } = useInvoices()
   const extractSingle = useExtractDocument()
   const extractMultiple = useExtractMultipleDocuments()
-  const { autoExtractOnUpload } = useSettingsStore()
+  const { autoExtractOnUpload, tablePageSize } = useSettingsStore()
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
@@ -41,12 +43,18 @@ export function InvoicesPage() {
   const [duplicateQueue, setDuplicateQueue] = useState<LineItemDuplicateInfo[]>([])
   const [isHandlingDuplicates, setIsHandlingDuplicates] = useState(false)
 
+  // Bank link modal state
+  const [bankLinkModal, setBankLinkModal] = useState<{ invoiceId: string; vendorName: string | null } | null>(null)
+
   // Filter state
   const [filters, setFilters] = useState<InvoiceFilterState>(getDefaultInvoiceFilters)
 
   // Sort state
   const [sortColumn, setSortColumn] = useState<DocumentSortColumn>('created_at')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
 
   // Current duplicate being shown in modal
   const currentDuplicate = duplicateQueue[0] ?? null
@@ -97,6 +105,12 @@ export function InvoicesPage() {
         } else if (doc.status !== filters.aiStatus) {
           return false
         }
+      }
+
+      // Bank Link Status filter
+      if (filters.bankLinkStatus !== 'all') {
+        const bankLinkStatus = doc.invoice?.bankLinkStatus ?? 'no'
+        if (bankLinkStatus !== filters.bankLinkStatus) return false
       }
 
       return true
@@ -154,6 +168,16 @@ export function InvoicesPage() {
           bVal = priority[b.status as string] ?? 5
           break
         }
+        case 'bank_link': {
+          const linkPriority: Record<string, number> = {
+            yes: 0,
+            partly: 1,
+            no: 2,
+          }
+          aVal = linkPriority[a.invoice?.bankLinkStatus ?? 'no'] ?? 2
+          bVal = linkPriority[b.invoice?.bankLinkStatus ?? 'no'] ?? 2
+          break
+        }
         default:
           return 0
       }
@@ -163,6 +187,18 @@ export function InvoicesPage() {
       return 0
     })
   }, [filteredDocuments, sortColumn, sortDirection])
+
+  // Reset to page 1 when filters, sort, or page size change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filters, sortColumn, sortDirection, tablePageSize])
+
+  // Calculate pagination
+  const totalPages = Math.ceil(sortedDocuments.length / tablePageSize)
+  const paginatedDocuments = useMemo(() => {
+    const start = (currentPage - 1) * tablePageSize
+    return sortedDocuments.slice(start, start + tablePageSize)
+  }, [sortedDocuments, currentPage, tablePageSize])
 
   const selectedDocument = useMemo(() => {
     if (!selectedDocumentId) return null
@@ -262,23 +298,16 @@ export function InvoicesPage() {
     try {
       const idsToDelete = Array.from(selectedIds)
 
-      const { error: invoiceDeleteError } = await supabase
-        .from('invoices')
-        .delete()
-        .in('file_id', idsToDelete)
-
-      if (invoiceDeleteError) {
-        console.error('[InvoicesPage] Invoice delete failed:', invoiceDeleteError)
-      }
-
-      const { error } = await supabase.from('files').delete().in('id', idsToDelete)
+      const { data, error } = await supabase.rpc('bulk_delete_files', {
+        ids: idsToDelete
+      })
 
       if (error) {
         console.error('[InvoicesPage] Delete failed:', error)
         return
       }
 
-      console.log('[InvoicesPage] Deleted', idsToDelete.length, 'documents')
+      console.log('[InvoicesPage] Deleted', data, 'documents')
       setSelectedIds(new Set())
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       refetch()
@@ -291,6 +320,15 @@ export function InvoicesPage() {
 
   const handleRowClick = (doc: DocumentWithInvoice) => {
     setSelectedDocumentId(doc.id)
+  }
+
+  const handleBankLinkClick = (invoiceId: string, vendorName: string | null) => {
+    setBankLinkModal({ invoiceId, vendorName })
+  }
+
+  const handleBankLinkChange = () => {
+    // Refresh invoices data when links change
+    queryClient.invalidateQueries({ queryKey: ['invoices'] })
   }
 
   const handleExtractInModal = () => {
@@ -340,7 +378,8 @@ export function InvoicesPage() {
     filters.dateFrom ||
     filters.dateTo ||
     filters.fileTypes.length > 0 ||
-    filters.aiStatus !== 'all'
+    filters.aiStatus !== 'all' ||
+    filters.bankLinkStatus !== 'all'
 
   return (
     <div className="p-6">
@@ -400,15 +439,27 @@ export function InvoicesPage() {
 
         {/* Table */}
         <DocumentTable
-          documents={sortedDocuments}
+          documents={paginatedDocuments}
           isLoading={isLoading}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
           onRowClick={handleRowClick}
+          onBankLinkClick={handleBankLinkClick}
           sortColumn={sortColumn}
           sortDirection={sortDirection}
           onSort={handleSort}
         />
+
+        {/* Pagination */}
+        {!isLoading && filteredCount > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={sortedDocuments.length}
+            pageSize={tablePageSize}
+            onPageChange={setCurrentPage}
+          />
+        )}
 
         {/* Empty state when no documents */}
         {!isLoading && totalCount === 0 && (
@@ -452,6 +503,17 @@ export function InvoicesPage() {
         onAction={handleLineItemDuplicateModalAction}
         isLoading={isHandlingDuplicates}
       />
+
+      {/* Invoice Bank Link Modal */}
+      {bankLinkModal && (
+        <InvoiceBankLinkModal
+          isOpen={!!bankLinkModal}
+          onClose={() => setBankLinkModal(null)}
+          invoiceId={bankLinkModal.invoiceId}
+          vendorName={bankLinkModal.vendorName}
+          onLinkChange={handleBankLinkChange}
+        />
+      )}
     </div>
   )
 }

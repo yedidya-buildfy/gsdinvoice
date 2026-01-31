@@ -170,7 +170,7 @@ export function RangeCalendarCard({ startDate, endDate, onChange, className }: R
   }, [startDate, endDate])
 
   return (
-    <div ref={containerRef} className={clsx('relative', className)}>
+    <div ref={containerRef} className={clsx('relative w-fit', className)}>
       {/* Trigger button */}
       <div
         role="button"

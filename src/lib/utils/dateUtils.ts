@@ -9,12 +9,28 @@ import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 // Extend dayjs with custom parse format plugin
 dayjs.extend(customParseFormat);
 
-// Supported date formats (Israeli standard is DD/MM/YYYY)
-const DATE_FORMATS = [
-  'DD/MM/YYYY',
-  'DD/MM/YY',
+// Supported date formats
+// Israeli standard is DD/MM/YYYY but some bank exports use American M/D/YYYY
+// We try both and validate the result
+const DATE_FORMATS_DMY = [
+  'D/M/YYYY',   // Single digit day/month (2/2/2025)
+  'DD/MM/YYYY', // Double digit day/month (02/02/2025)
+  'D/M/YY',     // Single digit with 2-digit year
+  'DD/MM/YY',   // Double digit with 2-digit year
   'DD.MM.YYYY',
   'DD-MM-YYYY',
+  'D.M.YYYY',
+  'D-M-YYYY',
+];
+
+const DATE_FORMATS_MDY = [
+  'M/D/YYYY',   // American format (2/13/2025 = Feb 13)
+  'MM/DD/YYYY',
+  'M/D/YY',
+  'MM/DD/YY',
+];
+
+const DATE_FORMATS_ISO = [
   'YYYY-MM-DD',
 ];
 
@@ -52,9 +68,42 @@ export function parseIsraeliDate(dateStr: string | Date | number): string | null
   if (typeof dateStr === 'string') {
     const trimmed = dateStr.trim();
 
-    // Try each format
-    for (const format of DATE_FORMATS) {
-      const parsed = dayjs(trimmed, format, true); // strict parsing
+    // Try ISO format first (unambiguous)
+    for (const format of DATE_FORMATS_ISO) {
+      const parsed = dayjs(trimmed, format, true);
+      if (parsed.isValid()) {
+        return parsed.format('YYYY-MM-DD');
+      }
+    }
+
+    // For slash-separated dates, detect if it's DMY or MDY
+    // by checking if first or second number > 12
+    const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (slashMatch) {
+      const first = parseInt(slashMatch[1], 10);
+      const second = parseInt(slashMatch[2], 10);
+
+      // If first > 12, it must be day (DMY format)
+      // If second > 12, it must be day (MDY format)
+      // If both <= 12, try DMY first (Israeli standard)
+      const formatsToTry =
+        second > 12
+          ? DATE_FORMATS_MDY // Second number > 12, must be MDY (M/D/YYYY)
+          : first > 12
+            ? DATE_FORMATS_DMY // First number > 12, must be DMY (D/M/YYYY)
+            : [...DATE_FORMATS_DMY, ...DATE_FORMATS_MDY]; // Ambiguous, try DMY first
+
+      for (const format of formatsToTry) {
+        const parsed = dayjs(trimmed, format, true);
+        if (parsed.isValid()) {
+          return parsed.format('YYYY-MM-DD');
+        }
+      }
+    }
+
+    // Try other DMY formats (dot, dash separated)
+    for (const format of DATE_FORMATS_DMY) {
+      const parsed = dayjs(trimmed, format, true);
       if (parsed.isValid()) {
         return parsed.format('YYYY-MM-DD');
       }

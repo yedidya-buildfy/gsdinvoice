@@ -7,6 +7,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/base/modal/modal'
 import { DuplicateActionButton } from './DuplicateActionButton'
+import { formatDisplayDateFull } from '@/lib/utils/dateFormatter'
 import type { FileDuplicateMatch, DuplicateAction } from '@/lib/duplicates/types'
 
 interface FileDuplicateModalProps {
@@ -84,16 +85,7 @@ export function FileDuplicateModal({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, isLoading, executeSelectedAction, onClose])
 
-  // Format date for display
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    })
-  }
-
+  
   return (
     <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Modal.Content>
@@ -132,7 +124,7 @@ export function FileDuplicateModal({
               </span>
               <div className="flex items-center gap-2 ml-2 shrink-0">
                 <span className="text-text-muted">
-                  {formatDate(match.existingFile.created_at)}
+                  {match.existingFile.created_at ? formatDisplayDateFull(match.existingFile.created_at) : '-'}
                 </span>
                 {match.matchType === 'exact' ? (
                   <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[10px]">
