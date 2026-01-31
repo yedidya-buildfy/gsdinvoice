@@ -1,11 +1,15 @@
+import { useMemo, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { LineItemsTable } from './LineItemsTable'
 import type { UseInvoiceFormReturn } from './hooks/useInvoiceForm'
 import { getCurrenciesForSelect, getCurrencySymbol } from '@/lib/currency'
 import { DatePicker } from '@/components/ui/date-picker'
+import { AutoMatchButton } from '@/components/invoices/AutoMatchButton'
 
 interface ExtractedDataPanelProps {
   form: UseInvoiceFormReturn
   confidenceScore: number | null
+  invoiceId?: string
 }
 
 function ConfidenceBadge({ score }: { score: number | null }) {
@@ -120,8 +124,26 @@ const CURRENCY_OPTIONS = getCurrenciesForSelect().map((c) => ({
 export function ExtractedDataPanel({
   form,
   confidenceScore,
+  invoiceId,
 }: ExtractedDataPanelProps) {
+  const queryClient = useQueryClient()
   const { invoiceData, setInvoiceField, lineItems, addLineItem, updateLineItem, removeLineItem } = form
+
+  // Calculate unmatched count - line items without transaction_id linked
+  // Note: For new/unsaved items (isNew=true), we consider them as unmatched
+  const unmatchedCount = useMemo(() => {
+    // Since form data doesn't have transaction_id, all items in form are potentially matchable
+    // The actual matching status comes from the database, so we use lineItems length
+    // as a rough indicator. The real count will be fetched by AutoMatchButton.
+    return lineItems.length
+  }, [lineItems])
+
+  const handleMatchesApplied = useCallback(() => {
+    // Invalidate invoice rows query to refresh line items
+    if (invoiceId) {
+      queryClient.invalidateQueries({ queryKey: ['invoice-rows', invoiceId] })
+    }
+  }, [queryClient, invoiceId])
 
   return (
     <div className="h-full overflow-y-auto">
@@ -186,7 +208,16 @@ export function ExtractedDataPanel({
 
         {/* Line Items */}
         <div className="space-y-4">
-          <h4 className="text-sm font-medium text-text-muted">Line Items</h4>
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium text-text-muted">Line Items</h4>
+            {invoiceId && lineItems.length > 0 && (
+              <AutoMatchButton
+                invoiceId={invoiceId}
+                unmatchedCount={unmatchedCount}
+                onMatchesApplied={handleMatchesApplied}
+              />
+            )}
+          </div>
           <LineItemsTable
             items={lineItems}
             onAdd={addLineItem}

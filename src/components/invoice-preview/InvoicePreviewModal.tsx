@@ -192,6 +192,7 @@ export function InvoicePreviewModal({
                 <ExtractedDataPanel
                   form={form}
                   confidenceScore={invoice.confidence_score}
+                  invoiceId={hasInvoice ? invoice.id : undefined}
                 />
               </Panel>
             </PanelGroup>

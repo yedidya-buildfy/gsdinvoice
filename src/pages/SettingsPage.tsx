@@ -34,6 +34,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTeam } from '@/contexts/TeamContext'
 import { ConfirmDialog } from '@/components/ui/base/modal/confirm-dialog'
 import { TeamMemberList, PendingInvitationsList, InviteMemberModal } from '@/components/team'
+import { VendorAliasesSection } from '@/components/settings/VendorAliasesSection'
 import { useUpdateTeam, useLeaveTeam, useDeleteTeam } from '@/hooks/useTeamManagement'
 import { canManageTeam, canInviteMembers, canDeleteTeam } from '@/lib/permissions'
 import { cx } from '@/utils/cx'
@@ -1619,6 +1620,8 @@ function RulesTab({ ccLinkingRef }: RulesTabProps) {
 
       </div>
 
+      {/* Vendor Aliases Section */}
+      <VendorAliasesSection className="mt-6" />
 
       {/* Auto-save indicator */}
       <div className="flex items-center justify-center gap-2 py-2">

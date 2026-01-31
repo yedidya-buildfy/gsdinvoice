@@ -27,7 +27,6 @@ import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { formatCurrency, formatTransactionAmount, formatLineItemAmount } from '@/lib/currency'
 import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
-import { parseDescriptionParts } from '@/lib/utils/merchantParser'
 import { supabase } from '@/lib/supabase'
 import {
   linkLineItemToTransaction,
@@ -1072,7 +1071,7 @@ export function InvoiceBankLinkModal({
                                   <TransactionTypeBadge type={tx.transaction_type} />
                                 </div>
                                 <div className="flex-1 px-2 text-sm text-text truncate" dir="auto">
-                                  {parseDescriptionParts(tx.description).merchantName}
+                                  {tx.description}
                                 </div>
                                 <div className="w-16 px-2 text-center text-sm text-text-muted whitespace-nowrap">
                                   {formatDisplayDate(tx.date)}
@@ -1181,7 +1180,7 @@ export function InvoiceBankLinkModal({
                                   <TransactionTypeBadge type={tx.transaction_type} />
                                 </div>
                                 <div className="flex-1 px-2 text-sm text-text truncate" dir="auto">
-                                  {parseDescriptionParts(tx.description).merchantName}
+                                  {tx.description}
                                 </div>
                                 <div className="w-16 px-1 text-center text-sm text-text-muted whitespace-nowrap">
                                   {formatDisplayDate(tx.date)}

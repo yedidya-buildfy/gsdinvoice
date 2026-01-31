@@ -788,6 +788,60 @@ export type Database = {
           },
         ]
       }
+      vendor_aliases: {
+        Row: {
+          id: string
+          user_id: string
+          team_id: string | null
+          alias_pattern: string
+          canonical_name: string
+          match_type: 'exact' | 'contains' | 'starts_with' | 'ends_with'
+          source: 'system' | 'user' | 'learned'
+          priority: number
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          team_id?: string | null
+          alias_pattern: string
+          canonical_name: string
+          match_type?: 'exact' | 'contains' | 'starts_with' | 'ends_with'
+          source?: 'system' | 'user' | 'learned'
+          priority?: number
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          team_id?: string | null
+          alias_pattern?: string
+          canonical_name?: string
+          match_type?: 'exact' | 'contains' | 'starts_with' | 'ends_with'
+          source?: 'system' | 'user' | 'learned'
+          priority?: number
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_aliases_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_aliases_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -824,6 +878,10 @@ export type Database = {
         Returns: boolean
       }
       is_team_admin: { Args: { check_team_id: string }; Returns: boolean }
+      seed_default_vendor_aliases: {
+        Args: { p_user_id: string; p_team_id?: string | null }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
@@ -1009,3 +1067,8 @@ export type NumberFormat = 'comma_dot' | 'space_comma' | 'dot_comma'
 
 // Transaction type enum for the simplified CC schema
 export type TransactionType = 'bank_regular' | 'bank_cc_charge' | 'cc_purchase'
+
+// Vendor alias types
+export type VendorAlias = Database['public']['Tables']['vendor_aliases']['Row']
+export type VendorAliasInsert = Database['public']['Tables']['vendor_aliases']['Insert']
+export type VendorAliasUpdate = Database['public']['Tables']['vendor_aliases']['Update']

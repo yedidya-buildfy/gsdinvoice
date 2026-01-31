@@ -26,6 +26,46 @@ import type {
 // Re-export types
 export * from './types'
 
+// Re-export scorer
+export {
+  scoreMatch,
+  scoreReference,
+  scoreAmount,
+  scoreDate,
+  scoreCurrency,
+  scoreContext,
+  scoreVendor,
+  SCORING_WEIGHTS,
+  MAX_RAW_SCORE,
+  ELIGIBLE_TRANSACTION_TYPES,
+  VAT_RATES,
+} from './scorer'
+export type {
+  MatchScore,
+  ScoreBreakdown,
+  ScorePenalties,
+  ScoringContext,
+  ExtractedInvoiceData,
+  VendorMatchResult,
+} from './scorer'
+
+// Re-export auto-matcher
+export {
+  getMatchCandidates,
+  autoMatchLineItem,
+  autoMatchInvoice,
+  applyAutoMatch,
+  applyAutoMatchesForInvoice,
+  getUserAutoMatchSettings,
+} from './autoMatcher'
+export type {
+  AutoMatchStatus,
+  AutoMatchMethod,
+  LineItemMatchResult,
+  AutoMatchInvoiceResult,
+  AutoMatchOptions,
+} from './autoMatcher'
+
 // =============================================================================
 // Core Linking Functions
 // =============================================================================
