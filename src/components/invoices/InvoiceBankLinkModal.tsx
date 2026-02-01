@@ -4,7 +4,7 @@
  * Document links section at the bottom of both columns
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import {
   XMarkIcon,
@@ -21,7 +21,10 @@ import {
   AdjustmentsHorizontalIcon,
   CurrencyDollarIcon,
   BuildingOfficeIcon,
+  ReceiptPercentIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline'
+import { createPortal } from 'react-dom'
 import { Modal } from '@/components/ui/base/modal/modal'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { formatCurrency, formatTransactionAmount, formatLineItemAmount } from '@/lib/currency'
@@ -31,12 +34,63 @@ import { supabase } from '@/lib/supabase'
 import {
   linkLineItemToTransaction,
   unlinkLineItemFromTransaction,
-  scoreTransactionCandidate,
+  scoreMatch,
   type TransactionWithCard,
+  type ScoringContext,
 } from '@/lib/services/lineItemMatcher'
 import { useCreditCards } from '@/hooks/useCreditCards'
+import { useVendorAliases } from '@/hooks/useVendorAliases'
+import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useAuth } from '@/contexts/AuthContext'
+import { VatChangeModal } from '@/components/bank/VatChangeModal'
+import { parseMerchantName } from '@/lib/utils/merchantParser'
 import type { InvoiceRow, Transaction, Invoice, CreditCard } from '@/types/database'
+
+// Header tooltip component for section explanations
+function HeaderTooltip({ tooltip }: { tooltip: string }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!isOpen || !triggerRef.current) return
+
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPosition({
+      top: rect.top - 8,
+      left: rect.left + rect.width / 2,
+    })
+  }, [isOpen])
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        onMouseEnter={() => setIsOpen(true)}
+        onMouseLeave={() => setIsOpen(false)}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex cursor-help"
+      >
+        <InformationCircleIcon className="w-4 h-4 text-text-muted/50 hover:text-text-muted" />
+      </span>
+
+      {isOpen &&
+        createPortal(
+          <div
+            className="fixed z-[9999] px-3 py-2 text-xs normal-case tracking-normal font-normal text-text bg-surface border border-text-muted/20 rounded-lg shadow-lg max-w-xs pointer-events-none -translate-x-1/2 -translate-y-full"
+            style={{
+              top: `${position.top}px`,
+              left: `${position.left}px`,
+            }}
+          >
+            {tooltip}
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
 
 type TransactionTypeFilter = 'all' | 'cc_purchase' | 'bank_regular'
 
@@ -307,6 +361,20 @@ export function InvoiceBankLinkModal({
   // Credit cards for filter
   const { creditCards } = useCreditCards()
 
+  // Vendor aliases for scoring
+  const { aliases: vendorAliases } = useVendorAliases()
+
+  // Auth for VAT updates
+  const { user } = useAuth()
+
+  // VAT update hooks
+  const {
+    isUpdating: isUpdatingVat,
+    updateBatch,
+    updateAllByMerchant,
+    saveMerchantPreferencesBatch,
+  } = useUpdateTransactionVat()
+
   // Settings store for defaults
   const {
     linkingDateRangeDays: defaultDateRangeDays,
@@ -319,7 +387,7 @@ export function InvoiceBankLinkModal({
   const [isLoading, setIsLoading] = useState(false)
   const [isLinking, setIsLinking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [invoiceData, setInvoiceData] = useState<Pick<Invoice, 'vendor_name' | 'invoice_number'> | null>(null)
+  const [invoiceData, setInvoiceData] = useState<Invoice | null>(null)
 
   // Use prop values if provided, otherwise use fetched invoice data
   const vendorName = propVendorName ?? invoiceData?.vendor_name
@@ -331,6 +399,10 @@ export function InvoiceBankLinkModal({
 
   // Hover state
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
+
+  // VAT modal state
+  const [showVatModal, setShowVatModal] = useState(false)
+  const [vatTransaction, setVatTransaction] = useState<Transaction | null>(null)
 
   // Candidates
   const [candidates, setCandidates] = useState<TransactionWithCard[]>([])
@@ -389,17 +461,17 @@ export function InvoiceBankLinkModal({
     setError(null)
 
     try {
-      // Fetch invoice data for vendor name and invoice number
+      // Fetch invoice data for vendor name, invoice number, and scoring context
       const { data: invoice, error: invoiceError } = await supabase
         .from('invoices')
-        .select('vendor_name, invoice_number')
+        .select('*')
         .eq('id', invoiceId)
         .single()
 
       if (invoiceError) {
         console.error('Error fetching invoice:', invoiceError)
       } else if (invoice) {
-        setInvoiceData(invoice)
+        setInvoiceData(invoice as Invoice)
       }
 
       const { data: rowsData, error: rowsError } = await supabase
@@ -415,7 +487,7 @@ export function InvoiceBankLinkModal({
         .filter((row) => row.transaction_id)
         .map((row) => row.transaction_id as string)
 
-      let transactionsMap = new Map<string, Transaction>()
+      const transactionsMap = new Map<string, Transaction>()
 
       if (transactionIds.length > 0) {
         const { data: txData, error: txError } = await supabase
@@ -462,7 +534,7 @@ export function InvoiceBankLinkModal({
       setIsLoadingCandidates(true)
       try {
         // Build query for all matchable transactions
-        let query = supabase
+        const query = supabase
           .from('transactions')
           .select(`
             *,
@@ -550,11 +622,21 @@ export function InvoiceBankLinkModal({
       )
     }
 
-    // Calculate match scores
-    const withScores = filtered.map((tx) => ({
-      ...tx,
-      _matchScore: editingLineItem ? scoreTransactionCandidate(editingLineItem, tx).confidence : 0,
-    }))
+    // Calculate match scores using new scoring algorithm
+    const withScores = filtered.map((tx) => {
+      if (!editingLineItem) {
+        return { ...tx, _matchScore: 0 }
+      }
+      // Build scoring context for the new scorer
+      const scoringContext: ScoringContext = {
+        lineItem: editingLineItem as InvoiceRow,
+        invoice: invoiceData,
+        extractedData: null, // Not available in this context
+        vendorAliases: vendorAliases || [],
+      }
+      const score = scoreMatch(tx, scoringContext)
+      return { ...tx, _matchScore: score.isDisqualified ? 0 : score.total }
+    })
 
     // Sort based on selected column and direction
     const multiplier = sortDirection === 'asc' ? 1 : -1
@@ -574,7 +656,7 @@ export function InvoiceBankLinkModal({
     })
 
     return withScores
-  }, [candidates, candidateDateFrom, candidateDateTo, candidateSearch, transactionTypeFilter, editingLineItem, sortColumn, sortDirection, amountTolerance, currencyFilter, selectedCardIds, vendorFilter])
+  }, [candidates, candidateDateFrom, candidateDateTo, candidateSearch, transactionTypeFilter, editingLineItem, sortColumn, sortDirection, amountTolerance, currencyFilter, selectedCardIds, vendorFilter, invoiceData, vendorAliases])
 
   const handleEditRow = (rowId: string, type: 'line-item' | 'doc-link' | 'new-doc-link') => {
     if (editingRowId === rowId && editingRowType === type) {
@@ -732,6 +814,66 @@ export function InvoiceBankLinkModal({
     else if (editingRowType === 'doc-link') handleReplaceDocumentLink(editingRowId, transactionId)
   }
 
+  // VAT modal handlers
+  const handleOpenVatModal = (tx: Transaction) => {
+    setVatTransaction(tx)
+    setShowVatModal(true)
+  }
+
+  const vatMerchantNames = useMemo(() => {
+    if (!vatTransaction) return []
+    return [parseMerchantName(vatTransaction.description)]
+  }, [vatTransaction])
+
+  const handleVatApplyToSelected = async (hasVat: boolean, vatPercentage: number) => {
+    if (!vatTransaction) return
+    await updateBatch(
+      [{ id: vatTransaction.id, amount_agorot: vatTransaction.amount_agorot }],
+      { hasVat, vatPercentage }
+    )
+    setShowVatModal(false)
+    setVatTransaction(null)
+    fetchAllRows()
+    onLinkChange?.()
+  }
+
+  const handleVatApplyToAllPast = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user || !vatTransaction) return
+    const merchantName = parseMerchantName(vatTransaction.description)
+    await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+    setShowVatModal(false)
+    setVatTransaction(null)
+    fetchAllRows()
+    onLinkChange?.()
+  }
+
+  const handleVatApplyToAllMerchant = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user || !vatTransaction) return
+    const merchantName = parseMerchantName(vatTransaction.description)
+    await updateAllByMerchant(user.id, merchantName, { hasVat, vatPercentage })
+    await saveMerchantPreferencesBatch(user.id, [merchantName], { hasVat, vatPercentage })
+    setShowVatModal(false)
+    setVatTransaction(null)
+    fetchAllRows()
+    onLinkChange?.()
+  }
+
+  const handleVatApplyToFuture = async (hasVat: boolean, vatPercentage: number) => {
+    if (!user || !vatTransaction) return
+    const merchantName = parseMerchantName(vatTransaction.description)
+    await Promise.all([
+      saveMerchantPreferencesBatch(user.id, [merchantName], { hasVat, vatPercentage }),
+      updateBatch(
+        [{ id: vatTransaction.id, amount_agorot: vatTransaction.amount_agorot }],
+        { hasVat, vatPercentage }
+      ),
+    ])
+    setShowVatModal(false)
+    setVatTransaction(null)
+    fetchAllRows()
+    onLinkChange?.()
+  }
+
   const stats = useMemo(() => {
     const total = lineItems.length
     const linked = lineItems.filter((item) => item.transaction_id).length
@@ -753,6 +895,7 @@ export function InvoiceBankLinkModal({
   const isEditingLineItem = editingRowType === 'line-item' && editingRowId
 
   return (
+    <>
     <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <Modal.Content className="!w-[calc(95vw-4rem)] !h-[calc(90vh-4rem)] !max-w-none overflow-hidden flex flex-col">
         {/* Header */}
@@ -795,14 +938,15 @@ export function InvoiceBankLinkModal({
         )}
 
         {/* Main content */}
-        <div className="flex-1 min-h-0 flex flex-col gap-4">
-          {/* Line Items Section */}
-          <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
-            {/* Left - Line Items */}
-            <Panel defaultSize={40} minSize={25} className="flex flex-col min-h-0">
+        <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
+          {/* Left - Line Items */}
+          <Panel defaultSize={40} minSize={25} className="flex flex-col min-h-0">
               <div className="flex-1 flex flex-col min-h-0 border border-text-muted/20 rounded-lg overflow-hidden">
               <div className="px-4 py-3 bg-surface/50 border-b border-text-muted/20 shrink-0">
-                <h3 className="text-sm font-medium text-text">Line Items</h3>
+                <h3 className="text-sm font-medium text-text flex items-center gap-1.5">
+                  Line Items
+                  <HeaderTooltip tooltip="Individual items from the invoice that can be matched to bank or credit card transactions. Each line item represents a separate charge or product." />
+                </h3>
                 <p className="text-xs text-text-muted mt-0.5">Invoice line items</p>
               </div>
               {isLoading ? (
@@ -867,9 +1011,11 @@ export function InvoiceBankLinkModal({
               </div>
             </PanelResizeHandle>
 
-            {/* Right - Bank/CC Transaction */}
+            {/* Right - Bank/CC Transaction & Document Links */}
             <Panel defaultSize={60} minSize={30} className="flex flex-col min-h-0">
-              <div className="flex-1 flex flex-col min-h-0 border border-text-muted/20 rounded-lg overflow-hidden">
+              <PanelGroup orientation="vertical" className="h-full">
+                <Panel defaultSize={70} minSize={30}>
+                  <div className="h-full flex flex-col border border-text-muted/20 rounded-lg overflow-hidden">
               {isEditingLineItem ? (
                 // Full panel transaction selector
                 <>
@@ -877,7 +1023,10 @@ export function InvoiceBankLinkModal({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <NumberBadge number={editingLineItemIndex + 1} />
-                        <h3 className="text-sm font-medium text-text">Select Transaction to Link</h3>
+                        <h3 className="text-sm font-medium text-text flex items-center gap-1.5">
+                          Select Transaction to Link
+                          <HeaderTooltip tooltip="Bank and credit card transactions that can be linked to invoice line items. Use filters to narrow down results by date, amount, or type." />
+                        </h3>
                         <span className="text-xs text-text-muted">
                           ({filteredCandidates.length} of {candidates.length} transactions)
                         </span>
@@ -1129,7 +1278,10 @@ export function InvoiceBankLinkModal({
                 // Normal view - row by row
                 <>
                   <div className="px-4 py-3 bg-surface/50 border-b border-text-muted/20 shrink-0">
-                    <h3 className="text-sm font-medium text-text">Bank/CC Transaction</h3>
+                    <h3 className="text-sm font-medium text-text flex items-center gap-1.5">
+                      Bank/CC Transaction
+                      <HeaderTooltip tooltip="Bank and credit card transactions linked to the corresponding line items. Each row shows the transaction matched to that line item." />
+                    </h3>
                     <p className="text-xs text-text-muted mt-0.5">Click empty slot to link</p>
                   </div>
                   {isLoading ? (
@@ -1148,7 +1300,7 @@ export function InvoiceBankLinkModal({
                         <div className="w-12 px-1 text-center">VAT%</div>
                         <div className="w-16 px-1 text-end">VAT Amt</div>
                         <div className="w-16 px-1 text-center">Ref</div>
-                        <div className="w-14 px-1" />
+                        <div className="w-24 px-1" />
                       </div>
                       {lineItems.map((item, index) => {
                         const isLinked = !!item.transaction_id
@@ -1210,24 +1362,33 @@ export function InvoiceBankLinkModal({
                                     : (tx.reference || '-')}
                                 </div>
                                 <div
-                                  className={`w-14 px-1 flex items-center justify-end gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}
+                                  className={`w-24 px-1 flex items-center justify-end gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}
                                 >
                                   <button
                                     type="button"
+                                    onClick={() => handleOpenVatModal(tx)}
+                                    disabled={isUpdatingVat}
+                                    className="p-1.5 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 disabled:opacity-50"
+                                    title="Set VAT"
+                                  >
+                                    <ReceiptPercentIcon className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
                                     onClick={() => handleEditRow(item.id, 'line-item')}
-                                    className="p-1 bg-primary/20 text-primary rounded hover:bg-primary/30"
+                                    className="p-1.5 bg-primary/20 text-primary rounded hover:bg-primary/30"
                                     title="Change"
                                   >
-                                    <ArrowPathIcon className="w-3 h-3" />
+                                    <ArrowPathIcon className="w-4 h-4" />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleUnlinkLineItem(item.id)}
                                     disabled={isLinking}
-                                    className="p-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 disabled:opacity-50"
+                                    className="p-1.5 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 disabled:opacity-50"
                                     title="Unlink"
                                   >
-                                    <TrashIcon className="w-3 h-3" />
+                                    <TrashIcon className="w-4 h-4" />
                                   </button>
                                 </div>
                               </>
@@ -1249,58 +1410,27 @@ export function InvoiceBankLinkModal({
                   )}
                 </>
               )}
-              </div>
-            </Panel>
-          </PanelGroup>
+                  </div>
+                </Panel>
 
-          {/* Document Links Section - Bottom */}
-          <div className="shrink-0 flex gap-4">
-            {/* Left - Document Links Labels */}
-            <div className="flex-1 border border-text-muted/20 rounded-lg overflow-hidden">
-              <div className="px-4 py-2 bg-surface/50 border-b border-text-muted/20 flex items-center justify-between">
+                {/* Vertical Resize Handle */}
+                <PanelResizeHandle className="h-1 my-1 bg-text-muted/20 hover:bg-primary/50 transition-colors cursor-row-resize group relative">
+                  <div className="absolute inset-x-0 -top-2 -bottom-2" />
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-1 h-1 rounded-full bg-text-muted" />
+                    <div className="w-1 h-1 rounded-full bg-text-muted" />
+                    <div className="w-1 h-1 rounded-full bg-text-muted" />
+                  </div>
+                </PanelResizeHandle>
+
+                {/* Document Links Section */}
+                <Panel defaultSize={30} minSize={15}>
+                  <div className="h-full flex flex-col border border-text-muted/20 rounded-lg overflow-hidden">
+                    <div className="px-4 py-2 bg-surface/50 border-b border-text-muted/20 flex items-center justify-between shrink-0">
                 <h3 className="text-sm font-medium text-text flex items-center gap-2">
                   <DocumentIcon className="w-4 h-4" />
                   Document Links
-                </h3>
-              </div>
-              <div className="max-h-[200px] overflow-y-auto">
-                {documentLinks.map((link, index) => (
-                  <div
-                    key={link.id}
-                    className={`flex items-stretch border-b border-text-muted/10 min-h-[44px] ${
-                      editingRowId === link.id && editingRowType === 'doc-link' ? 'bg-primary/10' : ''
-                    }`}
-                  >
-                    <div className="w-10 flex items-center justify-center shrink-0 bg-surface/30">
-                      <NumberBadge number={`D${index + 1}`} linked={!!link.transaction_id} isDoc />
-                    </div>
-                    <div className="flex-1 flex items-center px-3 py-2">
-                      <span className="text-sm text-text-muted">Document-level link</span>
-                    </div>
-                  </div>
-                ))}
-                {/* Empty slot for new */}
-                <div
-                  className={`flex items-stretch border-b border-text-muted/10 min-h-[44px] ${
-                    editingRowId === 'new-doc-link' && editingRowType === 'new-doc-link' ? 'bg-primary/10' : ''
-                  }`}
-                >
-                  <div className="w-10 flex items-center justify-center shrink-0 bg-surface/30">
-                    <NumberBadge number={`D${documentLinks.length + 1}`} isDoc />
-                  </div>
-                  <div className="flex-1 flex items-center px-3 py-2">
-                    <span className="text-sm text-text-muted opacity-50">New document link</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right - Document Links Transactions */}
-            <div className="flex-1 border border-text-muted/20 rounded-lg overflow-hidden">
-              <div className="px-4 py-2 bg-surface/50 border-b border-text-muted/20 flex items-center justify-between">
-                <h3 className="text-sm font-medium text-text flex items-center gap-2">
-                  <DocumentIcon className="w-4 h-4" />
-                  Document Links
+                  <HeaderTooltip tooltip="Link the entire invoice document to transactions, independent of line items. Useful when the invoice represents a single payment or when line-item matching isn't needed." />
                 </h3>
                 <button
                   type="button"
@@ -1311,7 +1441,7 @@ export function InvoiceBankLinkModal({
                   <PlusIcon className="w-4 h-4" />
                 </button>
               </div>
-              <div className="max-h-[200px] overflow-y-auto">
+              <div className="flex-1 overflow-y-auto min-h-0">
                 {documentLinks.map((link, index) => {
                   const isEditing = editingRowId === link.id && editingRowType === 'doc-link'
                   const isHovered = hoveredRowId === `doc-${link.id}`
@@ -1487,13 +1617,32 @@ export function InvoiceBankLinkModal({
                         <span className="text-xs text-text-muted">Click to add document link</span>
                       </button>
                     )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
+                  </div>
+                </Panel>
+              </PanelGroup>
+            </Panel>
+          </PanelGroup>
       </Modal.Content>
     </Modal.Overlay>
+
+    {/* VAT Change Modal */}
+    <VatChangeModal
+      isOpen={showVatModal}
+      onClose={() => {
+        setShowVatModal(false)
+        setVatTransaction(null)
+      }}
+      selectedCount={1}
+      merchantNames={vatMerchantNames}
+      onApplyToSelected={handleVatApplyToSelected}
+      onApplyToAllPast={handleVatApplyToAllPast}
+      onApplyToAllMerchant={handleVatApplyToAllMerchant}
+      onApplyToFuture={handleVatApplyToFuture}
+      isLoading={isUpdatingVat}
+    />
+  </>
   )
 }

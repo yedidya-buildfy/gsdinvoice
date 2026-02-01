@@ -21,9 +21,12 @@ CREATE TABLE vendor_aliases (
   source TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('system', 'user', 'learned')),
   priority INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (user_id, COALESCE(team_id, '00000000-0000-0000-0000-000000000000'::uuid), alias_pattern)
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Create unique index with COALESCE for null team_id handling
+CREATE UNIQUE INDEX idx_vendor_aliases_unique_pattern
+  ON vendor_aliases (user_id, COALESCE(team_id, '00000000-0000-0000-0000-000000000000'::uuid), alias_pattern);
 
 -- Create indexes for efficient lookups
 CREATE INDEX idx_vendor_aliases_user ON vendor_aliases(user_id);
@@ -72,75 +75,30 @@ RETURNS void AS $$
 BEGIN
   INSERT INTO vendor_aliases (user_id, team_id, alias_pattern, canonical_name, match_type, source, priority)
   VALUES
-    -- Meta/Facebook
+    -- Meta/Facebook (Ads platform)
     (p_user_id, p_team_id, 'FACEBK', 'Meta (Facebook)', 'contains', 'system', 100),
     (p_user_id, p_team_id, 'FB*', 'Meta (Facebook)', 'starts_with', 'system', 100),
     (p_user_id, p_team_id, 'META PLATFORMS', 'Meta (Facebook)', 'contains', 'system', 100),
+    (p_user_id, p_team_id, 'FACEBOOK', 'Meta (Facebook)', 'contains', 'system', 100),
 
-    -- Google
+    -- Google (Ads, Cloud, Workspace)
     (p_user_id, p_team_id, 'GOOG', 'Google', 'contains', 'system', 100),
     (p_user_id, p_team_id, 'GOOGLE*', 'Google', 'starts_with', 'system', 100),
     (p_user_id, p_team_id, 'GCP', 'Google Cloud Platform', 'exact', 'system', 100),
+    (p_user_id, p_team_id, 'GOOGLE ADS', 'Google Ads', 'contains', 'system', 100),
+    (p_user_id, p_team_id, 'GOOGLE CLOUD', 'Google Cloud Platform', 'contains', 'system', 100),
 
-    -- Amazon
-    (p_user_id, p_team_id, 'AMZN', 'Amazon', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'AMAZON', 'Amazon', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'AWS', 'Amazon Web Services', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'PRIME VIDEO', 'Amazon Prime Video', 'contains', 'system', 100),
-
-    -- Microsoft
+    -- Microsoft (Azure, 365, Ads)
     (p_user_id, p_team_id, 'MSFT', 'Microsoft', 'contains', 'system', 100),
     (p_user_id, p_team_id, 'MICROSOFT*', 'Microsoft', 'starts_with', 'system', 100),
     (p_user_id, p_team_id, 'AZURE', 'Microsoft Azure', 'contains', 'system', 100),
+    (p_user_id, p_team_id, 'OFFICE 365', 'Microsoft 365', 'contains', 'system', 100),
+    (p_user_id, p_team_id, 'M365', 'Microsoft 365', 'contains', 'system', 100),
 
-    -- Apple
-    (p_user_id, p_team_id, 'APPLE.COM', 'Apple', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'APPLE STORE', 'Apple', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'ITUNES', 'Apple', 'contains', 'system', 100),
-
-    -- Uber
-    (p_user_id, p_team_id, 'UBER* TRIP', 'Uber', 'starts_with', 'system', 100),
-    (p_user_id, p_team_id, 'UBER* EATS', 'Uber Eats', 'starts_with', 'system', 100),
-    (p_user_id, p_team_id, 'UBEREATS', 'Uber Eats', 'contains', 'system', 100),
-
-    -- Netflix
-    (p_user_id, p_team_id, 'NETFLIX.COM', 'Netflix', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'NETFLIX', 'Netflix', 'exact', 'system', 100),
-
-    -- Spotify
-    (p_user_id, p_team_id, 'SPOTIFY', 'Spotify', 'contains', 'system', 100),
-
-    -- PayPal
-    (p_user_id, p_team_id, 'PAYPAL', 'PayPal', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'PP*', 'PayPal', 'starts_with', 'system', 100),
-
-    -- Stripe
-    (p_user_id, p_team_id, 'STRIPE', 'Stripe', 'contains', 'system', 100),
-
-    -- Shopify
+    -- Shopify (E-commerce platform)
     (p_user_id, p_team_id, 'SHOPIFY', 'Shopify', 'contains', 'system', 100),
-
-    -- Dropbox
-    (p_user_id, p_team_id, 'DROPBOX', 'Dropbox', 'contains', 'system', 100),
-
-    -- Slack
-    (p_user_id, p_team_id, 'SLACK', 'Slack', 'contains', 'system', 100),
-
-    -- Zoom
-    (p_user_id, p_team_id, 'ZOOM.US', 'Zoom', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'ZOOM VIDEO', 'Zoom', 'contains', 'system', 100),
-
-    -- Adobe
-    (p_user_id, p_team_id, 'ADOBE', 'Adobe', 'contains', 'system', 100),
-
-    -- LinkedIn
-    (p_user_id, p_team_id, 'LINKEDIN', 'LinkedIn', 'contains', 'system', 100),
-
-    -- Twitter/X
-    (p_user_id, p_team_id, 'TWITTER', 'X (Twitter)', 'contains', 'system', 100),
-    (p_user_id, p_team_id, 'X.COM', 'X (Twitter)', 'contains', 'system', 100)
-  ON CONFLICT (user_id, COALESCE(team_id, '00000000-0000-0000-0000-000000000000'::uuid), alias_pattern)
-  DO NOTHING;
+    (p_user_id, p_team_id, 'SHOPIFY*', 'Shopify', 'starts_with', 'system', 100)
+  ON CONFLICT DO NOTHING;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

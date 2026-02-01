@@ -12,9 +12,11 @@ import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import {
   getMatchableLineItems,
   linkLineItemToTransaction,
-  scoreLineItemCandidate,
+  scoreMatch,
   type LineItemWithInvoice,
+  type ScoringContext,
 } from '@/lib/services/lineItemMatcher'
+import { useVendorAliases } from '@/hooks/useVendorAliases'
 import type { Transaction } from '@/types/database'
 
 interface TransactionLinkModalProps {
@@ -99,6 +101,9 @@ export function TransactionLinkModal({
   transaction,
   onLinkComplete,
 }: TransactionLinkModalProps) {
+  // Vendor aliases for scoring
+  const { aliases: vendorAliases } = useVendorAliases()
+
   // State
   const [lineItems, setLineItems] = useState<LineItemWithInvoice[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -182,17 +187,33 @@ export function TransactionLinkModal({
     fetchLineItems()
   }, [isOpen, transaction, fromDate, toDate, searchQuery, vendorFilter, amountTolerance, currencyFilter])
 
-  // Score line items
+  // Score line items using new scoring algorithm
   const scoredLineItems = useMemo(() => {
     if (!transaction) return []
 
     return lineItems
-      .map(item => ({
-        lineItem: item,
-        score: scoreLineItemCandidate(transaction, item),
-      }))
+      .map(item => {
+        // Build scoring context for the new scorer
+        const scoringContext: ScoringContext = {
+          lineItem: item,
+          invoice: item.invoice || null,
+          extractedData: null, // Not available in this context
+          vendorAliases: vendorAliases || [],
+        }
+        const score = scoreMatch(transaction, scoringContext)
+        // Map to the expected format with confidence for backward compatibility
+        return {
+          lineItem: item,
+          score: {
+            confidence: score.isDisqualified ? 0 : score.total,
+            matchReasons: score.matchReasons,
+            warnings: score.warnings,
+          },
+        }
+      })
+      .filter(item => item.score.confidence > 0) // Filter out disqualified
       .sort((a, b) => b.score.confidence - a.score.confidence)
-  }, [lineItems, transaction])
+  }, [lineItems, transaction, vendorAliases])
 
   // Get unique vendors for filter dropdown
   const uniqueVendors = useMemo(() => {

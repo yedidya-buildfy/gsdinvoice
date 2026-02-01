@@ -17,7 +17,7 @@ import {
   type ExtractedInvoiceData,
 } from './scorer'
 import { linkLineItemToTransaction, getTransactionLinkSummary } from './index'
-import type { MatchMethod } from './types'
+import type { MatchMethod, LinkResult } from './types'
 
 // =============================================================================
 // Types

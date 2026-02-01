@@ -183,7 +183,7 @@ export function getMerchantBaseKey(description: string): string {
   const parsed = parseMerchantName(description)
 
   // Normalize: lowercase, remove special chars, single spaces
-  let key = parsed
+  const key = parsed
     .toLowerCase()
     .replace(/['"״׳\-_.]/g, '')
     .replace(/\s+/g, ' ')

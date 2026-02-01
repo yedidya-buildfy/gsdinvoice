@@ -66,8 +66,8 @@ export interface MatchScore {
 export interface ScoringContext {
   /** The line item to match */
   lineItem: InvoiceRow
-  /** The parent invoice (for vendor name, invoice date, etc.) */
-  invoice: Invoice | null
+  /** The parent invoice (for vendor name, invoice date, etc.) - partial invoice data is accepted */
+  invoice: Partial<Invoice> | null
   /** Extracted data from the invoice file (for billing period, line item references, etc.) */
   extractedData: ExtractedInvoiceData | null
   /** User's vendor aliases for vendor matching */
@@ -489,7 +489,7 @@ function tryVatAdjustedMatch(
  */
 export function scoreDate(
   lineItem: InvoiceRow,
-  invoice: Invoice | null,
+  invoice: Partial<Invoice> | null,
   transaction: Transaction
 ): { points: number; reason?: string; warning?: string } {
   // Get line item date (prefer transaction_date, fall back to invoice_date)
@@ -593,7 +593,7 @@ export function scoreCurrency(
  */
 export function scoreContext(
   lineItem: InvoiceRow,
-  invoice: Invoice | null,
+  _invoice: Partial<Invoice> | null, // Reserved for future use
   extractedData: ExtractedInvoiceData | null,
   transaction: Transaction
 ): { points: number; reasons: string[] } {
@@ -656,7 +656,7 @@ export function scoreContext(
  */
 export function scoreVendor(
   lineItem: InvoiceRow,
-  invoice: Invoice | null,
+  invoice: Partial<Invoice> | null,
   transaction: Transaction,
   userAliases: VendorAlias[]
 ): VendorMatchResult {

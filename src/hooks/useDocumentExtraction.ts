@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { extractInvoiceWithGemini } from '@/lib/gemini/extractInvoice'
 import { checkLineItemDuplicates } from '@/lib/duplicates'
 import type {
   ExtractionRequest,
@@ -44,12 +43,28 @@ function ensureLineItems(
   ]
 }
 
+// Response from edge function
+interface EdgeFunctionResponse {
+  success: boolean
+  invoice_id?: string
+  user_id?: string
+  confidence?: number
+  extracted?: InvoiceExtraction
+  error?: string
+}
+
 /**
- * Hook for extracting data from a single document using client-side Gemini API
+ * Hook for extracting data from a single document using Supabase Edge Function
  *
- * Downloads file from storage, sends to Gemini for extraction, saves result to database.
- * If line item duplicates are detected (for billing summaries with >1 item), returns
- * duplicate info for UI to handle.
+ * Calls the extract-invoice edge function which handles:
+ * - Downloading file from storage
+ * - Calling Gemini API for extraction
+ * - Creating the invoice record
+ *
+ * After the edge function returns, this hook handles:
+ * - Duplicate detection for line items
+ * - Inserting line items (or returning duplicate info for UI)
+ * - Updating file status
  */
 export function useExtractDocument() {
   const queryClient = useQueryClient()
@@ -67,170 +82,157 @@ export function useExtractDocument() {
       )
     },
     mutationFn: async ({ fileId, storagePath, fileType }) => {
-      // Update file status to processing
-      await supabase
-        .from('files')
-        .update({ status: 'processing' })
-        .eq('id', fileId)
+      console.log('[useExtractDocument] Calling edge function for file:', fileId)
 
-      try {
-        // Download file from Supabase Storage
-        const { data: blob, error: downloadError } = await supabase.storage
-          .from('documents')
-          .download(storagePath)
+      // Debug: Check if we have a valid session
+      const { data: sessionData } = await supabase.auth.getSession()
+      console.log('[useExtractDocument] Session check:', {
+        hasSession: !!sessionData.session,
+        hasAccessToken: !!sessionData.session?.access_token,
+        expiresAt: sessionData.session?.expires_at,
+        userId: sessionData.session?.user?.id,
+      })
 
-        if (downloadError) {
-          throw new Error(`Download failed: ${downloadError.message}`)
-        }
+      if (!sessionData.session) {
+        throw new Error('No active session - please log in again')
+      }
 
-        if (!blob) {
-          throw new Error('No file data returned from storage')
-        }
-
-        console.log('Downloaded file:', { size: blob.size, type: blob.type, fileType })
-
-        // Extract invoice data using Gemini
-        const extracted = await extractInvoiceWithGemini(blob, fileType)
-
-        // Get user_id from the file record
-        const { data: fileRecord, error: fileError } = await supabase
-          .from('files')
-          .select('user_id')
-          .eq('id', fileId)
-          .single()
-
-        if (fileError || !fileRecord) {
-          throw new Error(`Failed to get file record: ${fileError?.message || 'Not found'}`)
-        }
-
-        // Insert into invoices table with amounts converted to agorot
-        // Map new structure to database columns
-        const { data: invoice, error: invoiceError } = await supabase
-          .from('invoices')
-          .insert({
-            user_id: fileRecord.user_id,
+      // Call the edge function
+      const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>(
+        'extract-invoice',
+        {
+          body: {
             file_id: fileId,
-            vendor_name: extracted.vendor?.name || null,
-            invoice_number: extracted.document?.number || null,
-            invoice_date: extracted.document?.date || null,
-            subtotal_agorot: toAgorot(extracted.totals?.subtotal),
-            vat_amount_agorot: toAgorot(extracted.totals?.vat_amount),
-            total_amount_agorot: toAgorot(extracted.totals?.total),
-            currency: extracted.totals?.currency || 'ILS',
-            confidence_score: extracted.confidence,
-            status: 'pending',
-          })
-          .select()
-          .single()
-
-        if (invoiceError) {
-          throw new Error(`Failed to create invoice: ${invoiceError.message}`)
+            storage_path: storagePath,
+            file_type: fileType,
+          },
         }
+      )
 
-        // Ensure we have at least one line item (create default if none extracted)
-        const lineItems = ensureLineItems(
-          extracted.line_items || [],
-          extracted.totals,
-          extracted.vendor?.name || null
-        )
+      if (error) {
+        console.error('[useExtractDocument] Edge function error:', error)
+        throw new Error(error.message || 'Edge function failed')
+      }
 
-        // Prepare line items for insertion
-        const rowsToInsert = lineItems.map((item) => ({
-          invoice_id: invoice.id,
-          description: item.description,
+      if (!data?.success) {
+        throw new Error(data?.error || 'Extraction failed')
+      }
+
+      const { invoice_id, user_id, confidence, extracted } = data
+
+      if (!invoice_id || !user_id || !extracted) {
+        throw new Error('Invalid response from edge function')
+      }
+
+      console.log('[useExtractDocument] Edge function returned:', {
+        invoice_id,
+        confidence,
+        lineItems: extracted.line_items?.length,
+      })
+
+      // Ensure we have at least one line item (create default if none extracted)
+      const lineItems = ensureLineItems(
+        extracted.line_items || [],
+        extracted.totals,
+        extracted.vendor?.name || null
+      )
+
+      // Prepare line items for insertion
+      const rowsToInsert = lineItems.map((item) => ({
+        invoice_id: invoice_id,
+        description: item.description,
+        reference_id: item.reference_id || null,
+        transaction_date: item.date || null,
+        total_agorot: toAgorot(item.amount),
+        currency: item.currency || 'ILS',
+        vat_rate: item.vat_rate || null,
+        vat_amount_agorot: toAgorot(item.vat_amount),
+      }))
+
+      // Check for duplicates if we have multiple line items (billing summary scenario)
+      if (lineItems.length > 1) {
+        const lineItemsForCheck = lineItems.map((item) => ({
           reference_id: item.reference_id || null,
           transaction_date: item.date || null,
-          total_agorot: toAgorot(item.amount),
+          amount_agorot: toAgorot(item.amount),
           currency: item.currency || 'ILS',
-          vat_rate: item.vat_rate || null,
-          vat_amount_agorot: toAgorot(item.vat_amount),
+          description: item.description,
         }))
 
-        // Check for duplicates if we have multiple line items (billing summary scenario)
-        if (lineItems.length > 1) {
-          const lineItemsForCheck = lineItems.map((item) => ({
-            reference_id: item.reference_id || null,
-            transaction_date: item.date || null,
-            amount_agorot: toAgorot(item.amount),
-            currency: item.currency || 'ILS',
-            description: item.description,
-          }))
+        const duplicateCheck = await checkLineItemDuplicates(
+          user_id,
+          extracted.vendor?.name || null,
+          lineItemsForCheck
+        )
 
-          const duplicateCheck = await checkLineItemDuplicates(
-            fileRecord.user_id,
-            extracted.vendor?.name || null,
-            lineItemsForCheck
-          )
+        if (duplicateCheck.duplicateCount > 0) {
+          // Update file status to processed (extraction succeeded)
+          await supabase
+            .from('files')
+            .update({
+              status: 'processed',
+              extracted_data: JSON.parse(JSON.stringify(extracted)),
+              processed_at: new Date().toISOString(),
+            })
+            .eq('id', fileId)
 
-          if (duplicateCheck.duplicateCount > 0) {
-            // Update file status to processed (extraction succeeded)
-            await supabase
-              .from('files')
-              .update({
-                status: 'processed',
-                extracted_data: JSON.parse(JSON.stringify(extracted)),
-                processed_at: new Date().toISOString(),
-              })
-              .eq('id', fileId)
-
-            // Return with duplicate info - let UI handle the modal
-            return {
-              success: true,
-              invoice_id: invoice.id,
-              confidence: extracted.confidence,
-              lineItemDuplicates: {
-                invoiceId: invoice.id,
-                vendorName: extracted.vendor?.name || null,
-                totalItems: duplicateCheck.totalItems,
-                duplicateCount: duplicateCheck.duplicateCount,
-                matches: duplicateCheck.matches,
-                pendingLineItems: rowsToInsert,
-              },
-            }
+          // Return with duplicate info - let UI handle the modal
+          return {
+            success: true,
+            invoice_id: invoice_id,
+            confidence: confidence || extracted.confidence,
+            lineItemDuplicates: {
+              invoiceId: invoice_id,
+              vendorName: extracted.vendor?.name || null,
+              totalItems: duplicateCheck.totalItems,
+              duplicateCount: duplicateCheck.duplicateCount,
+              matches: duplicateCheck.matches,
+              pendingLineItems: rowsToInsert,
+            },
           }
         }
-
-        // No duplicates or single item - insert line items directly
-        if (rowsToInsert.length > 0) {
-          const { error: rowsError } = await supabase
-            .from('invoice_rows')
-            .insert(rowsToInsert)
-
-          if (rowsError) {
-            console.error('Failed to insert line items:', rowsError)
-            // Don't throw - invoice was created, line items are secondary
-          } else {
-            console.log(`Inserted ${rowsToInsert.length} line items`)
-          }
-        }
-
-        // Update file status to extracted
-        await supabase
-          .from('files')
-          .update({
-            status: 'processed',
-            extracted_data: JSON.parse(JSON.stringify(extracted)),
-            processed_at: new Date().toISOString(),
-          })
-          .eq('id', fileId)
-
-        return {
-          success: true,
-          invoice_id: invoice.id,
-          confidence: extracted.confidence,
-        }
-      } catch (error) {
-        // Update file status to failed (UI will derive 'not_invoice' from error_message)
-        await supabase
-          .from('files')
-          .update({
-            status: 'failed',
-            error_message: error instanceof Error ? error.message : 'Unknown error',
-          })
-          .eq('id', fileId)
-
-        throw error
       }
+
+      // No duplicates or single item - insert line items directly
+      if (rowsToInsert.length > 0) {
+        const { error: rowsError } = await supabase
+          .from('invoice_rows')
+          .insert(rowsToInsert)
+
+        if (rowsError) {
+          console.error('Failed to insert line items:', rowsError)
+          // Don't throw - invoice was created, line items are secondary
+        } else {
+          console.log(`Inserted ${rowsToInsert.length} line items`)
+        }
+      }
+
+      // Update file status to processed
+      await supabase
+        .from('files')
+        .update({
+          status: 'processed',
+          extracted_data: JSON.parse(JSON.stringify(extracted)),
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', fileId)
+
+      return {
+        success: true,
+        invoice_id: invoice_id,
+        confidence: confidence || extracted.confidence,
+      }
+    },
+    onError: async (error, { fileId }) => {
+      // Update file status to failed
+      console.error('[useExtractDocument] Mutation error:', error)
+      await supabase
+        .from('files')
+        .update({
+          status: 'failed',
+          error_message: error.message,
+        })
+        .eq('id', fileId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })
@@ -336,7 +338,7 @@ export async function handleLineItemDuplicateAction(
 }
 
 /**
- * Hook for extracting data from multiple documents with optimized batching
+ * Hook for extracting data from multiple documents using Supabase Edge Function
  * Returns array of LineItemDuplicateInfo for documents that have duplicates
  */
 export function useExtractMultipleDocuments() {
@@ -361,31 +363,28 @@ export function useExtractMultipleDocuments() {
     mutationFn: async (documents): Promise<LineItemDuplicateInfo[]> => {
       if (documents.length === 0) return []
 
-      const fileIds = documents.map((d) => d.fileId)
+      // Debug: Check if we have a valid session
+      const { data: sessionData } = await supabase.auth.getSession()
+      console.log('[useExtractMultiple] Session check:', {
+        hasSession: !!sessionData.session,
+        hasAccessToken: !!sessionData.session?.access_token,
+        expiresAt: sessionData.session?.expires_at,
+        userId: sessionData.session?.user?.id,
+      })
 
-      // Pre-fetch all file records in one query to get user_ids
-      const { data: fileRecords, error: filesError } = await supabase
-        .from('files')
-        .select('id, user_id')
-        .in('id', fileIds)
-
-      if (filesError) {
-        throw new Error(`Failed to fetch file records: ${filesError.message}`)
+      if (!sessionData.session) {
+        throw new Error('No active session - please log in again')
       }
 
-      const userIdByFileId = new Map(fileRecords?.map((f) => [f.id, f.user_id]) || [])
-
-      // Batch update all files to processing status
-      await supabase
-        .from('files')
-        .update({ status: 'processing' })
-        .in('id', fileIds)
+      console.log('[useExtractMultiple] Processing', documents.length, 'documents via edge function')
 
       // Process documents in parallel batches of 3 (respects rate limits)
       const BATCH_SIZE = 3
       const results: Array<{
         fileId: string
         success: boolean
+        invoiceId?: string
+        userId?: string
         extracted?: InvoiceExtraction
         error?: string
       }> = []
@@ -396,21 +395,32 @@ export function useExtractMultipleDocuments() {
         const batchResults = await Promise.all(
           batch.map(async (doc) => {
             try {
-              const { data: blob, error: downloadError } = await supabase.storage
-                .from('documents')
-                .download(doc.storagePath)
+              const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>(
+                'extract-invoice',
+                {
+                  body: {
+                    file_id: doc.fileId,
+                    storage_path: doc.storagePath,
+                    file_type: doc.fileType,
+                  },
+                }
+              )
 
-              if (downloadError) {
-                throw new Error(`Download failed: ${downloadError.message}`)
+              if (error) {
+                throw new Error(error.message || 'Edge function failed')
               }
 
-              if (!blob) {
-                throw new Error('No file data returned from storage')
+              if (!data?.success) {
+                throw new Error(data?.error || 'Extraction failed')
               }
 
-              const extracted = await extractInvoiceWithGemini(blob, doc.fileType)
-
-              return { fileId: doc.fileId, success: true, extracted }
+              return {
+                fileId: doc.fileId,
+                success: true,
+                invoiceId: data.invoice_id,
+                userId: data.user_id,
+                extracted: data.extracted,
+              }
             } catch (error) {
               return {
                 fileId: doc.fileId,
@@ -432,131 +442,97 @@ export function useExtractMultipleDocuments() {
       // Collect duplicate infos for UI handling
       const duplicateInfos: LineItemDuplicateInfo[] = []
 
-      // Batch insert all successful invoices and their line items
-      const successfulResults = results.filter((r) => r.success && r.extracted)
-      if (successfulResults.length > 0) {
-        const invoicesToInsert = successfulResults
-          .filter((r) => userIdByFileId.has(r.fileId))
-          .map((r) => ({
-            user_id: userIdByFileId.get(r.fileId)!,
-            file_id: r.fileId,
-            vendor_name: r.extracted!.vendor?.name || null,
-            invoice_number: r.extracted!.document?.number || null,
-            invoice_date: r.extracted!.document?.date || null,
-            subtotal_agorot: toAgorot(r.extracted!.totals?.subtotal),
-            vat_amount_agorot: toAgorot(r.extracted!.totals?.vat_amount),
-            total_amount_agorot: toAgorot(r.extracted!.totals?.total),
-            currency: r.extracted!.totals?.currency || 'ILS',
-            confidence_score: r.extracted!.confidence,
-            status: 'pending',
+      // Process successful extractions - handle line items with duplicate detection
+      const successfulResults = results.filter((r) => r.success && r.extracted && r.invoiceId && r.userId)
+
+      for (const r of successfulResults) {
+        const invoiceId = r.invoiceId!
+        const userId = r.userId!
+        const extracted = r.extracted!
+
+        // Ensure at least one line item
+        const lineItems = ensureLineItems(
+          extracted.line_items || [],
+          extracted.totals,
+          extracted.vendor?.name || null
+        )
+
+        const rowsToInsert = lineItems.map((item) => ({
+          invoice_id: invoiceId,
+          description: item.description,
+          reference_id: item.reference_id || null,
+          transaction_date: item.date || null,
+          total_agorot: toAgorot(item.amount),
+          currency: item.currency || 'ILS',
+          vat_rate: item.vat_rate || null,
+          vat_amount_agorot: toAgorot(item.vat_amount),
+        }))
+
+        // Check for duplicates if we have multiple line items
+        if (lineItems.length > 1) {
+          const lineItemsForCheck = lineItems.map((item) => ({
+            reference_id: item.reference_id || null,
+            transaction_date: item.date || null,
+            amount_agorot: toAgorot(item.amount),
+            currency: item.currency || 'ILS',
+            description: item.description,
           }))
 
-        const { data: insertedInvoices, error: invoiceError } = await supabase
-          .from('invoices')
-          .insert(invoicesToInsert)
-          .select('id, file_id')
-
-        if (invoiceError) {
-          console.error('Batch invoice insert failed:', invoiceError)
-        }
-
-        // Insert line items for each invoice, checking for duplicates
-        if (insertedInvoices && insertedInvoices.length > 0) {
-          const invoiceIdByFileId = new Map(
-            insertedInvoices.map((inv) => [inv.file_id, inv.id])
+          const duplicateCheck = await checkLineItemDuplicates(
+            userId,
+            extracted.vendor?.name || null,
+            lineItemsForCheck
           )
 
-          for (const r of successfulResults) {
-            const invoiceId = invoiceIdByFileId.get(r.fileId)
-            if (!invoiceId) continue
+          if (duplicateCheck.duplicateCount > 0) {
+            // Store duplicate info for UI to handle
+            duplicateInfos.push({
+              invoiceId,
+              vendorName: extracted.vendor?.name || null,
+              totalItems: duplicateCheck.totalItems,
+              duplicateCount: duplicateCheck.duplicateCount,
+              matches: duplicateCheck.matches,
+              pendingLineItems: rowsToInsert,
+            })
 
-            const userId = userIdByFileId.get(r.fileId)
-            if (!userId) continue
-
-            // Ensure at least one line item
-            const lineItems = ensureLineItems(
-              r.extracted!.line_items || [],
-              r.extracted!.totals,
-              r.extracted!.vendor?.name || null
-            )
-
-            const rowsToInsert = lineItems.map((item) => ({
-              invoice_id: invoiceId,
-              description: item.description,
-              reference_id: item.reference_id || null,
-              transaction_date: item.date || null,
-              total_agorot: toAgorot(item.amount),
-              currency: item.currency || 'ILS',
-              vat_rate: item.vat_rate || null,
-              vat_amount_agorot: toAgorot(item.vat_amount),
-            }))
-
-            // Check for duplicates if we have multiple line items
-            if (lineItems.length > 1) {
-              const lineItemsForCheck = lineItems.map((item) => ({
-                reference_id: item.reference_id || null,
-                transaction_date: item.date || null,
-                amount_agorot: toAgorot(item.amount),
-                currency: item.currency || 'ILS',
-                description: item.description,
-              }))
-
-              const duplicateCheck = await checkLineItemDuplicates(
-                userId,
-                r.extracted!.vendor?.name || null,
-                lineItemsForCheck
-              )
-
-              if (duplicateCheck.duplicateCount > 0) {
-                // Store duplicate info for UI to handle
-                duplicateInfos.push({
-                  invoiceId,
-                  vendorName: r.extracted!.vendor?.name || null,
-                  totalItems: duplicateCheck.totalItems,
-                  duplicateCount: duplicateCheck.duplicateCount,
-                  matches: duplicateCheck.matches,
-                  pendingLineItems: rowsToInsert,
-                })
-                // Don't insert - let UI handle it
-                continue
-              }
-            }
-
-            // No duplicates - insert directly
-            if (rowsToInsert.length > 0) {
-              const { error: rowsError } = await supabase
-                .from('invoice_rows')
-                .insert(rowsToInsert)
-
-              if (rowsError) {
-                console.error('Line items insert failed:', rowsError)
-              }
-            }
-          }
-        }
-      }
-
-      // Batch update successful files
-      const successfulIds = successfulResults.map((r) => r.fileId)
-      if (successfulIds.length > 0) {
-        const now = new Date().toISOString()
-
-        // Update each successful file with its extracted data
-        await Promise.all(
-          successfulResults.map((r) =>
-            supabase
+            // Update file status to processed (extraction succeeded, duplicates need handling)
+            await supabase
               .from('files')
               .update({
                 status: 'processed',
-                extracted_data: JSON.parse(JSON.stringify(r.extracted)),
-                processed_at: now,
+                extracted_data: JSON.parse(JSON.stringify(extracted)),
+                processed_at: new Date().toISOString(),
               })
               .eq('id', r.fileId)
-          )
-        )
+
+            // Don't insert line items - let UI handle it
+            continue
+          }
+        }
+
+        // No duplicates - insert directly
+        if (rowsToInsert.length > 0) {
+          const { error: rowsError } = await supabase
+            .from('invoice_rows')
+            .insert(rowsToInsert)
+
+          if (rowsError) {
+            console.error('Line items insert failed:', rowsError)
+          }
+        }
+
+        // Update file status to processed
+        await supabase
+          .from('files')
+          .update({
+            status: 'processed',
+            extracted_data: JSON.parse(JSON.stringify(extracted)),
+            processed_at: new Date().toISOString(),
+          })
+          .eq('id', r.fileId)
       }
 
-      // Batch update failed files (UI will derive 'not_invoice' from error_message)
+      // Update failed files
       const failedResults = results.filter((r) => !r.success)
       if (failedResults.length > 0) {
         await Promise.all(
@@ -571,6 +547,13 @@ export function useExtractMultipleDocuments() {
           )
         )
       }
+
+      console.log('[useExtractMultiple] Complete:', {
+        total: documents.length,
+        success: successfulResults.length,
+        failed: failedResults.length,
+        withDuplicates: duplicateInfos.length,
+      })
 
       return duplicateInfos
     },

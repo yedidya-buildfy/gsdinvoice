@@ -17,7 +17,6 @@ import type {
   GetMatchableTransactionsOptions,
   GetMatchableLineItemsOptions,
   LinkResult,
-  MatchCandidate,
   TransactionLinkSummary,
   LineItemLinkSummary,
   MatchMethod,
@@ -551,152 +550,14 @@ export async function getTransactionLinkCounts(
 }
 
 // =============================================================================
-// Candidate Scoring (For UI display)
+// DEPRECATED: Old Candidate Scoring Functions - Removed
 // =============================================================================
-
-/**
- * Score a transaction as a candidate match for a line item
- */
-export function scoreTransactionCandidate(
-  lineItem: InvoiceRow,
-  transaction: Transaction
-): MatchCandidate<Transaction> {
-  const matchReasons: string[] = []
-  const warnings: string[] = []
-
-  // Calculate amount difference
-  const lineItemAmount = Math.abs(lineItem.total_agorot || 0)
-  const txAmount = Math.abs(transaction.amount_agorot)
-  const amountDifference = Math.abs(lineItemAmount - txAmount)
-  const amountDifferencePercent = lineItemAmount > 0 ? (amountDifference / lineItemAmount) * 100 : 0
-
-  // Calculate date difference
-  const lineItemDate = lineItem.transaction_date ? new Date(lineItem.transaction_date) : null
-  const txDate = new Date(transaction.date)
-  const dateDifferenceDays = lineItemDate
-    ? Math.abs(txDate.getTime() - lineItemDate.getTime()) / (1000 * 60 * 60 * 24)
-    : 999
-
-  // Build reasons and warnings
-  if (amountDifferencePercent === 0) {
-    matchReasons.push('Exact amount')
-  } else if (amountDifferencePercent <= 1) {
-    matchReasons.push('Amount within 1%')
-  } else if (amountDifferencePercent <= 5) {
-    matchReasons.push('Amount within 5%')
-  } else {
-    warnings.push(`Amount differs by ${amountDifferencePercent.toFixed(1)}%`)
-  }
-
-  if (dateDifferenceDays === 0) {
-    matchReasons.push('Same date')
-  } else if (dateDifferenceDays <= 1) {
-    matchReasons.push('Date within 1 day')
-  } else if (dateDifferenceDays <= 3) {
-    matchReasons.push('Date within 3 days')
-  } else if (dateDifferenceDays <= 7) {
-    warnings.push(`Date differs by ${Math.round(dateDifferenceDays)} days`)
-  }
-
-  // Calculate confidence score
-  let confidence = 0
-
-  // Amount scoring (max 50 points)
-  if (amountDifferencePercent === 0) confidence += 50
-  else if (amountDifferencePercent <= 1) confidence += 40
-  else if (amountDifferencePercent <= 2) confidence += 30
-  else if (amountDifferencePercent <= 5) confidence += 20
-  else if (amountDifferencePercent <= 10) confidence += 10
-
-  // Date scoring (max 50 points)
-  if (dateDifferenceDays === 0) confidence += 50
-  else if (dateDifferenceDays <= 1) confidence += 40
-  else if (dateDifferenceDays <= 3) confidence += 30
-  else if (dateDifferenceDays <= 5) confidence += 20
-  else if (dateDifferenceDays <= 7) confidence += 10
-
-  return {
-    item: transaction,
-    confidence,
-    amountDifference,
-    dateDifferenceDays,
-    matchReasons,
-    warnings,
-  }
-}
-
-/**
- * Score a line item as a candidate match for a transaction
- */
-export function scoreLineItemCandidate(
-  transaction: Transaction,
-  lineItem: LineItemWithInvoice
-): MatchCandidate<LineItemWithInvoice> {
-  const matchReasons: string[] = []
-  const warnings: string[] = []
-
-  // Calculate amount difference
-  const txAmount = Math.abs(transaction.amount_agorot)
-  const lineItemAmount = Math.abs(lineItem.total_agorot || 0)
-  const amountDifference = Math.abs(txAmount - lineItemAmount)
-  const amountDifferencePercent = txAmount > 0 ? (amountDifference / txAmount) * 100 : 0
-
-  // Calculate date difference
-  const txDate = new Date(transaction.date)
-  const lineItemDate = lineItem.transaction_date ? new Date(lineItem.transaction_date) : null
-  const dateDifferenceDays = lineItemDate
-    ? Math.abs(txDate.getTime() - lineItemDate.getTime()) / (1000 * 60 * 60 * 24)
-    : 999
-
-  // Build reasons and warnings
-  if (amountDifferencePercent === 0) {
-    matchReasons.push('Exact amount')
-  } else if (amountDifferencePercent <= 1) {
-    matchReasons.push('Amount within 1%')
-  } else if (amountDifferencePercent <= 5) {
-    matchReasons.push('Amount within 5%')
-  } else {
-    warnings.push(`Amount differs by ${amountDifferencePercent.toFixed(1)}%`)
-  }
-
-  if (dateDifferenceDays === 0) {
-    matchReasons.push('Same date')
-  } else if (dateDifferenceDays <= 1) {
-    matchReasons.push('Date within 1 day')
-  } else if (dateDifferenceDays <= 3) {
-    matchReasons.push('Date within 3 days')
-  } else if (dateDifferenceDays <= 7) {
-    warnings.push(`Date differs by ${Math.round(dateDifferenceDays)} days`)
-  }
-
-  // Add vendor info as reason
-  if (lineItem.invoice?.vendor_name) {
-    matchReasons.push(`From: ${lineItem.invoice.vendor_name}`)
-  }
-
-  // Calculate confidence score
-  let confidence = 0
-
-  // Amount scoring (max 50 points)
-  if (amountDifferencePercent === 0) confidence += 50
-  else if (amountDifferencePercent <= 1) confidence += 40
-  else if (amountDifferencePercent <= 2) confidence += 30
-  else if (amountDifferencePercent <= 5) confidence += 20
-  else if (amountDifferencePercent <= 10) confidence += 10
-
-  // Date scoring (max 50 points)
-  if (dateDifferenceDays === 0) confidence += 50
-  else if (dateDifferenceDays <= 1) confidence += 40
-  else if (dateDifferenceDays <= 3) confidence += 30
-  else if (dateDifferenceDays <= 5) confidence += 20
-  else if (dateDifferenceDays <= 7) confidence += 10
-
-  return {
-    item: lineItem,
-    confidence,
-    amountDifference,
-    dateDifferenceDays,
-    matchReasons,
-    warnings,
-  }
-}
+// The old scoreTransactionCandidate and scoreLineItemCandidate functions
+// have been removed in favor of the new scoreMatch function from ./scorer.ts
+// which provides a more comprehensive scoring algorithm with:
+// - Reference matching (0-45 points)
+// - Amount matching (0-25 points)
+// - Date matching (0-15 points)
+// - Vendor matching (0-15 points) with user alias support
+// - Currency matching (0-5 points)
+// - Context signals (0-5 points)

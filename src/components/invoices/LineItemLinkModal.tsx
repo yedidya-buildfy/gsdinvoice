@@ -13,12 +13,15 @@ import { parseDescriptionParts } from '@/lib/utils/merchantParser'
 import {
   getMatchableTransactions,
   linkLineItemToTransaction,
-  scoreTransactionCandidate,
+  scoreMatch,
   type TransactionWithCard,
+  type ScoringContext,
 } from '@/lib/services/lineItemMatcher'
 import { useCreditCards } from '@/hooks/useCreditCards'
+import { useVendorAliases } from '@/hooks/useVendorAliases'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { InvoiceRow } from '@/types/database'
+import { supabase } from '@/lib/supabase'
+import type { InvoiceRow, Invoice } from '@/types/database'
 
 // Calculate date range around a given date
 function calculateDateRange(dateStr: string | null, daysBefore: number, daysAfter: number): { from: string; to: string } {
@@ -236,6 +239,9 @@ export function LineItemLinkModal({
 }: LineItemLinkModalProps) {
   const { creditCards } = useCreditCards()
 
+  // Vendor aliases for scoring
+  const { aliases: vendorAliases } = useVendorAliases()
+
   // Settings store for defaults
   const {
     linkingDateRangeDays: defaultDateRangeDays,
@@ -244,6 +250,7 @@ export function LineItemLinkModal({
 
   // State
   const [transactions, setTransactions] = useState<TransactionWithCard[]>([])
+  const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isLinking, setIsLinking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -271,6 +278,28 @@ export function LineItemLinkModal({
       setAmountTolerance(defaultAmountTolerance)
     }
   }, [isOpen, lineItem?.id, defaultDateRangeDays, defaultAmountTolerance]) // Reset when modal opens with new line item or defaults change
+
+  // Fetch invoice data for scoring context
+  useEffect(() => {
+    if (!isOpen || !lineItem?.invoice_id) {
+      setInvoice(null)
+      return
+    }
+
+    async function fetchInvoice() {
+      const { data, error: invoiceError } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('id', lineItem!.invoice_id)
+        .single()
+
+      if (!invoiceError && data) {
+        setInvoice(data as Invoice)
+      }
+    }
+
+    fetchInvoice()
+  }, [isOpen, lineItem?.invoice_id])
 
   // Fetch transactions when modal opens or filters change
   useEffect(() => {
@@ -332,17 +361,34 @@ export function LineItemLinkModal({
     fetchTransactions()
   }, [isOpen, lineItem, fromDate, toDate, searchQuery, selectedCardIds, typeFilter, amountTolerance])
 
-  // Score transactions
+  // Score transactions using new scoring algorithm
   const scoredTransactions = useMemo(() => {
     if (!lineItem) return []
 
+    // Build scoring context for the new scorer
+    const scoringContext: ScoringContext = {
+      lineItem,
+      invoice,
+      extractedData: null, // Not available in this context
+      vendorAliases: vendorAliases || [],
+    }
+
     return transactions
-      .map(tx => ({
-        transaction: tx,
-        score: scoreTransactionCandidate(lineItem, tx),
-      }))
+      .map(tx => {
+        const score = scoreMatch(tx, scoringContext)
+        // Map to the expected format with confidence for backward compatibility
+        return {
+          transaction: tx,
+          score: {
+            confidence: score.isDisqualified ? 0 : score.total,
+            matchReasons: score.matchReasons,
+            warnings: score.warnings,
+          },
+        }
+      })
+      .filter(item => item.score.confidence > 0) // Filter out disqualified
       .sort((a, b) => b.score.confidence - a.score.confidence)
-  }, [transactions, lineItem])
+  }, [transactions, lineItem, invoice, vendorAliases])
 
   // Handle link
   const handleLink = async (transactionId: string) => {

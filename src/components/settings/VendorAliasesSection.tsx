@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import {
   MagnifyingGlassIcon,
   PlusIcon,
@@ -16,6 +16,9 @@ import { Badge } from '@/components/ui/base/badges/badges'
 import { LoadingIndicator } from '@/components/ui/application/loading-indicator/loading-indicator'
 import type { VendorAlias } from '@/types/database'
 import { VendorAliasModal } from './VendorAliasModal'
+
+// Checkbox styling: dark background with green border (uses custom CSS class)
+const checkboxClass = 'checkbox-dark'
 
 /**
  * Match type display labels
@@ -74,6 +77,8 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
   const [deleteConfirmAlias, setDeleteConfirmAlias] = useState<VendorAlias | null>(null)
   const [isSeeding, setIsSeeding] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
 
   // Filter aliases based on search query
   const filteredAliases = useMemo(() => {
@@ -87,6 +92,53 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
         alias.canonical_name.toLowerCase().includes(query)
     )
   }, [aliases, searchQuery])
+
+  // Selection state derived from filtered aliases
+  const allSelected = filteredAliases.length > 0 && filteredAliases.every(a => selectedIds.has(a.id))
+  const someSelected = selectedIds.size > 0 && !allSelected
+
+  // Clear selection when search changes
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value)
+    setSelectedIds(new Set())
+  }, [])
+
+  // Select all / deselect all
+  const handleSelectAll = useCallback(() => {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredAliases.map(a => a.id)))
+    }
+  }, [allSelected, filteredAliases])
+
+  // Toggle single selection
+  const handleSelectOne = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  // Bulk delete handler
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return
+
+    setIsDeleting(true)
+    try {
+      // Delete all selected aliases
+      await Promise.all(Array.from(selectedIds).map(id => deleteAlias(id)))
+      setSelectedIds(new Set())
+    } finally {
+      setIsDeleting(false)
+      setShowBulkDeleteConfirm(false)
+    }
+  }
 
   // Handle opening modal for new alias
   const handleAddAlias = () => {
@@ -213,13 +265,13 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
                 type="text"
                 placeholder="Search by pattern or vendor name..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full ps-10 pe-4 py-2 bg-background/50 border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
               />
               {searchQuery && (
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => handleSearchChange('')}
                   className="absolute end-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-surface/50"
                 >
                   <XMarkIcon className="w-4 h-4 text-text-muted hover:text-text" />
@@ -228,6 +280,26 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
             </div>
           )}
         </div>
+
+        {/* Bulk Actions */}
+        {selectedIds.size > 0 && (
+          <div className="px-6 py-3 border-b border-text-muted/10 bg-primary/5">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-text">
+                {selectedIds.size} alias{selectedIds.size === 1 ? '' : 'es'} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+              >
+                <TrashIcon className="w-4 h-4" />
+                {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         {aliases.length === 0 ? (
@@ -278,24 +350,35 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
             </p>
           </div>
         ) : (
-          // Table
-          <div className="overflow-x-auto">
+          // Table - index table style (matching money-movements tables)
+          <div className="overflow-hidden rounded-lg border border-text-muted/20 mx-6 mb-6">
             <table className="w-full">
-              <thead className="bg-background/30">
+              <thead className="bg-surface/50">
                 <tr>
-                  <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
-                    Transaction Pattern
+                  <th className="px-4 py-3 text-center w-12">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someSelected
+                      }}
+                      onChange={handleSelectAll}
+                      className={checkboxClass}
+                    />
                   </th>
-                  <th className="px-6 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                  <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
+                    Pattern
+                  </th>
+                  <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">
                     Maps To
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">
                     Match Type
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
                     Source
                   </th>
-                  <th className="px-6 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider w-24">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
                     Actions
                   </th>
                 </tr>
@@ -304,34 +387,44 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
                 {filteredAliases.map((alias) => {
                   const sourceConfig = SOURCE_CONFIG[alias.source]
                   const SourceIcon = sourceConfig.icon
+                  const isSelected = selectedIds.has(alias.id)
 
                   return (
                     <tr
                       key={alias.id}
-                      className="hover:bg-background/20 transition-colors"
+                      onClick={() => handleSelectOne(alias.id)}
+                      className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
                     >
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleSelectOne(alias.id)}
+                          className={checkboxClass}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
                         <code className="px-2 py-1 bg-background/50 rounded text-sm font-mono text-text">
                           {alias.alias_pattern}
                         </code>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3">
                         <span className="text-sm font-medium text-text">
                           {alias.canonical_name}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-4 py-3 text-center">
                         <Badge
-                          type="badge-color"
+                          type="color"
                           size="sm"
                           color={MATCH_TYPE_COLORS[alias.match_type]}
                         >
                           {MATCH_TYPE_LABELS[alias.match_type]}
                         </Badge>
                       </td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-4 py-3 text-center">
                         <Badge
-                          type="badge-color"
+                          type="color"
                           size="sm"
                           color={sourceConfig.color}
                         >
@@ -341,8 +434,8 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
                           </span>
                         </Badge>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1">
                           <button
                             type="button"
                             onClick={() => handleEditAlias(alias)}
@@ -371,7 +464,7 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
 
         {/* Footer with count */}
         {aliases.length > 0 && (
-          <div className="px-6 py-3 border-t border-text-muted/10 bg-background/20">
+          <div className="px-6 py-3 bg-background/20">
             <p className="text-xs text-text-muted">
               {filteredAliases.length === aliases.length
                 ? `${aliases.length} alias${aliases.length === 1 ? '' : 'es'}`
@@ -397,6 +490,18 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
         title="Delete Vendor Alias"
         message={`Are you sure you want to delete the alias "${deleteConfirmAlias?.alias_pattern}"? This action cannot be undone.`}
         confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
+        cancelLabel="Cancel"
+        variant="danger"
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showBulkDeleteConfirm}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setShowBulkDeleteConfirm(false)}
+        title="Delete Multiple Aliases"
+        message={`Are you sure you want to delete ${selectedIds.size} alias${selectedIds.size === 1 ? '' : 'es'}? This action cannot be undone.`}
+        confirmLabel={isDeleting ? 'Deleting...' : `Delete ${selectedIds.size}`}
         cancelLabel="Cancel"
         variant="danger"
       />
