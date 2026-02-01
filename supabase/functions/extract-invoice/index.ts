@@ -1,5 +1,5 @@
 // Supabase Edge Function for AI-powered invoice extraction
-// Primary: Gemini 3.0 Flash Preview | Fallback: Kimi K2.5 via Together AI
+// Primary:  Gemini 3.0 Flash | Fallback: Kimi K2.5 via Together AI
 import { createClient } from "npm:@supabase/supabase-js@2";
 import * as XLSX from "npm:xlsx@0.18.5";
 
@@ -12,7 +12,7 @@ const corsHeaders = {
 };
 
 // Primary: Gemini 3.0 Flash Preview
-const GEMINI_MODEL = 'gemini-3.0-flash-preview';
+const GEMINI_MODEL = 'gemini-3-flash-preview';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Fallback: Kimi K2.5 via Together AI
@@ -32,25 +32,50 @@ function normalizeCurrency(currency: string | null | undefined): string {
   return /^[A-Z]{3}$/.test(normalized) ? normalized : "ILS";
 }
 
-// Extract JSON from text that may be wrapped in markdown code blocks
+// Extract the first complete JSON object from text by matching balanced braces
 function extractJsonFromText(text: string): string | null {
   const trimmed = text.trim();
 
-  // Direct JSON object
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    return trimmed;
-  }
+  // Find the first '{' and extract balanced JSON
+  const startIndex = trimmed.indexOf('{');
+  if (startIndex === -1) return null;
 
-  // JSON in markdown code block: ```json ... ``` or ``` ... ```
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    const inner = codeBlockMatch[1].trim();
-    if (inner.startsWith('{') && inner.endsWith('}')) {
-      return inner;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = startIndex; i < trimmed.length; i++) {
+    const char = trimmed[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\' && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') {
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          // Found complete JSON object
+          return trimmed.slice(startIndex, i + 1);
+        }
+      }
     }
   }
 
-  // Try to find JSON object anywhere in the text
+  // Fallback: try the old greedy regex if balanced parsing failed
   const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     return jsonMatch[0];
@@ -320,8 +345,12 @@ async function extractWithGemini(
       },
     ],
     generationConfig: {
+      temperature: 0,
+      maxOutputTokens: 65536,
       responseMimeType: 'application/json',
-      responseSchema: INVOICE_RESPONSE_SCHEMA,
+      thinkingConfig: {
+        thinkingLevel: 'MINIMAL',
+      },
     },
   };
 
@@ -482,7 +511,7 @@ async function extractWithKimi(
       },
     ],
     response_format: { type: 'json_object' },
-    max_tokens: 16384,
+    max_tokens: 131072,
   };
 
   console.log('[KIMI] Sending request...');
@@ -743,9 +772,11 @@ Deno.serve(async (req) => {
         console.error('[MAIN] Gemini extraction failed:', geminiError);
         console.error('[MAIN] Gemini error message:', geminiError instanceof Error ? geminiError.message : String(geminiError));
 
-        // Try Kimi fallback
-        if (togetherApiKey) {
-          console.log('[MAIN] Falling back to Kimi...');
+        // Try Kimi fallback - but only for images (Kimi doesn't support PDFs via image_url)
+        const isImageType = ['image/png', 'image/jpeg', 'image/webp'].includes(mimeType);
+
+        if (togetherApiKey && isImageType) {
+          console.log('[MAIN] Falling back to Kimi (image file)...');
           try {
             extracted = await extractWithKimi(togetherApiKey, base64Data, mimeType);
             usedProvider = 'kimi';
@@ -757,6 +788,11 @@ Deno.serve(async (req) => {
               `Both providers failed. Gemini: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}. Kimi: ${kimiError instanceof Error ? kimiError.message : String(kimiError)}`
             );
           }
+        } else if (togetherApiKey && !isImageType) {
+          console.error('[MAIN] Kimi fallback not available for PDF/CSV files (only supports images)');
+          throw new Error(
+            `Gemini failed and Kimi fallback not available for ${mimeType} files. Gemini error: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`
+          );
         } else {
           console.error('[MAIN] No fallback available (TOGETHER_API_KEY not set)');
           throw geminiError;
