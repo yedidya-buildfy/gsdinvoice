@@ -1,6 +1,6 @@
 /**
  * AI extraction service for invoice data extraction
- * Primary: Gemini 2.0 Flash | Fallback: Kimi K2.5 via Together AI
+ * Primary: Gemini 3.0 Flash Preview | Fallback: Kimi K2.5 via Together AI
  */
 
 import type { InvoiceExtraction } from './types'
@@ -97,7 +97,7 @@ const INVOICE_RESPONSE_SCHEMA = {
     document: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: ['billing_summary', 'invoice', 'receipt', 'credit_note', 'not_invoice'] },
+        type: { type: 'string', enum: ['billing_summary', 'invoice', 'receipt', 'credit_note'] },
         number: { type: 'string', nullable: true },
         date: { type: 'string', nullable: true },
         billing_period: {
@@ -116,7 +116,7 @@ const INVOICE_RESPONSE_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          date: { type: 'string', nullable: true },
+          date: { type: 'string' },
           description: { type: 'string' },
           reference_id: { type: 'string', nullable: true },
           amount: { type: 'number' },
@@ -124,7 +124,7 @@ const INVOICE_RESPONSE_SCHEMA = {
           vat_rate: { type: 'number', nullable: true },
           vat_amount: { type: 'number', nullable: true },
         },
-        required: ['description', 'amount', 'currency'],
+        required: ['date', 'description', 'amount', 'currency'],
       },
     },
     totals: {
@@ -153,7 +153,7 @@ const EXTRACTION_PROMPT = `Extract invoice/billing data from this file and retur
     "country": "Country or null"
   },
   "document": {
-    "type": "billing_summary | invoice | receipt | credit_note | not_invoice",
+    "type": "billing_summary | invoice | receipt | credit_note",
     "number": "Invoice/document number or null",
     "date": "YYYY-MM-DD or null",
     "billing_period": {
@@ -163,7 +163,7 @@ const EXTRACTION_PROMPT = `Extract invoice/billing data from this file and retur
   },
   "line_items": [
     {
-      "date": "YYYY-MM-DD or null",
+      "date": "YYYY-MM-DD",
       "description": "Description of the charge/item",
       "reference_id": "Transaction ID or invoice line reference",
       "amount": 123.45,
@@ -181,10 +181,6 @@ const EXTRACTION_PROMPT = `Extract invoice/billing data from this file and retur
   },
   "confidence": 95
 }
-
-CRITICAL - DOCUMENT TYPE RULES:
-- If the file is NOT a financial document (invoice, receipt, billing summary, credit note), set document.type to "not_invoice"
-- Examples of not_invoice: contracts, letters, general documents, images without financial data
 
 CRITICAL - LINE ITEM RULES (each line_item must match ONE bank transaction):
 
@@ -286,6 +282,7 @@ export async function extractWithGemini(
 ): Promise<InvoiceExtraction> {
   console.log('[GEMINI] Starting extraction...')
   console.log('[GEMINI] Model:', GEMINI_MODEL)
+  console.log('[GEMINI] URL:', GEMINI_URL)
   console.log('[GEMINI] Data size:', Math.round(base64Data.length / 1024), 'KB base64')
   console.log('[GEMINI] MIME type:', mimeType)
 
@@ -316,24 +313,16 @@ export async function extractWithGemini(
   }
 
   console.log('[GEMINI] Sending request...')
-  console.log('[GEMINI] Request body keys:', Object.keys(requestBody))
-  console.log('[GEMINI] generationConfig:', JSON.stringify(requestBody.generationConfig, null, 2))
   const startTime = Date.now()
 
-  // Add timeout of 120 seconds
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 120000)
-
-  try {
-    const response = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    })
-    clearTimeout(timeoutId)
+  const response = await fetch(GEMINI_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
+    body: JSON.stringify(requestBody),
+  })
 
   const elapsed = Date.now() - startTime
   console.log('[GEMINI] Response received in', elapsed, 'ms')
@@ -348,6 +337,7 @@ export async function extractWithGemini(
     } catch {
       errorData = { raw: errorText }
     }
+    console.error('[GEMINI] Parsed error:', JSON.stringify(errorData, null, 2))
     throw new Error(
       `Gemini API error: ${response.status} - ${errorData?.error?.message || errorData?.raw || 'Unknown error'}`
     )
@@ -366,6 +356,7 @@ export async function extractWithGemini(
 
   if (candidate.finishReason && candidate.finishReason !== 'STOP') {
     console.error('[GEMINI] Response blocked/filtered:', candidate.finishReason)
+    console.error('[GEMINI] Full candidate:', JSON.stringify(candidate, null, 2))
     throw new Error(`Gemini response blocked: ${candidate.finishReason}`)
   }
 
@@ -374,13 +365,18 @@ export async function extractWithGemini(
     throw new Error(`Gemini invalid response structure - finishReason: ${candidate.finishReason || 'unknown'}`)
   }
 
+  console.log('[GEMINI] Parts count:', candidate.content.parts.length)
+
   // Extract JSON from response parts
   let jsonText: string | null = null
 
   for (let i = 0; i < candidate.content.parts.length; i++) {
     const part = candidate.content.parts[i]
+    console.log(`[GEMINI] Part ${i} keys:`, Object.keys(part))
 
     if (part.text) {
+      console.log(`[GEMINI] Part ${i} text length:`, part.text.length)
+      console.log(`[GEMINI] Part ${i} text preview:`, part.text.substring(0, 200))
       const extracted = extractJsonFromText(part.text)
       if (extracted) {
         jsonText = extracted
@@ -390,6 +386,7 @@ export async function extractWithGemini(
     }
 
     if (part.codeExecutionResult?.output) {
+      console.log(`[GEMINI] Part ${i} has codeExecutionResult`)
       const extracted = extractJsonFromText(part.codeExecutionResult.output)
       if (extracted) {
         jsonText = extracted
@@ -401,6 +398,7 @@ export async function extractWithGemini(
 
   if (!jsonText) {
     console.error('[GEMINI] No JSON found in any part')
+    console.error('[GEMINI] All parts:', JSON.stringify(candidate.content.parts, null, 2))
     throw new Error('Gemini response contained no valid JSON')
   }
 
@@ -435,13 +433,6 @@ export async function extractWithGemini(
   })
 
   return extracted
-  } catch (error) {
-    clearTimeout(timeoutId)
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Gemini API request timed out after 120 seconds')
-    }
-    throw error
-  }
 }
 
 // ============================================================================
@@ -472,6 +463,7 @@ export async function extractWithKimi(
 ): Promise<InvoiceExtraction> {
   console.log('[KIMI] Starting fallback extraction...')
   console.log('[KIMI] Model:', KIMI_MODEL)
+  console.log('[KIMI] URL:', TOGETHER_URL)
   console.log('[KIMI] Data size:', Math.round(base64Data.length / 1024), 'KB base64')
   console.log('[KIMI] MIME type:', mimeType)
 
@@ -523,6 +515,7 @@ export async function extractWithKimi(
     } catch {
       errorData = { raw: errorText }
     }
+    console.error('[KIMI] Parsed error:', JSON.stringify(errorData, null, 2))
     throw new Error(
       `Kimi API error: ${response.status} - ${errorData?.error?.message || errorData?.raw || 'Unknown error'}`
     )
@@ -538,6 +531,7 @@ export async function extractWithKimi(
 
   const choice = data.choices[0]
   console.log('[KIMI] Choice finish_reason:', choice.finish_reason)
+  console.log('[KIMI] Choice message role:', choice.message?.role)
 
   const content = choice.message?.content
   if (!content) {
@@ -546,10 +540,12 @@ export async function extractWithKimi(
   }
 
   console.log('[KIMI] Content length:', content.length)
+  console.log('[KIMI] Content preview:', content.substring(0, 200))
 
   const jsonText = extractJsonFromText(content)
   if (!jsonText) {
     console.error('[KIMI] No JSON found in content')
+    console.error('[KIMI] Full content:', content.substring(0, 1000))
     throw new Error('Kimi response contained no valid JSON')
   }
 

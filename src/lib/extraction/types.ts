@@ -35,7 +35,7 @@ export interface ExtractedVendor {
  * Document metadata
  */
 export interface ExtractedDocument {
-  type: 'billing_summary' | 'invoice' | 'receipt' | 'credit_note' | 'not_invoice'
+  type: 'billing_summary' | 'invoice' | 'receipt' | 'credit_note'
   number?: string | null
   date?: string | null
   billing_period?: {

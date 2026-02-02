@@ -10,9 +10,25 @@ import type {
 } from '@/lib/extraction/types'
 import type { DuplicateAction } from '@/lib/duplicates/types'
 
-// Convert amounts to agorot (integer cents) for database storage
+/**
+ * Convert amount to agorot (integer cents) for database storage
+ */
 function toAgorot(amount: number | null | undefined): number | null {
-  return amount != null ? Math.round(amount * 100) : null
+  if (amount == null || isNaN(amount)) return null
+  return Math.round(amount * 100)
+}
+
+/**
+ * Response from the extract-invoice Edge Function
+ */
+interface EdgeFunctionResponse {
+  success: boolean
+  invoice_id?: string
+  user_id?: string
+  confidence?: number
+  provider?: 'gemini' | 'kimi'
+  extracted?: InvoiceExtraction
+  error?: string
 }
 
 /**
@@ -43,28 +59,14 @@ function ensureLineItems(
   ]
 }
 
-// Response from edge function
-interface EdgeFunctionResponse {
-  success: boolean
-  invoice_id?: string
-  user_id?: string
-  confidence?: number
-  extracted?: InvoiceExtraction
-  error?: string
-}
-
 /**
  * Hook for extracting data from a single document using Supabase Edge Function
  *
- * Calls the extract-invoice edge function which handles:
- * - Downloading file from storage
- * - Calling Gemini API for extraction
- * - Creating the invoice record
- *
- * After the edge function returns, this hook handles:
+ * This hook handles:
+ * - Calling the extract-invoice Edge Function (server-side AI extraction)
+ * - The Edge Function creates the invoice record and updates file status
  * - Duplicate detection for line items
  * - Inserting line items (or returning duplicate info for UI)
- * - Updating file status
  */
 export function useExtractDocument() {
   const queryClient = useQueryClient()
@@ -82,53 +84,53 @@ export function useExtractDocument() {
       )
     },
     mutationFn: async ({ fileId, storagePath, fileType }) => {
-      console.log('[useExtractDocument] Calling edge function for file:', fileId)
+      console.log('[useExtractDocument] Starting extraction for file:', fileId)
 
-      // Debug: Check if we have a valid session
-      const { data: sessionData } = await supabase.auth.getSession()
-      console.log('[useExtractDocument] Session check:', {
-        hasSession: !!sessionData.session,
-        hasAccessToken: !!sessionData.session?.access_token,
-        expiresAt: sessionData.session?.expires_at,
-        userId: sessionData.session?.user?.id,
+      // Call the Supabase Edge Function for extraction
+      // The edge function handles: file download, AI extraction, invoice creation, file status updates
+      const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>('extract-invoice', {
+        body: {
+          file_id: fileId,
+          storage_path: storagePath,
+          file_type: fileType,
+        },
       })
-
-      if (!sessionData.session) {
-        throw new Error('No active session - please log in again')
-      }
-
-      // Call the edge function
-      const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>(
-        'extract-invoice',
-        {
-          body: {
-            file_id: fileId,
-            storage_path: storagePath,
-            file_type: fileType,
-          },
-        }
-      )
 
       if (error) {
         console.error('[useExtractDocument] Edge function error:', error)
-        throw new Error(error.message || 'Edge function failed')
+        throw new Error(error.message || 'Edge function invocation failed')
       }
 
-      if (!data?.success) {
+      if (!data || !data.success) {
+        console.error('[useExtractDocument] Extraction failed:', data?.error)
         throw new Error(data?.error || 'Extraction failed')
       }
 
-      const { invoice_id, user_id, confidence, extracted } = data
+      const { invoice_id: invoiceId, user_id: userId, extracted, confidence } = data
 
-      if (!invoice_id || !user_id || !extracted) {
-        throw new Error('Invalid response from edge function')
+      // Check if document is not an invoice (edge function doesn't handle this case yet)
+      if (extracted?.document?.type === 'not_invoice') {
+        // Update file status to not_invoice
+        await supabase
+          .from('files')
+          .update({
+            status: 'not_invoice',
+            extracted_data: JSON.parse(JSON.stringify(extracted)),
+            processed_at: new Date().toISOString(),
+          })
+          .eq('id', fileId)
+
+        return {
+          success: true,
+          confidence: confidence || extracted.confidence,
+        }
       }
 
-      console.log('[useExtractDocument] Edge function returned:', {
-        invoice_id,
-        confidence,
-        lineItems: extracted.line_items?.length,
-      })
+      if (!invoiceId || !userId || !extracted) {
+        throw new Error('Edge function returned incomplete data')
+      }
+
+      console.log('[useExtractDocument] Invoice created by edge function:', invoiceId)
 
       // Ensure we have at least one line item (create default if none extracted)
       const lineItems = ensureLineItems(
@@ -139,7 +141,7 @@ export function useExtractDocument() {
 
       // Prepare line items for insertion
       const rowsToInsert = lineItems.map((item) => ({
-        invoice_id: invoice_id,
+        invoice_id: invoiceId,
         description: item.description,
         reference_id: item.reference_id || null,
         transaction_date: item.date || null,
@@ -160,7 +162,7 @@ export function useExtractDocument() {
         }))
 
         const duplicateCheck = await checkLineItemDuplicates(
-          user_id,
+          userId,
           extracted.vendor?.name || null,
           lineItemsForCheck
         )
@@ -179,10 +181,10 @@ export function useExtractDocument() {
           // Return with duplicate info - let UI handle the modal
           return {
             success: true,
-            invoice_id: invoice_id,
-            confidence: confidence || extracted.confidence,
+            invoice_id: invoiceId,
+            confidence: extracted.confidence,
             lineItemDuplicates: {
-              invoiceId: invoice_id,
+              invoiceId: invoiceId,
               vendorName: extracted.vendor?.name || null,
               totalItems: duplicateCheck.totalItems,
               duplicateCount: duplicateCheck.duplicateCount,
@@ -207,11 +209,10 @@ export function useExtractDocument() {
         }
       }
 
-      // Update file status to processed
+      // Store extracted data on file record (edge function already set status to 'processed')
       await supabase
         .from('files')
         .update({
-          status: 'processed',
           extracted_data: JSON.parse(JSON.stringify(extracted)),
           processed_at: new Date().toISOString(),
         })
@@ -219,20 +220,13 @@ export function useExtractDocument() {
 
       return {
         success: true,
-        invoice_id: invoice_id,
-        confidence: confidence || extracted.confidence,
+        invoice_id: invoiceId,
+        confidence: extracted.confidence,
       }
     },
     onError: async (error, { fileId }) => {
-      // Update file status to failed
+      // Edge function already handles file status on failure, but log for debugging
       console.error('[useExtractDocument] Mutation error:', error)
-      await supabase
-        .from('files')
-        .update({
-          status: 'failed',
-          error_message: error.message,
-        })
-        .eq('id', fileId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })
@@ -363,20 +357,7 @@ export function useExtractMultipleDocuments() {
     mutationFn: async (documents): Promise<LineItemDuplicateInfo[]> => {
       if (documents.length === 0) return []
 
-      // Debug: Check if we have a valid session
-      const { data: sessionData } = await supabase.auth.getSession()
-      console.log('[useExtractMultiple] Session check:', {
-        hasSession: !!sessionData.session,
-        hasAccessToken: !!sessionData.session?.access_token,
-        expiresAt: sessionData.session?.expires_at,
-        userId: sessionData.session?.user?.id,
-      })
-
-      if (!sessionData.session) {
-        throw new Error('No active session - please log in again')
-      }
-
-      console.log('[useExtractMultiple] Processing', documents.length, 'documents via edge function')
+      console.log('[useExtractMultiple] Processing', documents.length, 'documents')
 
       // Process documents in parallel batches of 3 (respects rate limits)
       const BATCH_SIZE = 3
@@ -395,31 +376,53 @@ export function useExtractMultipleDocuments() {
         const batchResults = await Promise.all(
           batch.map(async (doc) => {
             try {
-              const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>(
-                'extract-invoice',
-                {
-                  body: {
-                    file_id: doc.fileId,
-                    storage_path: doc.storagePath,
-                    file_type: doc.fileType,
-                  },
-                }
-              )
+              // Call the Supabase Edge Function for extraction
+              const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>('extract-invoice', {
+                body: {
+                  file_id: doc.fileId,
+                  storage_path: doc.storagePath,
+                  file_type: doc.fileType,
+                },
+              })
 
               if (error) {
-                throw new Error(error.message || 'Edge function failed')
+                throw new Error(error.message || 'Edge function invocation failed')
               }
 
-              if (!data?.success) {
+              if (!data || !data.success) {
                 throw new Error(data?.error || 'Extraction failed')
+              }
+
+              const { invoice_id: invoiceId, user_id: userId, extracted } = data
+
+              // Check if document is not an invoice
+              if (extracted?.document?.type === 'not_invoice') {
+                await supabase
+                  .from('files')
+                  .update({
+                    status: 'not_invoice',
+                    extracted_data: JSON.parse(JSON.stringify(extracted)),
+                    processed_at: new Date().toISOString(),
+                  })
+                  .eq('id', doc.fileId)
+
+                return {
+                  fileId: doc.fileId,
+                  success: true,
+                  userId,
+                }
+              }
+
+              if (!invoiceId || !userId || !extracted) {
+                throw new Error('Edge function returned incomplete data')
               }
 
               return {
                 fileId: doc.fileId,
                 success: true,
-                invoiceId: data.invoice_id,
-                userId: data.user_id,
-                extracted: data.extracted,
+                invoiceId,
+                userId,
+                extracted,
               }
             } catch (error) {
               return {
@@ -495,11 +498,10 @@ export function useExtractMultipleDocuments() {
               pendingLineItems: rowsToInsert,
             })
 
-            // Update file status to processed (extraction succeeded, duplicates need handling)
+            // Store extracted data on file (edge function already set status to 'processed')
             await supabase
               .from('files')
               .update({
-                status: 'processed',
                 extracted_data: JSON.parse(JSON.stringify(extracted)),
                 processed_at: new Date().toISOString(),
               })
@@ -521,37 +523,23 @@ export function useExtractMultipleDocuments() {
           }
         }
 
-        // Update file status to processed
+        // Store extracted data on file (edge function already set status to 'processed')
         await supabase
           .from('files')
           .update({
-            status: 'processed',
             extracted_data: JSON.parse(JSON.stringify(extracted)),
             processed_at: new Date().toISOString(),
           })
           .eq('id', r.fileId)
       }
 
-      // Update failed files
-      const failedResults = results.filter((r) => !r.success)
-      if (failedResults.length > 0) {
-        await Promise.all(
-          failedResults.map((r) =>
-            supabase
-              .from('files')
-              .update({
-                status: 'failed',
-                error_message: r.error || 'Unknown error',
-              })
-              .eq('id', r.fileId)
-          )
-        )
-      }
+      // Note: Edge function already handles file status updates for failed extractions
+      const failedCount = results.filter((r) => !r.success).length
 
       console.log('[useExtractMultiple] Complete:', {
         total: documents.length,
         success: successfulResults.length,
-        failed: failedResults.length,
+        failed: failedCount,
         withDuplicates: duplicateInfos.length,
       })
 
