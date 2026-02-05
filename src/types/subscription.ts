@@ -23,6 +23,7 @@ export interface PlanLimits {
   max_invoices_per_month: number | null
   max_team_members: number | null
   max_bank_connections: number | null
+  max_businesses: number | null
   has_auto_matching: boolean
   has_ai_matching: boolean
   has_api_access: boolean

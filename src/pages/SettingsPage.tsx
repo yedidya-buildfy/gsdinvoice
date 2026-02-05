@@ -1044,7 +1044,8 @@ function BillingTab() {
       price: { monthly: 0, yearly: 0 },
       features: [
         '20 invoices/month',
-        '1 business member',
+        '1 business',
+        '1 team member',
         '1 bank connection',
         'Manual CC matching',
         'Basic reports',
@@ -1058,7 +1059,8 @@ function BillingTab() {
       price: { monthly: 29, yearly: 290 },
       features: [
         '200 invoices/month',
-        '3 business members',
+        '3 businesses',
+        '3 team members',
         '3 bank connections',
         'Auto CC matching suggestions',
         'Advanced reports & exports',
@@ -1074,7 +1076,8 @@ function BillingTab() {
       price: { monthly: 79, yearly: 790 },
       features: [
         'Unlimited invoices',
-        '10 business members',
+        '10 businesses',
+        '10 team members',
         'Unlimited bank connections',
         'AI-powered matching',
         'Custom rules & workflows',
