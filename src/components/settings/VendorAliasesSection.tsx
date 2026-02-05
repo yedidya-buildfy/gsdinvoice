@@ -9,13 +9,24 @@ import {
   UserIcon,
   CpuChipIcon,
   XMarkIcon,
+  QuestionMarkCircleIcon,
+  CreditCardIcon,
+  BuildingOfficeIcon,
+  LinkIcon,
+  DocumentDuplicateIcon,
+  AdjustmentsHorizontalIcon,
+  BeakerIcon,
 } from '@heroicons/react/24/outline'
 import { useVendorAliases } from '@/hooks/useVendorAliases'
+import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
+import { Tooltip, TooltipTrigger } from '@/components/ui/base/tooltip/tooltip'
+import { cx } from '@/utils/cx'
 import { ConfirmDialog } from '@/components/ui/base/modal/confirm-dialog'
 import { Badge } from '@/components/ui/base/badges/badges'
 import { LoadingIndicator } from '@/components/ui/application/loading-indicator/loading-indicator'
 import type { VendorAlias } from '@/types/database'
 import { VendorAliasModal } from './VendorAliasModal'
+import { getVendorInfo } from '@/lib/utils/vendorResolver'
 
 // Checkbox styling: dark background with green border (uses custom CSS class)
 const checkboxClass = 'checkbox-dark'
@@ -59,6 +70,28 @@ interface VendorAliasesSectionProps {
  * Displays a table of vendor aliases with search, add, edit, and delete functionality.
  * Includes empty state with seed defaults button.
  */
+/**
+ * Help text for each vendor resolution setting
+ */
+const RESOLUTION_HELP = {
+  creditCardTable: {
+    title: 'CC Purchases Table',
+    description: 'Applies vendor resolution to the Credit Card Purchases table in Money Movements. Transaction descriptions like "FACEBK *ADS" will display as "Meta (Facebook)".',
+  },
+  transactionTable: {
+    title: 'Bank Transactions Table',
+    description: 'Applies vendor resolution to the Bank Transactions table. Bank statement descriptions will be converted to clean vendor names.',
+  },
+  invoiceLinkModal: {
+    title: 'Invoice Link Modal',
+    description: 'Applies vendor resolution when linking invoice line items to bank charges. Makes it easier to identify the correct transaction.',
+  },
+  lineItemModal: {
+    title: 'Line Item Modal',
+    description: 'Applies vendor resolution in the individual line item linking modal. Shows clean vendor names instead of raw transaction descriptions.',
+  },
+}
+
 export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
   const {
     aliases,
@@ -70,6 +103,14 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
     seedDefaults,
   } = useVendorAliases()
 
+  const {
+    enableInCreditCardTable,
+    enableInTransactionTable,
+    enableInInvoiceLinkModal,
+    enableInLineItemModal,
+    updateSetting,
+  } = useVendorResolverSettings()
+
   // Local state
   const [searchQuery, setSearchQuery] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -79,6 +120,15 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
+  const [testPatternInput, setTestPatternInput] = useState('')
+
+  // Compute test pattern result based on input
+  const testPatternResult = useMemo(() => {
+    if (!testPatternInput.trim()) {
+      return null
+    }
+    return getVendorInfo(testPatternInput, aliases)
+  }, [testPatternInput, aliases])
 
   // Filter aliases based on search query
   const filteredAliases = useMemo(() => {
@@ -164,6 +214,8 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
     canonical_name: string
     match_type: VendorAlias['match_type']
     priority?: number
+    default_has_vat?: boolean | null
+    default_vat_percentage?: number | null
   }) => {
     if (editingAlias) {
       await updateAlias(editingAlias.id, data)
@@ -255,6 +307,231 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
               <PlusIcon className="w-4 h-4" />
               Add Alias
             </button>
+          </div>
+
+          {/* Apply Aliases Section */}
+          <div className="mt-5 pt-5 border-t border-text-muted/10">
+            <div className="flex items-center gap-2 mb-4">
+              <AdjustmentsHorizontalIcon className="w-4 h-4 text-text-muted" />
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Apply Aliases</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* CC Purchases Table */}
+              <div className="flex items-center justify-between p-4 bg-background/30 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-teal-500/10 rounded-lg">
+                    <CreditCardIcon className="w-5 h-5 text-teal-500" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text">CC Purchases Table</span>
+                    <Tooltip
+                      title={RESOLUTION_HELP.creditCardTable.title}
+                      description={RESOLUTION_HELP.creditCardTable.description}
+                      placement="top"
+                    >
+                      <TooltipTrigger>
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-text-muted/20 hover:bg-text-muted/30 transition-colors cursor-help">
+                          <QuestionMarkCircleIcon className="w-3.5 h-3.5 text-text-muted" />
+                        </span>
+                      </TooltipTrigger>
+                    </Tooltip>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enableInCreditCardTable}
+                  onClick={() => updateSetting('enableInCreditCardTable', !enableInCreditCardTable)}
+                  className={cx(
+                    'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                    enableInCreditCardTable ? 'bg-primary' : 'bg-text-muted/30'
+                  )}
+                >
+                  <span className={cx('pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', enableInCreditCardTable ? 'translate-x-5' : 'translate-x-0')} />
+                </button>
+              </div>
+
+              {/* Bank Transactions Table */}
+              <div className="flex items-center justify-between p-4 bg-background/30 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-500/10 rounded-lg">
+                    <BuildingOfficeIcon className="w-5 h-5 text-blue-500" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text">Bank Transactions</span>
+                    <Tooltip
+                      title={RESOLUTION_HELP.transactionTable.title}
+                      description={RESOLUTION_HELP.transactionTable.description}
+                      placement="top"
+                    >
+                      <TooltipTrigger>
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-text-muted/20 hover:bg-text-muted/30 transition-colors cursor-help">
+                          <QuestionMarkCircleIcon className="w-3.5 h-3.5 text-text-muted" />
+                        </span>
+                      </TooltipTrigger>
+                    </Tooltip>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enableInTransactionTable}
+                  onClick={() => updateSetting('enableInTransactionTable', !enableInTransactionTable)}
+                  className={cx(
+                    'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                    enableInTransactionTable ? 'bg-primary' : 'bg-text-muted/30'
+                  )}
+                >
+                  <span className={cx('pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', enableInTransactionTable ? 'translate-x-5' : 'translate-x-0')} />
+                </button>
+              </div>
+
+              {/* Invoice Link Modal */}
+              <div className="flex items-center justify-between p-4 bg-background/30 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-purple-500/10 rounded-lg">
+                    <LinkIcon className="w-5 h-5 text-purple-500" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text">Invoice Link Modal</span>
+                    <Tooltip
+                      title={RESOLUTION_HELP.invoiceLinkModal.title}
+                      description={RESOLUTION_HELP.invoiceLinkModal.description}
+                      placement="top"
+                    >
+                      <TooltipTrigger>
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-text-muted/20 hover:bg-text-muted/30 transition-colors cursor-help">
+                          <QuestionMarkCircleIcon className="w-3.5 h-3.5 text-text-muted" />
+                        </span>
+                      </TooltipTrigger>
+                    </Tooltip>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enableInInvoiceLinkModal}
+                  onClick={() => updateSetting('enableInInvoiceLinkModal', !enableInInvoiceLinkModal)}
+                  className={cx(
+                    'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                    enableInInvoiceLinkModal ? 'bg-primary' : 'bg-text-muted/30'
+                  )}
+                >
+                  <span className={cx('pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', enableInInvoiceLinkModal ? 'translate-x-5' : 'translate-x-0')} />
+                </button>
+              </div>
+
+              {/* Line Item Modal */}
+              <div className="flex items-center justify-between p-4 bg-background/30 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-500/10 rounded-lg">
+                    <DocumentDuplicateIcon className="w-5 h-5 text-amber-500" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text">Line Item Modal</span>
+                    <Tooltip
+                      title={RESOLUTION_HELP.lineItemModal.title}
+                      description={RESOLUTION_HELP.lineItemModal.description}
+                      placement="top"
+                    >
+                      <TooltipTrigger>
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-text-muted/20 hover:bg-text-muted/30 transition-colors cursor-help">
+                          <QuestionMarkCircleIcon className="w-3.5 h-3.5 text-text-muted" />
+                        </span>
+                      </TooltipTrigger>
+                    </Tooltip>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enableInLineItemModal}
+                  onClick={() => updateSetting('enableInLineItemModal', !enableInLineItemModal)}
+                  className={cx(
+                    'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                    enableInLineItemModal ? 'bg-primary' : 'bg-text-muted/30'
+                  )}
+                >
+                  <span className={cx('pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', enableInLineItemModal ? 'translate-x-5' : 'translate-x-0')} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Test Pattern Section */}
+          <div className="mt-5 pt-5 border-t border-text-muted/10">
+            <div className="flex items-center gap-2 mb-4">
+              <BeakerIcon className="w-4 h-4 text-text-muted" />
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Test Pattern</span>
+            </div>
+
+            <div className="space-y-3">
+              {/* Test input */}
+              <div className="relative max-w-xl">
+                <MagnifyingGlassIcon className="absolute start-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <input
+                  type="text"
+                  placeholder="Enter a transaction description to test..."
+                  value={testPatternInput}
+                  onChange={(e) => setTestPatternInput(e.target.value)}
+                  className="w-full ps-10 pe-4 py-2.5 bg-background/50 border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+                />
+                {testPatternInput && (
+                  <button
+                    type="button"
+                    onClick={() => setTestPatternInput('')}
+                    className="absolute end-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-surface/50"
+                  >
+                    <XMarkIcon className="w-4 h-4 text-text-muted hover:text-text" />
+                  </button>
+                )}
+              </div>
+
+              {/* Test result */}
+              {testPatternResult && (
+                <div className="flex flex-wrap items-center gap-3 p-3 bg-background/30 rounded-lg max-w-xl">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-text-muted">Result:</span>
+                    <span className="text-sm font-medium text-text">{testPatternResult.displayName}</span>
+                  </div>
+
+                  <Badge
+                    type="color"
+                    size="sm"
+                    color={testPatternResult.isResolved ? 'success' : 'gray'}
+                  >
+                    {testPatternResult.isResolved ? 'Matched' : 'No Match'}
+                  </Badge>
+
+                  {testPatternResult.isResolved && testPatternResult.matchedAlias && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-muted">Pattern:</span>
+                        <code className="px-1.5 py-0.5 bg-surface/50 rounded text-xs font-mono text-text">
+                          {testPatternResult.matchedAlias.alias_pattern}
+                        </code>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-muted">VAT:</span>
+                        {testPatternResult.vatDefault.hasVat === null ? (
+                          <span className="text-xs text-text-muted">-</span>
+                        ) : testPatternResult.vatDefault.hasVat ? (
+                          <Badge type="color" size="sm" color="success">
+                            {testPatternResult.vatDefault.vatPercentage}%
+                          </Badge>
+                        ) : (
+                          <Badge type="color" size="sm" color="gray">
+                            No VAT
+                          </Badge>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Search - only show if there are aliases */}
@@ -378,6 +655,9 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
                   <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
                     Source
                   </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
+                    VAT
+                  </th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
                     Actions
                   </th>
@@ -433,6 +713,19 @@ export function VendorAliasesSection({ className }: VendorAliasesSectionProps) {
                             {sourceConfig.label}
                           </span>
                         </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {alias.default_has_vat === null ? (
+                          <span className="text-xs text-text-muted">-</span>
+                        ) : alias.default_has_vat ? (
+                          <Badge type="color" size="sm" color="success">
+                            {alias.default_vat_percentage}%
+                          </Badge>
+                        ) : (
+                          <Badge type="color" size="sm" color="gray">
+                            No VAT
+                          </Badge>
+                        )}
                       </td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">

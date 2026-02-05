@@ -28,14 +28,13 @@ export interface ExtractionResult {
 export interface ExtractedVendor {
   name: string | null
   vat_id?: string | null
-  country?: string | null
 }
 
 /**
  * Document metadata
  */
 export interface ExtractedDocument {
-  type: 'billing_summary' | 'invoice' | 'receipt' | 'credit_note'
+  type: 'billing_summary' | 'invoice' | 'receipt' | 'credit_note' | 'not_invoice'
   number?: string | null
   date?: string | null
   billing_period?: {
@@ -77,7 +76,7 @@ export interface InvoiceExtraction {
   document: ExtractedDocument
   line_items: ExtractedLineItem[]
   totals: ExtractedTotals
-  confidence: number
+  confidence?: number // Calculated from double-read comparison, not from AI
 }
 
 /**

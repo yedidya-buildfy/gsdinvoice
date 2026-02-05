@@ -7,6 +7,9 @@ import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
 import { formatShekel, formatTransactionAmount } from '@/lib/currency'
 import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { parseDescriptionParts } from '@/lib/utils/merchantParser'
+import { getVendorDisplayInfo } from '@/lib/utils/vendorResolver'
+import { useVendorAliases } from '@/hooks/useVendorAliases'
+import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
 import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
 
 
@@ -168,6 +171,10 @@ export function CreditCardTable({
   lineItemLinkCounts,
   onLineItemLinkClick,
 }: CreditCardTableProps) {
+  // Vendor resolution settings and aliases
+  const { enableInCreditCardTable } = useVendorResolverSettings()
+  const { aliases } = useVendorAliases()
+
   // Check if we should show line item link column (only when handler is provided)
   const showLineItemLinkColumn = !!onLineItemLinkClick
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
@@ -375,7 +382,11 @@ export function CreditCardTable({
               : null
 
             // Parse description into merchant name and reference
-            const { merchantName, reference } = parseDescriptionParts(tx.description)
+            // Use vendor resolver when enabled, otherwise fall back to basic parsing
+            const { reference } = parseDescriptionParts(tx.description)
+            const merchantName = enableInCreditCardTable
+              ? getVendorDisplayInfo(tx.description, aliases).displayName
+              : parseDescriptionParts(tx.description).merchantName
 
             return (
               <tr

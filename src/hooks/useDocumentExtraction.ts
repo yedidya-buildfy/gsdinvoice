@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { checkLineItemDuplicates } from '@/lib/duplicates'
+import { processAutoMatch } from '@/hooks/useAutoMatch'
+import { useSettingsStore } from '@/stores/settingsStore'
 import type {
   ExtractionRequest,
   ExtendedExtractionResult,
@@ -218,19 +220,38 @@ export function useExtractDocument() {
         })
         .eq('id', fileId)
 
+      // Auto-match line items to transactions if enabled
+      const { matchingTrigger, autoMatchEnabled, autoMatchThreshold } = useSettingsStore.getState()
+
+      if (autoMatchEnabled && (matchingTrigger === 'on_upload' || matchingTrigger === 'after_all_uploads')) {
+        console.log('[useExtractDocument] Auto-matching enabled, triggering for invoice:', invoiceId)
+        try {
+          const autoMatchResult = await processAutoMatch([invoiceId], autoMatchThreshold)
+          console.log('[useExtractDocument] Auto-match result:', {
+            matched: autoMatchResult.matched,
+            skipped: autoMatchResult.skipped,
+            failed: autoMatchResult.failed,
+          })
+        } catch (autoMatchError) {
+          // Don't fail extraction if auto-match fails - just log it
+          console.error('[useExtractDocument] Auto-match error (non-fatal):', autoMatchError)
+        }
+      }
+
       return {
         success: true,
         invoice_id: invoiceId,
         confidence: extracted.confidence,
       }
     },
-    onError: async (error, { fileId }) => {
+    onError: async (error, { fileId: _fileId }) => {
       // Edge function already handles file status on failure, but log for debugging
       console.error('[useExtractDocument] Mutation error:', error)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] }) // Also invalidate after auto-matching
     },
   })
 }
@@ -543,11 +564,39 @@ export function useExtractMultipleDocuments() {
         withDuplicates: duplicateInfos.length,
       })
 
+      // Auto-match line items to transactions if enabled
+      // Only match invoices that don't have duplicates (those are already in duplicateInfos for manual handling)
+      const { matchingTrigger, autoMatchEnabled, autoMatchThreshold } = useSettingsStore.getState()
+      const duplicateInvoiceIds = new Set(duplicateInfos.map(d => d.invoiceId))
+
+      if (autoMatchEnabled && (matchingTrigger === 'on_upload' || matchingTrigger === 'after_all_uploads')) {
+        // Get invoice IDs that were successfully extracted and don't have duplicates
+        const invoiceIdsToMatch = successfulResults
+          .filter(r => r.invoiceId && !duplicateInvoiceIds.has(r.invoiceId))
+          .map(r => r.invoiceId!)
+
+        if (invoiceIdsToMatch.length > 0) {
+          console.log('[useExtractMultiple] Auto-matching', invoiceIdsToMatch.length, 'invoices')
+          try {
+            const autoMatchResult = await processAutoMatch(invoiceIdsToMatch, autoMatchThreshold)
+            console.log('[useExtractMultiple] Auto-match result:', {
+              matched: autoMatchResult.matched,
+              skipped: autoMatchResult.skipped,
+              failed: autoMatchResult.failed,
+            })
+          } catch (autoMatchError) {
+            // Don't fail extraction if auto-match fails - just log it
+            console.error('[useExtractMultiple] Auto-match error (non-fatal):', autoMatchError)
+          }
+        }
+      }
+
       return duplicateInfos
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] }) // Also invalidate after auto-matching
     },
   })
 }

@@ -13,9 +13,9 @@ import {
   CalendarIcon,
   BuildingOfficeIcon,
   GlobeAltIcon,
-  InformationCircleIcon,
   ExclamationTriangleIcon,
   CheckCircleIcon,
+  ArrowsRightLeftIcon,
 } from '@heroicons/react/24/outline'
 
 interface MatchScoreBreakdownProps {
@@ -72,18 +72,28 @@ function getScoreTextColor(score: number): string {
   return 'text-red-400'
 }
 
+/**
+ * Format amount in smallest unit (cents/agorot) to display format
+ */
+function formatCurrencyAmount(amountInSmallestUnit: number, currency: string): string {
+  const amount = amountInSmallestUnit / 100
+  const symbol = currency === 'ILS' ? '₪' : currency === 'USD' ? '$' : currency === 'EUR' ? '€' : ''
+  return `${symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
+}
+
 const breakdownConfig: Array<{
   key: keyof ScoreBreakdown
   label: string
   maxKey: keyof typeof SCORING_WEIGHTS
   icon: React.ComponentType<{ className?: string }>
+  /** If true, skip this row when value is 0 (no data available) */
+  skipWhenZero?: boolean
 }> = [
-  { key: 'reference', label: 'Reference', maxKey: 'REFERENCE', icon: DocumentTextIcon },
+  { key: 'reference', label: 'Reference', maxKey: 'REFERENCE', icon: DocumentTextIcon, skipWhenZero: true },
   { key: 'amount', label: 'Amount', maxKey: 'AMOUNT', icon: CurrencyDollarIcon },
   { key: 'date', label: 'Date', maxKey: 'DATE', icon: CalendarIcon },
   { key: 'vendor', label: 'Vendor', maxKey: 'VENDOR', icon: BuildingOfficeIcon },
   { key: 'currency', label: 'Currency', maxKey: 'CURRENCY', icon: GlobeAltIcon },
-  { key: 'context', label: 'Context', maxKey: 'CONTEXT', icon: InformationCircleIcon },
 ]
 
 export function MatchScoreBreakdown({ score, className, compact = false }: MatchScoreBreakdownProps) {
@@ -104,23 +114,25 @@ export function MatchScoreBreakdown({ score, className, compact = false }: Match
 
         {/* Mini breakdown bars */}
         <div className="flex gap-1 h-2">
-          {breakdownConfig.map(({ key, maxKey }) => {
-            const value = score.breakdown[key]
-            const maxValue = SCORING_WEIGHTS[maxKey]
-            const width = maxValue > 0 ? (value / maxValue) * 100 : 0
-            return (
-              <div
-                key={key}
-                className="flex-1 bg-surface rounded-sm overflow-hidden"
-                title={`${key}: ${value}/${maxValue}`}
-              >
+          {breakdownConfig
+            .filter(({ key, skipWhenZero }) => !skipWhenZero || score.breakdown[key] > 0)
+            .map(({ key, maxKey }) => {
+              const value = score.breakdown[key]
+              const maxValue = SCORING_WEIGHTS[maxKey]
+              const width = maxValue > 0 ? (value / maxValue) * 100 : 0
+              return (
                 <div
-                  className={cx('h-full', totalColor)}
-                  style={{ width: `${width}%` }}
-                />
-              </div>
-            )
-          })}
+                  key={key}
+                  className="flex-1 bg-surface rounded-sm overflow-hidden"
+                  title={`${key}: ${value}/${maxValue}`}
+                >
+                  <div
+                    className={cx('h-full', totalColor)}
+                    style={{ width: `${width}%` }}
+                  />
+                </div>
+              )
+            })}
         </div>
       </div>
     )
@@ -146,17 +158,43 @@ export function MatchScoreBreakdown({ score, className, compact = false }: Match
 
       {/* Score breakdown bars */}
       <div className="space-y-2">
-        {breakdownConfig.map(({ key, label, maxKey, icon }) => (
-          <ScoreBar
-            key={key}
-            label={label}
-            value={score.breakdown[key]}
-            maxValue={SCORING_WEIGHTS[maxKey]}
-            icon={icon}
-            colorClass={score.breakdown[key] > 0 ? totalColor : 'bg-text-muted/30'}
-          />
-        ))}
+        {breakdownConfig
+          .filter(({ key, skipWhenZero }) => !skipWhenZero || score.breakdown[key] > 0)
+          .map(({ key, label, maxKey, icon }) => (
+            <ScoreBar
+              key={key}
+              label={label}
+              value={score.breakdown[key]}
+              maxValue={SCORING_WEIGHTS[maxKey]}
+              icon={icon}
+              colorClass={score.breakdown[key] > 0 ? totalColor : 'bg-text-muted/30'}
+            />
+          ))}
       </div>
+
+      {/* Currency Conversion Details */}
+      {score.conversionDetails && (
+        <div className="space-y-1.5 px-2 py-2 bg-blue-500/10 rounded-md">
+          <div className="flex items-center gap-2">
+            <ArrowsRightLeftIcon className="w-4 h-4 text-blue-400 shrink-0" />
+            <span className="text-xs font-medium text-blue-300">Currency Conversion</span>
+          </div>
+          <div className="ml-6 space-y-0.5 text-xs text-text-muted">
+            <div>
+              {formatCurrencyAmount(score.conversionDetails.originalAmount, score.conversionDetails.fromCurrency)}
+              {' = '}
+              {formatCurrencyAmount(score.conversionDetails.convertedAmount, 'ILS')}
+            </div>
+            <div className="flex items-center gap-1">
+              <span>Rate: {score.conversionDetails.rate.toFixed(4)}</span>
+              <span className="text-text-muted/60">({score.conversionDetails.rateDate})</span>
+              {score.conversionDetails.rateDateDiffers && (
+                <ExclamationTriangleIcon className="w-3 h-3 text-yellow-400" title="Rate is from a different date" />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Penalties */}
       {score.penalties.vendorMismatch < 0 && (

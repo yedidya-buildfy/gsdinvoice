@@ -1,12 +1,21 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { CurrencyCode } from '@/lib/currency'
 
 export type DuplicateAction = 'skip' | 'replace' | 'add'
 export type MatchingTrigger = 'manual' | 'on_upload' | 'after_all_uploads'
-export type LinkingAmountTolerance = -1 | 0 | 5 | 10 | 20 | 50
-export type LinkingCurrencyFilter = 'all' | CurrencyCode
 export type TablePageSize = 25 | 50 | 100 | 200 | 999
+export type LinkingAmountTolerance = number // 51-100 minimum match score filter (100 = exact match only)
+export type LinkingCurrencyFilter = 'all' | 'ILS' | 'USD' | 'EUR'
+
+/**
+ * Vendor resolver settings - controls where vendor alias resolution is applied
+ */
+export interface VendorResolverSettings {
+  enableInCreditCardTable: boolean      // CreditCardTable.tsx
+  enableInTransactionTable: boolean     // TransactionTable.tsx
+  enableInInvoiceLinkModal: boolean     // InvoiceBankLinkModal.tsx
+  enableInLineItemModal: boolean        // LineItemLinkModal.tsx
+}
 
 interface SettingsState {
   // Extraction settings
@@ -36,19 +45,34 @@ interface SettingsState {
   matchingConfidenceThreshold: number // 0-100
   setMatchingConfidenceThreshold: (value: number) => void
 
-  // Transaction linking defaults (for line item to transaction linking)
+  // Auto-matching settings
+  autoMatchThreshold: number // 0-100 minimum score to auto-link (default 70)
+  setAutoMatchThreshold: (value: number) => void
+
+  // Transaction linking defaults (for line item to transaction linking modal)
   linkingDateRangeDays: number // days before/after line item date (default 14)
   setLinkingDateRangeDays: (value: number) => void
 
-  linkingAmountTolerance: LinkingAmountTolerance // -1 = not relevant, 0 = exact, or percentage
+  linkingAmountTolerance: LinkingAmountTolerance // minimum match score filter (default 70)
   setLinkingAmountTolerance: (value: LinkingAmountTolerance) => void
 
-  linkingDefaultCurrency: LinkingCurrencyFilter // 'all', 'ILS', 'USD', 'EUR'
+  linkingDefaultCurrency: LinkingCurrencyFilter // default currency filter
   setLinkingDefaultCurrency: (value: LinkingCurrencyFilter) => void
+
+  // Auto-match toggle
+  autoMatchEnabled: boolean // Enable bulk auto-matching of line items (default: true)
+  setAutoMatchEnabled: (value: boolean) => void
 
   // Table display settings
   tablePageSize: TablePageSize // 25, 50, 100, 200, 999 (999 = all)
   setTablePageSize: (value: TablePageSize) => void
+
+  // Vendor resolver settings
+  vendorResolver: VendorResolverSettings
+  setVendorResolverSetting: <K extends keyof VendorResolverSettings>(
+    key: K,
+    value: VendorResolverSettings[K]
+  ) => void
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -81,19 +105,42 @@ export const useSettingsStore = create<SettingsState>()(
       matchingConfidenceThreshold: 70,
       setMatchingConfidenceThreshold: (value) => set({ matchingConfidenceThreshold: value }),
 
+      // Auto-matching settings
+      autoMatchThreshold: 70,
+      setAutoMatchThreshold: (value) => set({ autoMatchThreshold: value }),
+
       // Transaction linking defaults
       linkingDateRangeDays: 14,
       setLinkingDateRangeDays: (value) => set({ linkingDateRangeDays: value }),
 
-      linkingAmountTolerance: 20,
-      setLinkingAmountTolerance: (value) => set({ linkingAmountTolerance: value }),
+      linkingAmountTolerance: 70,
+      setLinkingAmountTolerance: (value) => set({ linkingAmountTolerance: Math.max(51, Math.min(100, value)) }),
 
       linkingDefaultCurrency: 'all',
       setLinkingDefaultCurrency: (value) => set({ linkingDefaultCurrency: value }),
 
+      // Auto-match toggle
+      autoMatchEnabled: true,
+      setAutoMatchEnabled: (value) => set({ autoMatchEnabled: value }),
+
       // Table display settings
       tablePageSize: 50,
       setTablePageSize: (value) => set({ tablePageSize: value }),
+
+      // Vendor resolver settings - default all to true
+      vendorResolver: {
+        enableInCreditCardTable: true,
+        enableInTransactionTable: true,
+        enableInInvoiceLinkModal: true,
+        enableInLineItemModal: true,
+      },
+      setVendorResolverSetting: (key, value) =>
+        set((state) => ({
+          vendorResolver: {
+            ...state.vendorResolver,
+            [key]: value,
+          },
+        })),
     }),
     {
       name: 'vat-manager-settings',
@@ -105,10 +152,13 @@ export const useSettingsStore = create<SettingsState>()(
         ccBankAmountTolerance: state.ccBankAmountTolerance,
         ccBankDateRangeDays: state.ccBankDateRangeDays,
         matchingConfidenceThreshold: state.matchingConfidenceThreshold,
+        autoMatchThreshold: state.autoMatchThreshold,
         linkingDateRangeDays: state.linkingDateRangeDays,
         linkingAmountTolerance: state.linkingAmountTolerance,
         linkingDefaultCurrency: state.linkingDefaultCurrency,
+        autoMatchEnabled: state.autoMatchEnabled,
         tablePageSize: state.tablePageSize,
+        vendorResolver: state.vendorResolver,
       }),
     }
   )

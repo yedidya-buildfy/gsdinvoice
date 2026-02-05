@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import {
   XMarkIcon,
@@ -34,17 +35,26 @@ import { supabase } from '@/lib/supabase'
 import {
   linkLineItemToTransaction,
   unlinkLineItemFromTransaction,
+  createDocumentLink,
+  updateDocumentLink,
+  removeDocumentLink,
   scoreMatch,
   type TransactionWithCard,
   type ScoringContext,
+  type MatchScore,
+  SCORING_WEIGHTS,
 } from '@/lib/services/lineItemMatcher'
+import { getExchangeRatesForDate } from '@/lib/services/exchangeRates'
 import { useCreditCards } from '@/hooks/useCreditCards'
+import { useDebounce } from '@/hooks/useDebounce'
 import { useVendorAliases } from '@/hooks/useVendorAliases'
 import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAuth } from '@/contexts/AuthContext'
 import { VatChangeModal } from '@/components/bank/VatChangeModal'
 import { parseMerchantName } from '@/lib/utils/merchantParser'
+import { resolveVendorNameWithFallback } from '@/lib/utils/vendorResolver'
+import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
 import type { InvoiceRow, Transaction, Invoice, CreditCard } from '@/types/database'
 
 // Header tooltip component for section explanations
@@ -92,6 +102,126 @@ function HeaderTooltip({ tooltip }: { tooltip: string }) {
   )
 }
 
+// Match score tooltip component for showing score breakdown
+function MatchScoreTooltip({ score, children }: { score: MatchScore; children: React.ReactNode }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const triggerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen || !triggerRef.current) return
+
+    const rect = triggerRef.current.getBoundingClientRect()
+    // Position to the left of the element
+    setPosition({
+      top: rect.top + rect.height / 2,
+      left: rect.left - 8,
+    })
+  }, [isOpen])
+
+  const { breakdown, matchReasons, warnings, penalties } = score
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        onMouseEnter={() => setIsOpen(true)}
+        onMouseLeave={() => setIsOpen(false)}
+        className="inline-flex cursor-help"
+      >
+        {children}
+      </div>
+
+      {isOpen &&
+        createPortal(
+          <div
+            className="fixed z-[9999] px-3 py-2.5 text-xs text-text bg-surface border border-text-muted/20 rounded-lg shadow-lg w-56 pointer-events-none -translate-x-full -translate-y-1/2"
+            style={{
+              top: `${position.top}px`,
+              left: `${position.left}px`,
+            }}
+          >
+            {/* Score breakdown */}
+            <div className="font-medium text-text-muted mb-2">Score Breakdown</div>
+            <div className="space-y-1 mb-3">
+              {/* Only show Reference if there was reference data to match */}
+              {breakdown.reference > 0 && (
+                <ScoreRow label="Reference" value={breakdown.reference} max={SCORING_WEIGHTS.REFERENCE} />
+              )}
+              <ScoreRow label="Amount" value={breakdown.amount} max={SCORING_WEIGHTS.AMOUNT} />
+              <ScoreRow label="Date" value={breakdown.date} max={SCORING_WEIGHTS.DATE} />
+              <ScoreRow label="Vendor" value={breakdown.vendor} max={SCORING_WEIGHTS.VENDOR} />
+              <ScoreRow label="Currency" value={breakdown.currency} max={SCORING_WEIGHTS.CURRENCY} />
+            </div>
+
+            {/* Penalties */}
+            {penalties.vendorMismatch < 0 && (
+              <div className="mb-3">
+                <div className="font-medium text-text-muted mb-1">Penalties</div>
+                <div className="flex justify-between text-red-400">
+                  <span>Vendor mismatch</span>
+                  <span>{penalties.vendorMismatch}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Match reasons */}
+            {matchReasons.length > 0 && (
+              <div className="mb-3">
+                <div className="font-medium text-text-muted mb-1">Match Reasons</div>
+                <ul className="text-green-400 space-y-0.5">
+                  {matchReasons.map((reason, i) => (
+                    <li key={i} className="flex items-start gap-1">
+                      <span className="shrink-0">+</span>
+                      <span>{reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Warnings */}
+            {warnings.length > 0 && (
+              <div>
+                <div className="font-medium text-text-muted mb-1">Warnings</div>
+                <ul className="text-yellow-400 space-y-0.5">
+                  {warnings.map((warning, i) => (
+                    <li key={i} className="flex items-start gap-1">
+                      <span className="shrink-0">!</span>
+                      <span>{warning}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
+// Score row component for the breakdown display
+function ScoreRow({ label, value, max }: { label: string; value: number; max: number }) {
+  const percentage = max > 0 ? (value / max) * 100 : 0
+  const barColor = percentage >= 80 ? 'bg-green-500' : percentage >= 50 ? 'bg-yellow-500' : 'bg-text-muted/30'
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-16 text-text-muted">{label}</span>
+      <div className="flex-1 h-1.5 bg-text-muted/10 rounded-full overflow-hidden">
+        <div
+          className={`h-full ${barColor} transition-all`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <span className="w-10 text-end text-text-muted">
+        {value}/{max}
+      </span>
+    </div>
+  )
+}
+
 type TransactionTypeFilter = 'all' | 'cc_purchase' | 'bank_regular'
 
 interface LineItemWithTransaction extends InvoiceRow {
@@ -120,15 +250,8 @@ function calculateDateRange(dateStr: string | null, daysBefore: number, daysAfte
   }
 }
 
-// Amount tolerance presets
-const TOLERANCE_OPTIONS = [
-  { value: -1, label: 'Not relevant' },
-  { value: 0, label: 'Exact' },
-  { value: 5, label: '5%' },
-  { value: 10, label: '10%' },
-  { value: 20, label: '20%' },
-  { value: 50, label: '50%' },
-]
+// Preset values for minimum match score filter (51-100 range, 100 = exact match only)
+const TOLERANCE_PRESETS = [100, 90, 80, 70, 60, 51]
 
 // Currency options
 const CURRENCY_OPTIONS = [
@@ -364,6 +487,9 @@ export function InvoiceBankLinkModal({
   // Vendor aliases for scoring
   const { aliases: vendorAliases } = useVendorAliases()
 
+  // Vendor resolver settings
+  const { enableInInvoiceLinkModal } = useVendorResolverSettings()
+
   // Auth for VAT updates
   const { user } = useAuth()
 
@@ -381,6 +507,30 @@ export function InvoiceBankLinkModal({
     linkingAmountTolerance: defaultAmountTolerance,
     linkingDefaultCurrency: defaultCurrency,
   } = useSettingsStore()
+
+  // Generate dynamic tolerance options based on settings value
+  const toleranceOptions = useMemo(() => {
+    const options: { value: number; label: string }[] = []
+
+    // Add "Settings" option first if it's not already a preset
+    if (!TOLERANCE_PRESETS.includes(defaultAmountTolerance) && defaultAmountTolerance !== -1) {
+      options.push({ value: defaultAmountTolerance, label: `Settings (≥${defaultAmountTolerance}%)` })
+    }
+
+    // Add preset options (with "(Settings)" suffix if it matches the settings value)
+    for (const preset of TOLERANCE_PRESETS) {
+      const isSettings = preset === defaultAmountTolerance
+      options.push({
+        value: preset,
+        label: isSettings ? `≥${preset}% (Settings)` : `≥${preset}%`,
+      })
+    }
+
+    // Add "Any" option last
+    options.push({ value: -1, label: 'Any' })
+
+    return options
+  }, [defaultAmountTolerance])
 
   // State
   const [allRows, setAllRows] = useState<LineItemWithTransaction[]>([])
@@ -404,16 +554,15 @@ export function InvoiceBankLinkModal({
   const [showVatModal, setShowVatModal] = useState(false)
   const [vatTransaction, setVatTransaction] = useState<Transaction | null>(null)
 
-  // Candidates
-  const [candidates, setCandidates] = useState<TransactionWithCard[]>([])
-  const [isLoadingCandidates, setIsLoadingCandidates] = useState(false)
+  // Candidates - search with debouncing
   const [candidateSearch, setCandidateSearch] = useState('')
+  const debouncedSearch = useDebounce(candidateSearch, 300)
   const [candidateDateFrom, setCandidateDateFrom] = useState('')
   const [candidateDateTo, setCandidateDateTo] = useState('')
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<TransactionTypeFilter>('all')
 
-  // Advanced filters
-  const [amountTolerance, setAmountTolerance] = useState(20)
+  // Advanced filters - initialize with settings value
+  const [amountTolerance, setAmountTolerance] = useState(defaultAmountTolerance)
   const [currencyFilter, setCurrencyFilter] = useState<string>('all')
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
   const [vendorFilter, setVendorFilter] = useState<string>('')
@@ -433,6 +582,17 @@ export function InvoiceBankLinkModal({
       setSortDirection(column === 'match' || column === 'amount' ? 'desc' : 'asc')
     }
   }
+
+  // Helper to resolve vendor display name based on settings
+  const getDisplayName = useCallback(
+    (description: string): string => {
+      if (enableInInvoiceLinkModal) {
+        return resolveVendorNameWithFallback(description, vendorAliases)
+      }
+      return description
+    },
+    [enableInInvoiceLinkModal, vendorAliases]
+  )
 
   // Separate line items from document links
   const lineItems = useMemo(() => allRows.filter((row) => !row.is_document_link), [allRows])
@@ -523,98 +683,141 @@ export function InvoiceBankLinkModal({
     }
   }, [isOpen, invoiceId, fetchAllRows])
 
-  // Fetch ALL transactions when editing (no amount/date filtering)
-  useEffect(() => {
-    if (!editingRowId) {
-      setCandidates([])
-      return
-    }
+  // Build filter object for query key (search is handled client-side for vendor name matching)
+  const candidateFilters = useMemo(() => ({
+    transactionType: transactionTypeFilter,
+    dateFrom: candidateDateFrom,
+    dateTo: candidateDateTo,
+    currency: currencyFilter,
+    cardIds: selectedCardIds,
+  }), [transactionTypeFilter, candidateDateFrom, candidateDateTo, currencyFilter, selectedCardIds])
 
-    async function fetchAllTransactions() {
-      setIsLoadingCandidates(true)
-      try {
-        // Build query for all matchable transactions
-        const query = supabase
-          .from('transactions')
-          .select(`
-            *,
-            credit_cards!credit_card_id(card_last_four, card_name, card_type)
-          `)
-          .in('transaction_type', ['bank_regular', 'cc_purchase'])
-          .order('date', { ascending: false })
-          .limit(500)
+  // Fetch transactions with server-side filtering using TanStack Query
+  const {
+    data: candidates = [],
+    isLoading: isLoadingCandidates,
+  } = useQuery({
+    queryKey: ['linking-modal-transactions', user?.id, candidateFilters],
+    queryFn: async () => {
+      if (!user?.id) return []
 
-        const { data, error } = await query
+      // Build query with server-side filters
+      let query = supabase
+        .from('transactions')
+        .select(`
+          *,
+          credit_cards!credit_card_id(card_last_four, card_name, card_type)
+        `)
+        .eq('user_id', user.id)
 
-        if (error) {
-          console.error('Error fetching transactions:', error)
-          setCandidates([])
-          return
-        }
-
-        // Map the results
-        const mapped: TransactionWithCard[] = (data || []).map((tx) => ({
-          ...tx,
-          credit_card: tx.credit_cards as TransactionWithCard['credit_card'],
-        }))
-
-        setCandidates(mapped)
-      } catch (err) {
-        console.error('Failed to fetch candidates:', err)
-        setCandidates([])
-      } finally {
-        setIsLoadingCandidates(false)
+      // Transaction type filter
+      if (candidateFilters.transactionType === 'all') {
+        query = query.in('transaction_type', ['bank_regular', 'cc_purchase'])
+      } else {
+        query = query.eq('transaction_type', candidateFilters.transactionType)
       }
-    }
 
-    fetchAllTransactions()
-  }, [editingRowId])
+      // Date range filters
+      if (candidateFilters.dateFrom) {
+        query = query.gte('date', candidateFilters.dateFrom)
+      }
+      if (candidateFilters.dateTo) {
+        query = query.lte('date', candidateFilters.dateTo)
+      }
 
+      // Currency filter
+      if (candidateFilters.currency !== 'all') {
+        if (candidateFilters.currency === 'ILS') {
+          query = query.or('foreign_currency.is.null,foreign_currency.eq.ILS')
+        } else {
+          query = query.eq('foreign_currency', candidateFilters.currency)
+        }
+      }
+
+      // Credit card filter
+      if (candidateFilters.cardIds.length > 0) {
+        query = query.in('credit_card_id', candidateFilters.cardIds)
+      }
+
+      // NOTE: Search filter is done client-side to match both raw description AND resolved vendor name
+      // This allows searching for "Meta" to find transactions with raw description "FACEBK *ADS"
+
+      // Order and limit
+      query = query.order('date', { ascending: false }).limit(200)
+
+      const { data, error } = await query
+
+      if (error) {
+        console.error('Error fetching transactions:', error)
+        return []
+      }
+
+      // Map the results
+      return (data || []).map((tx) => ({
+        ...tx,
+        credit_card: tx.credit_cards as TransactionWithCard['credit_card'],
+      })) as TransactionWithCard[]
+    },
+    enabled: !!editingRowId && !!user?.id,
+    staleTime: 60_000, // 1 minute
+    placeholderData: (previousData) => previousData, // Keep previous data while loading
+  })
+
+  // Fetch exchange rates for cross-currency matching
+  const { data: exchangeRates } = useQuery({
+    queryKey: ['exchange-rates', editingLineItem?.transaction_date || invoiceData?.invoice_date, editingLineItem?.currency, candidates.length > 0],
+    queryFn: async () => {
+      const lineItemDate = editingLineItem?.transaction_date || invoiceData?.invoice_date
+      if (!lineItemDate) return undefined
+
+      // Collect all currencies involved
+      const currencies = new Set<string>()
+      if (editingLineItem?.currency && editingLineItem.currency.toUpperCase() !== 'ILS') {
+        currencies.add(editingLineItem.currency.toUpperCase())
+      }
+      for (const tx of candidates) {
+        const hasForeignAmount = tx.foreign_amount_cents != null && tx.foreign_amount_cents !== 0
+        if (hasForeignAmount && tx.foreign_currency && tx.foreign_currency.toUpperCase() !== 'ILS') {
+          currencies.add(tx.foreign_currency.toUpperCase())
+        }
+      }
+
+      if (currencies.size === 0) return undefined
+
+      try {
+        return await getExchangeRatesForDate(lineItemDate, Array.from(currencies))
+      } catch (error) {
+        console.warn('[InvoiceBankLinkModal] Failed to fetch exchange rates:', error)
+        return undefined
+      }
+    },
+    enabled: !!editingLineItem && candidates.length > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+
+  // Process candidates with match scores and client-side filtering
+  // Server-side filters: transaction_type, date range, currency, card
+  // Client-side: search (on raw desc + resolved name), match score, vendor filter, sorting
   const filteredCandidates = useMemo(() => {
     let filtered = candidates
-    // Filter by transaction type
-    if (transactionTypeFilter !== 'all') {
-      filtered = filtered.filter((tx) => tx.transaction_type === transactionTypeFilter)
-    }
-    // Filter by date range
-    if (candidateDateFrom) filtered = filtered.filter((tx) => tx.date >= candidateDateFrom)
-    if (candidateDateTo) filtered = filtered.filter((tx) => tx.date <= candidateDateTo)
-    // Filter by search query
-    if (candidateSearch) {
-      const searchLower = candidateSearch.toLowerCase()
-      filtered = filtered.filter((tx) => tx.description.toLowerCase().includes(searchLower))
-    }
 
-    // Filter by amount tolerance (if not "not relevant" and there's an editing line item)
-    if (amountTolerance !== -1 && editingLineItem && editingLineItem.total_agorot) {
-      const lineItemAmount = Math.abs(editingLineItem.total_agorot)
-      const tolerance = lineItemAmount * (amountTolerance / 100)
+    // Search filter (client-side) - matches both raw description AND resolved vendor name
+    // This allows searching "Meta" to find transactions with raw description "FACEBK *ADS"
+    if (debouncedSearch && debouncedSearch.length >= 2) {
+      const searchLower = debouncedSearch.toLowerCase()
       filtered = filtered.filter((tx) => {
-        const txAmount = Math.abs(tx.amount_agorot)
-        const diff = Math.abs(txAmount - lineItemAmount)
-        return diff <= tolerance
+        // Check raw description
+        const rawDescLower = tx.description?.toLowerCase() || ''
+        if (rawDescLower.includes(searchLower)) return true
+        // Check resolved vendor name
+        const resolvedName = getDisplayName(tx.description)
+        const resolvedLower = resolvedName?.toLowerCase() || ''
+        if (resolvedLower.includes(searchLower)) return true
+        return false
       })
     }
 
-    // Filter by currency
-    if (currencyFilter !== 'all') {
-      filtered = filtered.filter((tx) => {
-        // Check if foreign currency matches, or if ILS selected and no foreign currency
-        if (currencyFilter === 'ILS') {
-          return tx.foreign_currency === null || tx.foreign_currency === 'ILS'
-        }
-        return tx.foreign_currency === currencyFilter
-      })
-    }
-
-    // Filter by credit card
-    if (selectedCardIds.length > 0) {
-      filtered = filtered.filter((tx) =>
-        tx.credit_card_id && selectedCardIds.includes(tx.credit_card_id)
-      )
-    }
-
-    // Filter by vendor (from description)
+    // Filter by vendor (client-side - could be moved to server if needed)
     if (vendorFilter) {
       const vendorLower = vendorFilter.toLowerCase()
       filtered = filtered.filter((tx) =>
@@ -622,25 +825,37 @@ export function InvoiceBankLinkModal({
       )
     }
 
-    // Calculate match scores using new scoring algorithm
+    // Calculate match scores using scoring algorithm
     const withScores = filtered.map((tx) => {
       if (!editingLineItem) {
-        return { ...tx, _matchScore: 0 }
+        return { ...tx, _matchScore: 0, _matchScoreDetails: null as MatchScore | null }
       }
-      // Build scoring context for the new scorer
+      // Build scoring context for the scorer
       const scoringContext: ScoringContext = {
         lineItem: editingLineItem as InvoiceRow,
         invoice: invoiceData,
         extractedData: null, // Not available in this context
         vendorAliases: vendorAliases || [],
+        exchangeRates, // For cross-currency matching (USD, EUR, etc.)
       }
       const score = scoreMatch(tx, scoringContext)
-      return { ...tx, _matchScore: score.isDisqualified ? 0 : score.total }
+      return {
+        ...tx,
+        _matchScore: score.isDisqualified ? 0 : score.total,
+        _matchScoreDetails: score,
+      }
     })
+
+    // Filter by minimum match score (tolerance filter uses match%)
+    // -1 = "Any" (show all), otherwise use the value directly as minimum match%
+    let finalFiltered = withScores
+    if (amountTolerance !== -1 && editingLineItem) {
+      finalFiltered = withScores.filter((tx) => tx._matchScore >= amountTolerance)
+    }
 
     // Sort based on selected column and direction
     const multiplier = sortDirection === 'asc' ? 1 : -1
-    withScores.sort((a, b) => {
+    finalFiltered.sort((a, b) => {
       switch (sortColumn) {
         case 'match':
           return ((a._matchScore ?? 0) - (b._matchScore ?? 0)) * multiplier
@@ -655,8 +870,8 @@ export function InvoiceBankLinkModal({
       }
     })
 
-    return withScores
-  }, [candidates, candidateDateFrom, candidateDateTo, candidateSearch, transactionTypeFilter, editingLineItem, sortColumn, sortDirection, amountTolerance, currencyFilter, selectedCardIds, vendorFilter, invoiceData, vendorAliases])
+    return finalFiltered
+  }, [candidates, editingLineItem, sortColumn, sortDirection, amountTolerance, vendorFilter, invoiceData, vendorAliases, debouncedSearch, getDisplayName, exchangeRates])
 
   const handleEditRow = (rowId: string, type: 'line-item' | 'doc-link' | 'new-doc-link') => {
     if (editingRowId === rowId && editingRowType === type) {
@@ -750,15 +965,8 @@ export function InvoiceBankLinkModal({
     setIsLinking(true)
     setError(null)
     try {
-      const { error: insertError } = await supabase.from('invoice_rows').insert({
-        invoice_id: invoiceId,
-        transaction_id: transactionId,
-        is_document_link: true,
-        match_status: 'manual',
-        match_method: 'manual',
-        matched_at: new Date().toISOString(),
-      })
-      if (insertError) throw insertError
+      const result = await createDocumentLink(invoiceId, transactionId, { matchMethod: 'manual' })
+      if (!result.success) throw new Error(result.error || 'Failed to add document link')
       await fetchAllRows()
       onLinkChange?.()
       handleCancelEdit()
@@ -773,11 +981,8 @@ export function InvoiceBankLinkModal({
     setIsLinking(true)
     setError(null)
     try {
-      const { error: updateError } = await supabase
-        .from('invoice_rows')
-        .update({ transaction_id: transactionId })
-        .eq('id', docLinkId)
-      if (updateError) throw updateError
+      const result = await updateDocumentLink(docLinkId, transactionId, { matchMethod: 'manual' })
+      if (!result.success) throw new Error(result.error || 'Failed to replace document link')
       await fetchAllRows()
       onLinkChange?.()
       handleCancelEdit()
@@ -792,12 +997,8 @@ export function InvoiceBankLinkModal({
     setIsLinking(true)
     setError(null)
     try {
-      const { error: deleteError } = await supabase
-        .from('invoice_rows')
-        .delete()
-        .eq('id', linkId)
-        .eq('is_document_link', true)
-      if (deleteError) throw deleteError
+      const result = await removeDocumentLink(linkId)
+      if (!result.success) throw new Error(result.error || 'Failed to remove document link')
       await fetchAllRows()
       onLinkChange?.()
     } catch (err) {
@@ -886,7 +1087,6 @@ export function InvoiceBankLinkModal({
 
   const handleClose = () => {
     handleCancelEdit()
-    setCandidates([])
     setError(null)
     onClose()
   }
@@ -939,9 +1139,12 @@ export function InvoiceBankLinkModal({
 
         {/* Main content */}
         <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
-          {/* Left - Line Items */}
+          {/* Left - Line Items + Invoice Details */}
           <Panel defaultSize={40} minSize={25} className="flex flex-col min-h-0">
-              <div className="flex-1 flex flex-col min-h-0 border border-text-muted/20 rounded-lg overflow-hidden">
+            <PanelGroup orientation="vertical" className="h-full">
+              {/* Line Items */}
+              <Panel defaultSize={70} minSize={30}>
+                <div className="h-full flex flex-col border border-text-muted/20 rounded-lg overflow-hidden">
               <div className="px-4 py-3 bg-surface/50 border-b border-text-muted/20 shrink-0">
                 <h3 className="text-sm font-medium text-text flex items-center gap-1.5">
                   Line Items
@@ -998,10 +1201,90 @@ export function InvoiceBankLinkModal({
                   })}
                 </div>
               )}
-              </div>
-            </Panel>
+                </div>
+              </Panel>
 
-            {/* Resize Handle */}
+              {/* Vertical Resize Handle for Left Panel */}
+              <PanelResizeHandle className="h-1 my-1 bg-text-muted/20 hover:bg-primary/50 transition-colors cursor-row-resize group relative">
+                <div className="absolute inset-x-0 -top-2 -bottom-2" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="w-1 h-1 rounded-full bg-text-muted" />
+                  <div className="w-1 h-1 rounded-full bg-text-muted" />
+                  <div className="w-1 h-1 rounded-full bg-text-muted" />
+                </div>
+              </PanelResizeHandle>
+
+              {/* Invoice Details */}
+              <Panel defaultSize={30} minSize={15}>
+                <div className="h-full flex flex-col border border-text-muted/20 rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-surface/50 border-b border-text-muted/20">
+                    <h3 className="text-sm font-medium text-text flex items-center gap-1.5">
+                      Invoice Details
+                      <HeaderTooltip tooltip="Summary information about the invoice including vendor, dates, and totals." />
+                    </h3>
+                  </div>
+                  {invoiceData ? (
+                    <div className="flex-1 overflow-y-auto px-3 py-2 text-sm space-y-2">
+                      {/* Vendor, Invoice #, Date & Status - all in one row */}
+                      <div className="grid grid-cols-4 gap-2">
+                        <div>
+                          <span className="text-xs text-text-muted block">Vendor</span>
+                          <span className="text-text font-medium truncate block" dir="auto">
+                            {invoiceData.vendor_name || '-'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted block">Invoice #</span>
+                          <span className="text-text truncate block">{invoiceData.invoice_number || '-'}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted block">Date</span>
+                          <span className="text-text block">{formatDisplayDate(invoiceData.invoice_date)}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted block">Due Date</span>
+                          <span className="text-text block">{formatDisplayDate(invoiceData.due_date) || '-'}</span>
+                        </div>
+                      </div>
+                      {/* Totals */}
+                      <div className="pt-2 mt-1 border-t border-text-muted/10 grid grid-cols-3 gap-1">
+                        <div>
+                          <span className="text-xs text-text-muted block">Subtotal</span>
+                          <span className="text-text font-medium block">
+                            {invoiceData.subtotal_agorot != null
+                              ? formatCurrency(invoiceData.subtotal_agorot, invoiceData.currency || 'ILS')
+                              : '-'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted block">VAT</span>
+                          <span className="text-text font-medium block">
+                            {invoiceData.vat_amount_agorot != null
+                              ? formatCurrency(invoiceData.vat_amount_agorot, invoiceData.currency || 'ILS')
+                              : '-'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-text-muted block">Total</span>
+                          <span className="text-text font-medium text-primary block">
+                            {invoiceData.total_amount_agorot != null
+                              ? formatCurrency(invoiceData.total_amount_agorot, invoiceData.currency || 'ILS')
+                              : '-'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-text-muted text-sm">
+                      Loading...
+                    </div>
+                  )}
+                </div>
+              </Panel>
+            </PanelGroup>
+          </Panel>
+
+            {/* Horizontal Resize Handle */}
             <PanelResizeHandle className="w-1 mx-2 bg-text-muted/20 hover:bg-primary/50 transition-colors cursor-col-resize group relative">
               <div className="absolute inset-y-0 -left-2 -right-2" />
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1060,12 +1343,12 @@ export function InvoiceBankLinkModal({
                         }}
                       />
 
-                      {/* Amount tolerance */}
+                      {/* Minimum match score filter */}
                       <FilterDropdown
                         icon={AdjustmentsHorizontalIcon}
-                        label="Tolerance"
+                        label="Min Match"
                         value={amountTolerance}
-                        options={TOLERANCE_OPTIONS}
+                        options={toleranceOptions}
                         onChange={(val) => setAmountTolerance(val as number)}
                       />
 
@@ -1220,7 +1503,7 @@ export function InvoiceBankLinkModal({
                                   <TransactionTypeBadge type={tx.transaction_type} />
                                 </div>
                                 <div className="flex-1 px-2 text-sm text-text truncate" dir="auto">
-                                  {tx.description}
+                                  {getDisplayName(tx.description)}
                                 </div>
                                 <div className="w-16 px-2 text-center text-sm text-text-muted whitespace-nowrap">
                                   {formatDisplayDate(tx.date)}
@@ -1245,7 +1528,21 @@ export function InvoiceBankLinkModal({
                                   {txVatAmount !== null ? formatCurrency(txVatAmount, txCurrency) : '-'}
                                 </div>
                                 <div className="w-14 px-1 text-center">
-                                  {tx._matchScore !== undefined ? (
+                                  {tx._matchScore !== undefined && tx._matchScoreDetails ? (
+                                    <MatchScoreTooltip score={tx._matchScoreDetails}>
+                                      <span
+                                        className={`text-xs font-medium ${
+                                          tx._matchScore >= 80
+                                            ? 'text-green-400'
+                                            : tx._matchScore >= 50
+                                              ? 'text-yellow-400'
+                                              : 'text-text-muted'
+                                        }`}
+                                      >
+                                        {tx._matchScore}%
+                                      </span>
+                                    </MatchScoreTooltip>
+                                  ) : tx._matchScore !== undefined ? (
                                     <span
                                       className={`text-xs font-medium ${
                                         tx._matchScore >= 80
@@ -1332,7 +1629,7 @@ export function InvoiceBankLinkModal({
                                   <TransactionTypeBadge type={tx.transaction_type} />
                                 </div>
                                 <div className="flex-1 px-2 text-sm text-text truncate" dir="auto">
-                                  {tx.description}
+                                  {getDisplayName(tx.description)}
                                 </div>
                                 <div className="w-16 px-1 text-center text-sm text-text-muted whitespace-nowrap">
                                   {formatDisplayDate(tx.date)}
@@ -1426,201 +1723,201 @@ export function InvoiceBankLinkModal({
                 {/* Document Links Section */}
                 <Panel defaultSize={30} minSize={15}>
                   <div className="h-full flex flex-col border border-text-muted/20 rounded-lg overflow-hidden">
-                    <div className="px-4 py-2 bg-surface/50 border-b border-text-muted/20 flex items-center justify-between shrink-0">
-                <h3 className="text-sm font-medium text-text flex items-center gap-2">
-                  <DocumentIcon className="w-4 h-4" />
-                  Document Links
-                  <HeaderTooltip tooltip="Link the entire invoice document to transactions, independent of line items. Useful when the invoice represents a single payment or when line-item matching isn't needed." />
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => handleEditRow('new-doc-link', 'new-doc-link')}
-                  className="p-1 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
-                  title="Add document link"
-                >
-                  <PlusIcon className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto min-h-0">
-                {documentLinks.map((link, index) => {
-                  const isEditing = editingRowId === link.id && editingRowType === 'doc-link'
-                  const isHovered = hoveredRowId === `doc-${link.id}`
-
-                  return (
-                    <div
-                      key={link.id}
-                      className="flex items-stretch border-b border-text-muted/10 min-h-[44px]"
-                      onMouseEnter={() => setHoveredRowId(`doc-${link.id}`)}
-                      onMouseLeave={() => setHoveredRowId(null)}
-                    >
-                      <div className="w-10 flex items-center justify-center shrink-0 bg-surface/30">
-                        <NumberBadge number={`D${index + 1}`} linked={!!link.transaction_id} isDoc />
+                      <div className="px-3 py-2 bg-surface/50 border-b border-text-muted/20 flex items-center justify-between shrink-0">
+                        <h3 className="text-sm font-medium text-text flex items-center gap-2">
+                          <DocumentIcon className="w-4 h-4" />
+                          Document Links
+                          <HeaderTooltip tooltip="Link the entire invoice document to transactions, independent of line items. Useful when the invoice represents a single payment or when line-item matching isn't needed." />
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => handleEditRow('new-doc-link', 'new-doc-link')}
+                          className="p-1 bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
+                          title="Add document link"
+                        >
+                          <PlusIcon className="w-4 h-4" />
+                        </button>
                       </div>
-                      <div className="flex-1 px-3 py-2">
-                        {isEditing ? (
-                          <div className="space-y-2 p-2 bg-surface/30 rounded border border-text-muted/20">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-text-muted">Select Transaction</span>
-                              <button
-                                type="button"
-                                onClick={handleCancelEdit}
-                                className="text-xs text-text-muted hover:text-text"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="relative flex-1">
-                                <MagnifyingGlassIcon className="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
-                                <input
-                                  type="text"
-                                  value={candidateSearch}
-                                  onChange={(e) => setCandidateSearch(e.target.value)}
-                                  placeholder="Search..."
-                                  className="w-full ps-7 pe-2 py-1 text-xs bg-surface border border-text-muted/20 rounded text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
-                                />
+                      <div className="flex-1 overflow-y-auto min-h-0">
+                        {documentLinks.map((link, index) => {
+                          const isEditing = editingRowId === link.id && editingRowType === 'doc-link'
+                          const isHovered = hoveredRowId === `doc-${link.id}`
+
+                          return (
+                            <div
+                              key={link.id}
+                              className="flex items-stretch border-b border-text-muted/10 min-h-[44px]"
+                              onMouseEnter={() => setHoveredRowId(`doc-${link.id}`)}
+                              onMouseLeave={() => setHoveredRowId(null)}
+                            >
+                              <div className="w-10 flex items-center justify-center shrink-0 bg-surface/30">
+                                <NumberBadge number={`D${index + 1}`} linked={!!link.transaction_id} isDoc />
+                              </div>
+                              <div className="flex-1 px-3 py-2">
+                                {isEditing ? (
+                                  <div className="space-y-2 p-2 bg-surface/30 rounded border border-text-muted/20">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs text-text-muted">Select Transaction</span>
+                                      <button
+                                        type="button"
+                                        onClick={handleCancelEdit}
+                                        className="text-xs text-text-muted hover:text-text"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="relative flex-1">
+                                        <MagnifyingGlassIcon className="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+                                        <input
+                                          type="text"
+                                          value={candidateSearch}
+                                          onChange={(e) => setCandidateSearch(e.target.value)}
+                                          placeholder="Search..."
+                                          className="w-full ps-7 pe-2 py-1 text-xs bg-surface border border-text-muted/20 rounded text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="max-h-[120px] overflow-y-auto border border-text-muted/20 rounded bg-background/50">
+                                      {isLoadingCandidates ? (
+                                        <div className="p-3 text-center text-text-muted text-xs">Loading...</div>
+                                      ) : filteredCandidates.length === 0 ? (
+                                        <div className="p-3 text-center text-text-muted text-xs">No transactions</div>
+                                      ) : (
+                                        <div className="divide-y divide-text-muted/10">
+                                          {filteredCandidates.map((tx) => (
+                                            <button
+                                              key={tx.id}
+                                              type="button"
+                                              onClick={() => handleSelectTransaction(tx.id)}
+                                              disabled={isLinking}
+                                              className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-surface/50 text-start disabled:opacity-50"
+                                            >
+                                              <TransactionTypeBadge type={tx.transaction_type} />
+                                              <span className="text-xs text-text truncate flex-1" dir="auto">
+                                                {getDisplayName(tx.description)}
+                                              </span>
+                                              <span className="text-xs font-medium text-text">
+                                                {formatTransactionAmount(tx)}
+                                              </span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : link.transaction ? (
+                                  <div className="flex items-center gap-2 h-full">
+                                    <TransactionTypeBadge type={link.transaction.transaction_type} />
+                                    <span className="text-xs text-text-muted whitespace-nowrap">
+                                      {formatDisplayDate(link.transaction.date)}
+                                    </span>
+                                    <span className="text-sm text-text truncate flex-1" dir="auto">
+                                      {getDisplayName(link.transaction.description)}
+                                    </span>
+                                    <span className="text-sm font-medium text-text whitespace-nowrap">
+                                      {formatTransactionAmount(link.transaction)}
+                                    </span>
+                                    <div
+                                      className={`flex items-center gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => handleEditRow(link.id, 'doc-link')}
+                                        className="p-1 bg-primary/20 text-primary rounded hover:bg-primary/30"
+                                        title="Change"
+                                      >
+                                        <ArrowPathIcon className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveDocumentLink(link.id)}
+                                        disabled={isLinking}
+                                        className="p-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 disabled:opacity-50"
+                                        title="Remove"
+                                      >
+                                        <TrashIcon className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-text-muted">No transaction</span>
+                                )}
                               </div>
                             </div>
-                            <div className="max-h-[120px] overflow-y-auto border border-text-muted/20 rounded bg-background/50">
-                              {isLoadingCandidates ? (
-                                <div className="p-3 text-center text-text-muted text-xs">Loading...</div>
-                              ) : filteredCandidates.length === 0 ? (
-                                <div className="p-3 text-center text-text-muted text-xs">No transactions</div>
-                              ) : (
-                                <div className="divide-y divide-text-muted/10">
-                                  {filteredCandidates.map((tx) => (
-                                    <button
-                                      key={tx.id}
-                                      type="button"
-                                      onClick={() => handleSelectTransaction(tx.id)}
-                                      disabled={isLinking}
-                                      className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-surface/50 text-start disabled:opacity-50"
-                                    >
-                                      <TransactionTypeBadge type={tx.transaction_type} />
-                                      <span className="text-xs text-text truncate flex-1" dir="auto">
-                                        {tx.description}
-                                      </span>
-                                      <span className="text-xs font-medium text-text">
-                                        {formatTransactionAmount(tx)}
-                                      </span>
-                                    </button>
-                                  ))}
+                          )
+                        })}
+                        {/* Empty slot for new document link */}
+                        <div className="flex items-stretch border-b border-text-muted/10 min-h-[44px]">
+                          <div className="w-10 flex items-center justify-center shrink-0 bg-surface/30">
+                            <NumberBadge number={`D${documentLinks.length + 1}`} isDoc />
+                          </div>
+                          <div className="flex-1 px-3 py-2">
+                            {editingRowId === 'new-doc-link' && editingRowType === 'new-doc-link' ? (
+                              <div className="space-y-2 p-2 bg-surface/30 rounded border border-text-muted/20">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-text-muted">Select Transaction</span>
+                                  <button
+                                    type="button"
+                                    onClick={handleCancelEdit}
+                                    className="text-xs text-text-muted hover:text-text"
+                                  >
+                                    Cancel
+                                  </button>
                                 </div>
-                              )}
-                            </div>
-                          </div>
-                        ) : link.transaction ? (
-                          <div className="flex items-center gap-2 h-full">
-                            <TransactionTypeBadge type={link.transaction.transaction_type} />
-                            <span className="text-xs text-text-muted whitespace-nowrap">
-                              {formatDisplayDate(link.transaction.date)}
-                            </span>
-                            <span className="text-sm text-text truncate flex-1" dir="auto">
-                              {link.transaction.description}
-                            </span>
-                            <span className="text-sm font-medium text-text whitespace-nowrap">
-                              {formatTransactionAmount(link.transaction)}
-                            </span>
-                            <div
-                              className={`flex items-center gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}
-                            >
+                                <div className="flex items-center gap-2">
+                                  <div className="relative flex-1">
+                                    <MagnifyingGlassIcon className="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+                                    <input
+                                      type="text"
+                                      value={candidateSearch}
+                                      onChange={(e) => setCandidateSearch(e.target.value)}
+                                      placeholder="Search..."
+                                      className="w-full ps-7 pe-2 py-1 text-xs bg-surface border border-text-muted/20 rounded text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="max-h-[120px] overflow-y-auto border border-text-muted/20 rounded bg-background/50">
+                                  {isLoadingCandidates ? (
+                                    <div className="p-3 text-center text-text-muted text-xs">Loading...</div>
+                                  ) : filteredCandidates.length === 0 ? (
+                                    <div className="p-3 text-center text-text-muted text-xs">No transactions</div>
+                                  ) : (
+                                    <div className="divide-y divide-text-muted/10">
+                                      {filteredCandidates.map((tx) => (
+                                        <button
+                                          key={tx.id}
+                                          type="button"
+                                          onClick={() => handleSelectTransaction(tx.id)}
+                                          disabled={isLinking}
+                                          className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-surface/50 text-start disabled:opacity-50"
+                                        >
+                                          <TransactionTypeBadge type={tx.transaction_type} />
+                                          <span className="text-xs text-text truncate flex-1" dir="auto">
+                                            {getDisplayName(tx.description)}
+                                          </span>
+                                          <span className="text-xs font-medium text-text">
+                                            {formatTransactionAmount(tx)}
+                                          </span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
                               <button
                                 type="button"
-                                onClick={() => handleEditRow(link.id, 'doc-link')}
-                                className="p-1 bg-primary/20 text-primary rounded hover:bg-primary/30"
-                                title="Change"
+                                onClick={() => handleEditRow('new-doc-link', 'new-doc-link')}
+                                className="w-full h-full min-h-[28px] border border-dashed border-text-muted/30 rounded flex items-center justify-center hover:border-primary/50 hover:bg-primary/5 transition-colors"
                               >
-                                <ArrowPathIcon className="w-3 h-3" />
+                                <span className="text-xs text-text-muted">Click to add document link</span>
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveDocumentLink(link.id)}
-                                disabled={isLinking}
-                                className="p-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 disabled:opacity-50"
-                                title="Remove"
-                              >
-                                <TrashIcon className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-text-muted">No transaction</span>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-                {/* Empty slot for new document link */}
-                <div className="flex items-stretch border-b border-text-muted/10 min-h-[44px]">
-                  <div className="w-10 flex items-center justify-center shrink-0 bg-surface/30">
-                    <NumberBadge number={`D${documentLinks.length + 1}`} isDoc />
-                  </div>
-                  <div className="flex-1 px-3 py-2">
-                    {editingRowId === 'new-doc-link' && editingRowType === 'new-doc-link' ? (
-                      <div className="space-y-2 p-2 bg-surface/30 rounded border border-text-muted/20">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-text-muted">Select Transaction</span>
-                          <button
-                            type="button"
-                            onClick={handleCancelEdit}
-                            className="text-xs text-text-muted hover:text-text"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="relative flex-1">
-                            <MagnifyingGlassIcon className="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
-                            <input
-                              type="text"
-                              value={candidateSearch}
-                              onChange={(e) => setCandidateSearch(e.target.value)}
-                              placeholder="Search..."
-                              className="w-full ps-7 pe-2 py-1 text-xs bg-surface border border-text-muted/20 rounded text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
-                            />
+                            )}
                           </div>
                         </div>
-                        <div className="max-h-[120px] overflow-y-auto border border-text-muted/20 rounded bg-background/50">
-                          {isLoadingCandidates ? (
-                            <div className="p-3 text-center text-text-muted text-xs">Loading...</div>
-                          ) : filteredCandidates.length === 0 ? (
-                            <div className="p-3 text-center text-text-muted text-xs">No transactions</div>
-                          ) : (
-                            <div className="divide-y divide-text-muted/10">
-                              {filteredCandidates.map((tx) => (
-                                <button
-                                  key={tx.id}
-                                  type="button"
-                                  onClick={() => handleSelectTransaction(tx.id)}
-                                  disabled={isLinking}
-                                  className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-surface/50 text-start disabled:opacity-50"
-                                >
-                                  <TransactionTypeBadge type={tx.transaction_type} />
-                                  <span className="text-xs text-text truncate flex-1" dir="auto">
-                                    {tx.description}
-                                  </span>
-                                  <span className="text-xs font-medium text-text">
-                                    {formatTransactionAmount(tx)}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleEditRow('new-doc-link', 'new-doc-link')}
-                        className="w-full h-full min-h-[28px] border border-dashed border-text-muted/30 rounded flex items-center justify-center hover:border-primary/50 hover:bg-primary/5 transition-colors"
-                      >
-                        <span className="text-xs text-text-muted">Click to add document link</span>
-                      </button>
-                    )}
                     </div>
-                  </div>
-                </div>
-                  </div>
                 </Panel>
               </PanelGroup>
             </Panel>

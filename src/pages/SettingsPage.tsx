@@ -26,8 +26,9 @@ import {
   CloudArrowUpIcon,
   TableCellsIcon,
   UserPlusIcon,
+  BoltIcon,
 } from '@heroicons/react/24/outline'
-import { useSettingsStore, type DuplicateAction, type MatchingTrigger, type LinkingAmountTolerance, type LinkingCurrencyFilter, type TablePageSize } from '@/stores/settingsStore'
+import { useSettingsStore, type DuplicateAction, type MatchingTrigger, type TablePageSize } from '@/stores/settingsStore'
 import { useCreditCards, useCreateCreditCard, useDeleteCreditCard, useUpdateCreditCard } from '@/hooks/useCreditCards'
 import { useProfile, useUpdateProfile, useUploadAvatar, useRemoveAvatar } from '@/hooks/useProfile'
 import { useAuth } from '@/contexts/AuthContext'
@@ -1327,12 +1328,10 @@ function RulesTab({ ccLinkingRef }: RulesTabProps) {
     setCcBankDateRangeDays,
     matchingConfidenceThreshold,
     setMatchingConfidenceThreshold,
-    linkingDateRangeDays,
-    setLinkingDateRangeDays,
     linkingAmountTolerance,
     setLinkingAmountTolerance,
-    linkingDefaultCurrency,
-    setLinkingDefaultCurrency,
+    autoMatchEnabled,
+    setAutoMatchEnabled,
     tablePageSize,
     setTablePageSize,
   } = useSettingsStore()
@@ -1347,21 +1346,6 @@ function RulesTab({ ccLinkingRef }: RulesTabProps) {
     { value: 'on_upload', label: 'Each upload' },
     { value: 'after_all_uploads', label: 'After batch' },
     { value: 'manual', label: 'Manual' },
-  ]
-
-  const toleranceOptions: { value: string; label: string }[] = [
-    { value: '-1', label: 'Any' },
-    { value: '0', label: 'Exact' },
-    { value: '5', label: '5%' },
-    { value: '10', label: '10%' },
-    { value: '20', label: '20%' },
-  ]
-
-  const currencyOptions: { value: LinkingCurrencyFilter; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'ILS', label: 'ILS' },
-    { value: 'USD', label: 'USD' },
-    { value: 'EUR', label: 'EUR' },
   ]
 
   const pageSizeOptions: { value: string; label: string }[] = [
@@ -1497,55 +1481,60 @@ function RulesTab({ ccLinkingRef }: RulesTabProps) {
           </div>
         </div>
 
-        {/* Date Range - Small card */}
-        <div className="bg-surface border border-text-muted/10 rounded-xl p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-purple-500/10 rounded-lg">
-              <LinkIcon className="w-5 h-5 text-purple-500" />
+        {/* Auto-Match Toggle - Small card */}
+        <div className="bg-surface border border-text-muted/10 rounded-xl p-5" id="cc-linking" ref={ccLinkingRef as React.RefObject<HTMLDivElement>}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-cyan-500/10 rounded-lg">
+                <BoltIcon className="w-5 h-5 text-cyan-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-text">Auto-Match</h3>
+                <p className="text-xs text-text-muted">Enable bulk auto-matching</p>
+              </div>
             </div>
-            <h3 className="text-sm font-semibold text-text">Date Range</h3>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoMatchEnabled}
+              onClick={() => setAutoMatchEnabled(!autoMatchEnabled)}
+              className={cx(
+                'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
+                autoMatchEnabled ? 'bg-cyan-500' : 'bg-text-muted/30'
+              )}
+            >
+              <span className={cx('pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', autoMatchEnabled ? 'translate-x-5' : 'translate-x-0')} />
+            </button>
           </div>
-          <p className="text-xs text-text-muted mb-3">Search window for linking</p>
-          <NumberStepper
-            value={linkingDateRangeDays}
-            min={1}
-            max={60}
-            step={1}
-            unit=" days"
-            onChange={setLinkingDateRangeDays}
-          />
         </div>
 
-        {/* Amount Tolerance - Wider card to fit all options */}
+        {/* Amount Tolerance - Slider card */}
         <div className="col-span-2 lg:col-span-2 bg-surface border border-text-muted/10 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-cyan-500/10 rounded-lg">
-              <AdjustmentsHorizontalIcon className="w-5 h-5 text-cyan-500" />
+            <div className="p-2 bg-purple-500/10 rounded-lg">
+              <AdjustmentsHorizontalIcon className="w-5 h-5 text-purple-500" />
             </div>
             <h3 className="text-sm font-semibold text-text">Amount Tolerance</h3>
           </div>
-          <p className="text-xs text-text-muted mb-3">How closely amounts match</p>
-          <SegmentedControl
-            value={String(linkingAmountTolerance)}
-            options={toleranceOptions}
-            onChange={(val) => setLinkingAmountTolerance(Number(val) as LinkingAmountTolerance)}
-          />
-        </div>
-
-        {/* Currency Filter - Small card */}
-        <div className="bg-surface border border-text-muted/10 rounded-xl p-5" id="cc-linking" ref={ccLinkingRef as React.RefObject<HTMLDivElement>}>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-emerald-500/10 rounded-lg">
-              <CurrencyDollarIcon className="w-5 h-5 text-emerald-500" />
+          <p className="text-xs text-text-muted mb-3">Minimum match score for auto-linking</p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-4">
+              <input
+                type="range"
+                min={51}
+                max={100}
+                step={1}
+                value={Math.max(51, Math.min(100, linkingAmountTolerance))}
+                onChange={(e) => setLinkingAmountTolerance(Number(e.target.value))}
+                className="flex-1 h-2 bg-text-muted/20 rounded-lg appearance-none cursor-pointer accent-primary"
+              />
+              <span className="w-12 text-sm font-medium text-text text-end">{Math.max(51, Math.min(100, linkingAmountTolerance))}%</span>
             </div>
-            <h3 className="text-sm font-semibold text-text">Currency</h3>
+            <div className="flex justify-between text-xs text-text-muted">
+              <span>51% = More lenient</span>
+              <span>100% = Exact match only</span>
+            </div>
           </div>
-          <p className="text-xs text-text-muted mb-3">Default filter</p>
-          <SegmentedControl
-            value={linkingDefaultCurrency}
-            options={currencyOptions}
-            onChange={setLinkingDefaultCurrency}
-          />
         </div>
 
         {/* === CREDIT CARD TO BANK LINKING SECTION === */}

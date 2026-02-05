@@ -1,6 +1,6 @@
 /**
  * AI extraction service for invoice data extraction
- * Primary: Gemini 3.0 Flash Preview | Fallback: Kimi K2.5 via Together AI
+ * Primary: Gemini 3.0 Flash Preview | Fallback: GPT-5 mini via OpenAI
  */
 
 import type { InvoiceExtraction } from './types'
@@ -9,9 +9,9 @@ import type { InvoiceExtraction } from './types'
 const GEMINI_MODEL = 'gemini-3-flash-preview'
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 
-// Fallback: Kimi K2.5 via Together AI
-const TOGETHER_URL = 'https://api.together.xyz/v1/chat/completions'
-const KIMI_MODEL = 'moonshotai/Kimi-K2.5'
+// Fallback: GPT-5 mini via OpenAI
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
+const OPENAI_MODEL = 'gpt-5-mini'
 
 /**
  * Get the Gemini API key from environment
@@ -21,10 +21,10 @@ export function getGeminiApiKey(): string | null {
 }
 
 /**
- * Get the Together API key from environment (for Kimi fallback)
+ * Get the OpenAI API key from environment (for GPT-5 mini fallback)
  */
-export function getTogetherApiKey(): string | null {
-  return import.meta.env.VITE_TOGETHER_API_KEY || null
+export function getOpenAIApiKey(): string | null {
+  return import.meta.env.VITE_OPENAI_API_KEY || null
 }
 
 /**
@@ -81,76 +81,13 @@ function extractJsonFromText(text: string): string | null {
   return null
 }
 
-// JSON Schema for structured output - uses Gemini's nullable format
-const INVOICE_RESPONSE_SCHEMA = {
-  type: 'object',
-  properties: {
-    vendor: {
-      type: 'object',
-      properties: {
-        name: { type: 'string' },
-        vat_id: { type: 'string', nullable: true },
-        country: { type: 'string', nullable: true },
-      },
-      required: ['name'],
-    },
-    document: {
-      type: 'object',
-      properties: {
-        type: { type: 'string', enum: ['billing_summary', 'invoice', 'receipt', 'credit_note'] },
-        number: { type: 'string', nullable: true },
-        date: { type: 'string', nullable: true },
-        billing_period: {
-          type: 'object',
-          nullable: true,
-          properties: {
-            start: { type: 'string', nullable: true },
-            end: { type: 'string', nullable: true },
-          },
-        },
-      },
-      required: ['type'],
-    },
-    line_items: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          date: { type: 'string' },
-          description: { type: 'string' },
-          reference_id: { type: 'string', nullable: true },
-          amount: { type: 'number' },
-          currency: { type: 'string' },
-          vat_rate: { type: 'number', nullable: true },
-          vat_amount: { type: 'number', nullable: true },
-        },
-        required: ['date', 'description', 'amount', 'currency'],
-      },
-    },
-    totals: {
-      type: 'object',
-      properties: {
-        subtotal: { type: 'number', nullable: true },
-        vat_rate: { type: 'number', nullable: true },
-        vat_amount: { type: 'number', nullable: true },
-        total: { type: 'number' },
-        currency: { type: 'string' },
-      },
-      required: ['total', 'currency'],
-    },
-    confidence: { type: 'number' },
-  },
-  required: ['vendor', 'document', 'line_items', 'totals', 'confidence'],
-}
-
 // The extraction prompt
 const EXTRACTION_PROMPT = `Extract invoice/billing data from this file and return a JSON object with this exact structure:
 
 {
   "vendor": {
     "name": "Company Name",
-    "vat_id": "VAT registration number or null",
-    "country": "Country or null"
+    "vat_id": "VAT registration number or null"
   },
   "document": {
     "type": "billing_summary | invoice | receipt | credit_note",
@@ -178,8 +115,7 @@ const EXTRACTION_PROMPT = `Extract invoice/billing data from this file and retur
     "vat_amount": 170.00,
     "total": 1170.00,
     "currency": "USD"
-  },
-  "confidence": 95
+  }
 }
 
 CRITICAL - LINE ITEM RULES (each line_item must match ONE bank transaction):
@@ -436,10 +372,10 @@ export async function extractWithGemini(
 }
 
 // ============================================================================
-// KIMI K2.5 EXTRACTION (FALLBACK - IMAGES ONLY)
+// GPT-5 MINI EXTRACTION (FALLBACK - IMAGES AND PDFs)
 // ============================================================================
 
-interface KimiResponse {
+interface OpenAIResponse {
   choices?: Array<{
     message?: {
       role?: string
@@ -453,22 +389,23 @@ interface KimiResponse {
 }
 
 /**
- * Extract invoice data using Kimi K2.5 via Together AI
- * Note: Only supports images (PNG, JPG, WEBP), not PDFs or spreadsheets
+ * Extract invoice data using GPT-5 mini via OpenAI
+ * Supports images (PNG, JPG, WEBP) and PDFs
+ * Uses minimal reasoning effort and low verbosity for fast extraction
  */
-export async function extractWithKimi(
+export async function extractWithOpenAI(
   apiKey: string,
   base64Data: string,
   mimeType: string
 ): Promise<InvoiceExtraction> {
-  console.log('[KIMI] Starting fallback extraction...')
-  console.log('[KIMI] Model:', KIMI_MODEL)
-  console.log('[KIMI] URL:', TOGETHER_URL)
-  console.log('[KIMI] Data size:', Math.round(base64Data.length / 1024), 'KB base64')
-  console.log('[KIMI] MIME type:', mimeType)
+  console.log('[OPENAI] Starting fallback extraction...')
+  console.log('[OPENAI] Model:', OPENAI_MODEL)
+  console.log('[OPENAI] URL:', OPENAI_URL)
+  console.log('[OPENAI] Data size:', Math.round(base64Data.length / 1024), 'KB base64')
+  console.log('[OPENAI] MIME type:', mimeType)
 
   const requestBody = {
-    model: KIMI_MODEL,
+    model: OPENAI_MODEL,
     messages: [
       {
         role: 'user',
@@ -487,13 +424,15 @@ export async function extractWithKimi(
       },
     ],
     response_format: { type: 'json_object' },
-    max_tokens: 131072,
+    reasoning: { effort: 'minimal' },
+    verbosity: 'low',
+    max_tokens: 16384,
   }
 
-  console.log('[KIMI] Sending request...')
+  console.log('[OPENAI] Sending request...')
   const startTime = Date.now()
 
-  const response = await fetch(TOGETHER_URL, {
+  const response = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -503,75 +442,75 @@ export async function extractWithKimi(
   })
 
   const elapsed = Date.now() - startTime
-  console.log('[KIMI] Response received in', elapsed, 'ms')
-  console.log('[KIMI] Status:', response.status, response.statusText)
+  console.log('[OPENAI] Response received in', elapsed, 'ms')
+  console.log('[OPENAI] Status:', response.status, response.statusText)
 
   if (!response.ok) {
     const errorText = await response.text()
-    console.error('[KIMI] Error response body:', errorText)
+    console.error('[OPENAI] Error response body:', errorText)
     let errorData: { error?: { message?: string }; raw?: string }
     try {
       errorData = JSON.parse(errorText)
     } catch {
       errorData = { raw: errorText }
     }
-    console.error('[KIMI] Parsed error:', JSON.stringify(errorData, null, 2))
+    console.error('[OPENAI] Parsed error:', JSON.stringify(errorData, null, 2))
     throw new Error(
-      `Kimi API error: ${response.status} - ${errorData?.error?.message || errorData?.raw || 'Unknown error'}`
+      `OpenAI API error: ${response.status} - ${errorData?.error?.message || errorData?.raw || 'Unknown error'}`
     )
   }
 
-  const data: KimiResponse = await response.json()
-  console.log('[KIMI] Response keys:', Object.keys(data))
+  const data: OpenAIResponse = await response.json()
+  console.log('[OPENAI] Response keys:', Object.keys(data))
 
   if (!data.choices || data.choices.length === 0) {
-    console.error('[KIMI] No choices in response:', JSON.stringify(data, null, 2))
-    throw new Error('Kimi returned no choices')
+    console.error('[OPENAI] No choices in response:', JSON.stringify(data, null, 2))
+    throw new Error('OpenAI returned no choices')
   }
 
   const choice = data.choices[0]
-  console.log('[KIMI] Choice finish_reason:', choice.finish_reason)
-  console.log('[KIMI] Choice message role:', choice.message?.role)
+  console.log('[OPENAI] Choice finish_reason:', choice.finish_reason)
+  console.log('[OPENAI] Choice message role:', choice.message?.role)
 
   const content = choice.message?.content
   if (!content) {
-    console.error('[KIMI] No content in message:', JSON.stringify(choice, null, 2))
-    throw new Error('Kimi response has no content')
+    console.error('[OPENAI] No content in message:', JSON.stringify(choice, null, 2))
+    throw new Error('OpenAI response has no content')
   }
 
-  console.log('[KIMI] Content length:', content.length)
-  console.log('[KIMI] Content preview:', content.substring(0, 200))
+  console.log('[OPENAI] Content length:', content.length)
+  console.log('[OPENAI] Content preview:', content.substring(0, 200))
 
   const jsonText = extractJsonFromText(content)
   if (!jsonText) {
-    console.error('[KIMI] No JSON found in content')
-    console.error('[KIMI] Full content:', content.substring(0, 1000))
-    throw new Error('Kimi response contained no valid JSON')
+    console.error('[OPENAI] No JSON found in content')
+    console.error('[OPENAI] Full content:', content.substring(0, 1000))
+    throw new Error('OpenAI response contained no valid JSON')
   }
 
-  console.log('[KIMI] Parsing JSON...')
+  console.log('[OPENAI] Parsing JSON...')
   let parsed: InvoiceExtraction | InvoiceExtraction[]
   try {
     parsed = JSON.parse(jsonText)
   } catch (parseError) {
-    console.error('[KIMI] JSON parse failed:', parseError)
-    console.error('[KIMI] Raw JSON text:', jsonText.substring(0, 500))
-    throw new Error('Failed to parse Kimi response as JSON')
+    console.error('[OPENAI] JSON parse failed:', parseError)
+    console.error('[OPENAI] Raw JSON text:', jsonText.substring(0, 500))
+    throw new Error('Failed to parse OpenAI response as JSON')
   }
 
   if (Array.isArray(parsed)) {
-    console.log('[KIMI] Response is array, taking first element')
+    console.log('[OPENAI] Response is array, taking first element')
     parsed = parsed[0]
   }
 
   const extracted = parsed as InvoiceExtraction
 
   if (!extracted.vendor || !extracted.totals) {
-    console.error('[KIMI] Incomplete extraction:', JSON.stringify(extracted, null, 2))
-    throw new Error('Kimi extraction incomplete - missing vendor or totals')
+    console.error('[OPENAI] Incomplete extraction:', JSON.stringify(extracted, null, 2))
+    throw new Error('OpenAI extraction incomplete - missing vendor or totals')
   }
 
-  console.log('[KIMI] Extraction successful:', {
+  console.log('[OPENAI] Extraction successful:', {
     vendor: extracted.vendor?.name,
     documentType: extracted.document?.type,
     lineItemCount: extracted.line_items?.length,
@@ -583,8 +522,8 @@ export async function extractWithKimi(
 }
 
 /**
- * Check if MIME type is supported by Kimi (images only)
+ * Check if MIME type is supported by OpenAI GPT-5 mini (images and PDFs)
  */
-export function isKimiSupportedType(mimeType: string): boolean {
-  return ['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)
+export function isOpenAISupportedType(mimeType: string): boolean {
+  return ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(mimeType)
 }

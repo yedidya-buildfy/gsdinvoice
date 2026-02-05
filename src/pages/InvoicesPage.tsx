@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { TrashIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, SparklesIcon, BoltIcon } from '@heroicons/react/24/outline'
 import { FileUploader } from '@/components/upload/FileUploader'
 import {
   DocumentTable,
@@ -24,6 +24,7 @@ import {
 } from '@/hooks/useDocumentExtraction'
 import { useInvoices } from '@/hooks/useInvoices'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useAutoMatch, type AutoMatchBatchResult } from '@/hooks/useAutoMatch'
 import { supabase } from '@/lib/supabase'
 import type { ExtractionRequest, LineItemDuplicateInfo } from '@/lib/extraction/types'
 import type { DuplicateAction } from '@/lib/duplicates/types'
@@ -35,7 +36,8 @@ export function InvoicesPage() {
   const { data: invoices } = useInvoices()
   const extractSingle = useExtractDocument()
   const extractMultiple = useExtractMultipleDocuments()
-  const { autoExtractOnUpload, tablePageSize } = useSettingsStore()
+  const autoMatch = useAutoMatch()
+  const { autoExtractOnUpload, autoMatchEnabled, tablePageSize } = useSettingsStore()
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
@@ -45,6 +47,9 @@ export function InvoicesPage() {
 
   // Bank link modal state
   const [bankLinkModal, setBankLinkModal] = useState<{ invoiceId: string; vendorName: string | null } | null>(null)
+
+  // Auto-match result state
+  const [autoMatchResult, setAutoMatchResult] = useState<AutoMatchBatchResult | null>(null)
 
   // Filter state
   const [filters, setFilters] = useState<InvoiceFilterState>(getDefaultInvoiceFilters)
@@ -318,6 +323,34 @@ export function InvoicesPage() {
     }
   }
 
+  // Handle auto-match action for selected invoices
+  const handleAutoMatch = async () => {
+    if (selectedIds.size === 0 || !invoices) return
+
+    // Get invoice IDs from selected document IDs (only processed documents)
+    const selectedInvoiceIds = invoices
+      .filter((inv) => {
+        const doc = documentsWithInvoices.find((d) => d.invoice?.id === inv.id)
+        return doc && selectedIds.has(doc.id) && doc.status === 'processed'
+      })
+      .map((inv) => inv.id)
+
+    if (selectedInvoiceIds.length === 0) return
+
+    autoMatch.mutate(
+      selectedInvoiceIds.map((id) => ({ invoiceId: id })),
+      {
+        onSuccess: (results) => {
+          setAutoMatchResult(results)
+          // Clear selection after matching
+          setSelectedIds(new Set())
+          // Clear result after a delay
+          setTimeout(() => setAutoMatchResult(null), 5000)
+        },
+      }
+    )
+  }
+
   const handleRowClick = (doc: DocumentWithInvoice) => {
     setSelectedDocumentId(doc.id)
   }
@@ -372,6 +405,11 @@ export function InvoicesPage() {
     ? documents.filter((doc) => selectedIds.has(doc.id) && doc.status === 'pending').length
     : 0
 
+  // Count processed documents for auto-match button
+  const processedCount = documents
+    ? documents.filter((doc) => selectedIds.has(doc.id) && doc.status === 'processed').length
+    : 0
+
   // Check if any filters are active
   const hasActiveFilters =
     filters.search ||
@@ -417,6 +455,19 @@ export function InvoicesPage() {
                 {extractMultiple.isPending ? 'Extracting...' : `Extract (${pendingCount})`}
               </button>
 
+              {/* Auto Match button - only show if enabled and has processed docs */}
+              {autoMatchEnabled && (
+                <button
+                  type="button"
+                  onClick={handleAutoMatch}
+                  disabled={autoMatch.isPending || processedCount === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <BoltIcon className="w-4 h-4" />
+                  {autoMatch.isPending ? 'Matching...' : `Auto Match (${processedCount})`}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={handleDelete}
@@ -429,6 +480,21 @@ export function InvoicesPage() {
             </div>
           )}
         </div>
+
+        {/* Auto-match result toast */}
+        {autoMatchResult && (
+          <div className="mb-4 px-4 py-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
+            <div className="flex items-center gap-2 text-cyan-400 text-sm">
+              <BoltIcon className="w-4 h-4" />
+              <span className="font-medium">Auto-Match Complete</span>
+            </div>
+            <div className="text-xs text-text-muted mt-1">
+              Matched {autoMatchResult.matched} line items across {autoMatchResult.processedInvoices} invoices.
+              {autoMatchResult.skipped > 0 && ` Skipped ${autoMatchResult.skipped} (already matched or below threshold).`}
+              {autoMatchResult.failed > 0 && ` Failed: ${autoMatchResult.failed}.`}
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         {totalCount > 0 && (

@@ -170,8 +170,11 @@ export type Database = {
           file_size: number | null
           file_type: string
           id: string
+          max_retries: number | null
           original_name: string
           processed_at: string | null
+          processing_started_at: string | null
+          retry_count: number | null
           source_type: string
           status: string | null
           storage_path: string
@@ -186,8 +189,11 @@ export type Database = {
           file_size?: number | null
           file_type: string
           id?: string
+          max_retries?: number | null
           original_name: string
           processed_at?: string | null
+          processing_started_at?: string | null
+          retry_count?: number | null
           source_type: string
           status?: string | null
           storage_path: string
@@ -202,8 +208,11 @@ export type Database = {
           file_size?: number | null
           file_type?: string
           id?: string
+          max_retries?: number | null
           original_name?: string
           processed_at?: string | null
+          processing_started_at?: string | null
+          retry_count?: number | null
           source_type?: string
           status?: string | null
           storage_path?: string
@@ -417,6 +426,45 @@ export type Database = {
           },
         ]
       }
+      plan_limits: {
+        Row: {
+          created_at: string | null
+          has_ai_matching: boolean | null
+          has_api_access: boolean | null
+          has_auto_matching: boolean | null
+          max_bank_connections: number | null
+          max_invoices_per_month: number | null
+          max_team_members: number | null
+          name: string
+          overage_price_cents: number | null
+          plan_tier: string
+        }
+        Insert: {
+          created_at?: string | null
+          has_ai_matching?: boolean | null
+          has_api_access?: boolean | null
+          has_auto_matching?: boolean | null
+          max_bank_connections?: number | null
+          max_invoices_per_month?: number | null
+          max_team_members?: number | null
+          name: string
+          overage_price_cents?: number | null
+          plan_tier: string
+        }
+        Update: {
+          created_at?: string | null
+          has_ai_matching?: boolean | null
+          has_api_access?: boolean | null
+          has_auto_matching?: boolean | null
+          max_bank_connections?: number | null
+          max_invoices_per_month?: number | null
+          max_team_members?: number | null
+          name?: string
+          overage_price_cents?: number | null
+          plan_tier?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -473,6 +521,59 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean | null
+          created_at: string | null
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          plan_tier: string
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          trial_end: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan_tier?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_end?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan_tier?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_end?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_plan_tier_fkey"
+            columns: ["plan_tier"]
+            isOneToOne: false
+            referencedRelation: "plan_limits"
+            referencedColumns: ["plan_tier"]
+          },
+        ]
       }
       team_audit_logs: {
         Row: {
@@ -750,6 +851,42 @@ export type Database = {
           },
         ]
       }
+      usage_records: {
+        Row: {
+          bank_connections_count: number | null
+          created_at: string | null
+          id: string
+          invoices_processed: number | null
+          period_end: string
+          period_start: string
+          team_members_count: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          bank_connections_count?: number | null
+          created_at?: string | null
+          id?: string
+          invoices_processed?: number | null
+          period_end: string
+          period_start: string
+          team_members_count?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          bank_connections_count?: number | null
+          created_at?: string | null
+          id?: string
+          invoices_processed?: number | null
+          period_end?: string
+          period_start?: string
+          team_members_count?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           auto_approval_threshold: number | null
@@ -788,6 +925,59 @@ export type Database = {
           },
         ]
       }
+      vendor_aliases: {
+        Row: {
+          alias_pattern: string
+          canonical_name: string
+          created_at: string | null
+          default_has_vat: boolean | null
+          default_vat_percentage: number | null
+          id: string
+          match_type: string
+          priority: number | null
+          source: string
+          team_id: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          alias_pattern: string
+          canonical_name: string
+          created_at?: string | null
+          default_has_vat?: boolean | null
+          default_vat_percentage?: number | null
+          id?: string
+          match_type?: string
+          priority?: number | null
+          source?: string
+          team_id?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          alias_pattern?: string
+          canonical_name?: string
+          created_at?: string | null
+          default_has_vat?: boolean | null
+          default_vat_percentage?: number | null
+          id?: string
+          match_type?: string
+          priority?: number | null
+          source?: string
+          team_id?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_aliases_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -809,6 +999,7 @@ export type Database = {
         Args: { ids: string[]; update_data: Json }
         Returns: number
       }
+      can_upload_invoice: { Args: { p_user_id: string }; Returns: boolean }
       check_invitation_rate_limit: {
         Args: { p_user_id: string }
         Returns: boolean
@@ -819,11 +1010,22 @@ export type Database = {
       }
       generate_team_slug: { Args: { team_name: string }; Returns: string }
       get_user_team_role: { Args: { check_team_id: string }; Returns: string }
+      increment_invoice_usage: {
+        Args: { p_user_id: string }
+        Returns: undefined
+      }
       is_active_team_member: {
         Args: { check_team_id: string }
         Returns: boolean
       }
       is_team_admin: { Args: { check_team_id: string }; Returns: boolean }
+      is_valid_currency_code: { Args: { code: string }; Returns: boolean }
+      seed_default_vendor_aliases: {
+        Args: { p_team_id?: string; p_user_id: string }
+        Returns: undefined
+      }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never

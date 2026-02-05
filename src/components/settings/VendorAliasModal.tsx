@@ -5,7 +5,7 @@ import {
   ModalOverlay as AriaModalOverlay,
   Heading as AriaHeading,
 } from 'react-aria-components'
-import { XMarkIcon, TagIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon, TagIcon, ReceiptPercentIcon } from '@heroicons/react/24/outline'
 import { cx } from '@/utils/cx'
 import type { VendorAlias } from '@/types/database'
 
@@ -27,6 +27,8 @@ interface VendorAliasModalProps {
     canonical_name: string
     match_type: VendorAlias['match_type']
     priority?: number
+    default_has_vat?: boolean | null
+    default_vat_percentage?: number | null
   }) => Promise<void>
   editingAlias?: VendorAlias | null
 }
@@ -53,6 +55,13 @@ function VendorAliasForm({
   const [matchType, setMatchType] = useState<VendorAlias['match_type']>(editingAlias?.match_type ?? 'contains')
   const [priority, setPriority] = useState(editingAlias?.priority ?? 0)
   const [error, setError] = useState<string | null>(null)
+
+  // VAT defaults state - 'none' means no default set
+  const [vatSetting, setVatSetting] = useState<'none' | 'yes' | 'no'>(
+    editingAlias?.default_has_vat === true ? 'yes' :
+    editingAlias?.default_has_vat === false ? 'no' : 'none'
+  )
+  const [vatPercentage, setVatPercentage] = useState(editingAlias?.default_vat_percentage ?? 17)
 
   const isEditing = !!editingAlias
 
@@ -84,6 +93,8 @@ function VendorAliasForm({
         canonical_name: canonicalName.trim(),
         match_type: matchType,
         priority,
+        default_has_vat: vatSetting === 'none' ? null : vatSetting === 'yes',
+        default_vat_percentage: vatSetting === 'yes' ? vatPercentage : null,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save alias')
@@ -179,6 +190,89 @@ function VendorAliasForm({
         <p className="text-xs text-text-muted mt-1">
           Higher priority aliases are checked first (0-100)
         </p>
+      </div>
+
+      {/* VAT Defaults Section */}
+      <div className="pt-4 border-t border-border">
+        <div className="flex items-center gap-2 mb-3">
+          <ReceiptPercentIcon className="w-4 h-4 text-text-muted" />
+          <span className="text-sm font-medium text-text">VAT Default</span>
+          <span className="text-xs text-text-muted">(optional)</span>
+        </div>
+
+        <div className="space-y-3">
+          {/* VAT Setting Toggle */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setVatSetting('none')}
+              disabled={isSaving}
+              className={cx(
+                'px-3 py-1.5 text-sm rounded-lg transition-colors',
+                vatSetting === 'none'
+                  ? 'bg-primary text-white'
+                  : 'bg-surface-2 text-text-muted hover:text-text'
+              )}
+            >
+              No Default
+            </button>
+            <button
+              type="button"
+              onClick={() => setVatSetting('yes')}
+              disabled={isSaving}
+              className={cx(
+                'px-3 py-1.5 text-sm rounded-lg transition-colors',
+                vatSetting === 'yes'
+                  ? 'bg-green-500 text-white'
+                  : 'bg-surface-2 text-text-muted hover:text-text'
+              )}
+            >
+              Has VAT
+            </button>
+            <button
+              type="button"
+              onClick={() => setVatSetting('no')}
+              disabled={isSaving}
+              className={cx(
+                'px-3 py-1.5 text-sm rounded-lg transition-colors',
+                vatSetting === 'no'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-surface-2 text-text-muted hover:text-text'
+              )}
+            >
+              No VAT
+            </button>
+          </div>
+
+          {/* VAT Percentage - only show when VAT is enabled */}
+          {vatSetting === 'yes' && (
+            <div className="flex items-center gap-3">
+              <label htmlFor="vat-percentage" className="text-sm text-text-muted">
+                VAT Rate:
+              </label>
+              <div className="relative w-24">
+                <input
+                  id="vat-percentage"
+                  type="number"
+                  value={vatPercentage}
+                  onChange={(e) => setVatPercentage(parseFloat(e.target.value) || 17)}
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  className="w-full px-3 py-1.5 pr-8 bg-surface-2 border border-border rounded-lg text-text text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  disabled={isSaving}
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">%</span>
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-text-muted">
+            {vatSetting === 'none' && 'Transactions will use existing VAT settings'}
+            {vatSetting === 'yes' && 'Transactions matching this alias will default to having VAT'}
+            {vatSetting === 'no' && 'Transactions matching this alias will default to no VAT (e.g., foreign vendors)'}
+          </p>
+        </div>
       </div>
 
       {/* Actions */}

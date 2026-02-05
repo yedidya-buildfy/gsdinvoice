@@ -16,8 +16,9 @@ import {
   type ScoringContext,
   type ExtractedInvoiceData,
 } from './scorer'
-import { linkLineItemToTransaction, getTransactionLinkSummary } from './index'
+import { linkLineItemToTransaction } from './index'
 import type { MatchMethod, LinkResult } from './types'
+import { getExchangeRatesForDate } from '../exchangeRates'
 
 // =============================================================================
 // Types
@@ -134,21 +135,8 @@ async function fetchExtractedData(invoice: Invoice): Promise<ExtractedInvoiceDat
   return data.extracted_data as ExtractedInvoiceData
 }
 
-/**
- * Calculate remaining amount for a transaction (after existing allocations)
- */
-async function getTransactionRemainingAmount(transactionId: string): Promise<number | null> {
-  const summary = await getTransactionLinkSummary(transactionId)
-  return summary?.remainingAgorot ?? null
-}
-
-/**
- * Check if transaction is fully allocated
- */
-async function isTransactionFullyAllocated(transactionId: string): Promise<boolean> {
-  const summary = await getTransactionLinkSummary(transactionId)
-  return summary?.isFullyAllocated ?? false
-}
+// NOTE: Individual allocation check functions removed - using batchGetAllocationInfo instead
+// for better performance (eliminates N+1 queries)
 
 // =============================================================================
 // Main Functions
@@ -207,15 +195,42 @@ export async function getMatchCandidates(
   // Fetch extracted data for additional context
   const extractedData = await fetchExtractedData(invoice)
 
+  // Collect all currencies involved (line item + all transactions)
+  // A transaction is considered foreign currency if it has foreign_amount_cents AND foreign_currency
+  const currencies = new Set<string>()
+  if (lineItem.currency && lineItem.currency.toUpperCase() !== 'ILS') {
+    currencies.add(lineItem.currency.toUpperCase())
+  }
+  for (const tx of transactions || []) {
+    const hasForeignAmount = tx.foreign_amount_cents != null && tx.foreign_amount_cents !== 0
+    if (hasForeignAmount && tx.foreign_currency && tx.foreign_currency.toUpperCase() !== 'ILS') {
+      currencies.add(tx.foreign_currency.toUpperCase())
+    }
+  }
+
+  // Pre-fetch exchange rates for all currencies involved
+  let exchangeRates: Map<string, { rate: number; rateDate: string }> | undefined
+  if (currencies.size > 0) {
+    try {
+      exchangeRates = await getExchangeRatesForDate(lineItemDate, Array.from(currencies))
+    } catch (error) {
+      console.warn('[autoMatcher] Failed to fetch exchange rates:', error)
+    }
+  }
+
   // Build scoring context
   const scoringContext: ScoringContext = {
     lineItem,
     invoice,
     extractedData,
     vendorAliases,
+    exchangeRates,
   }
 
-  // Score each transaction and filter by allocation status
+  // Batch-fetch allocation info for all transactions at once
+  const allocationInfo = await batchGetAllocationInfo(transactions.map(tx => tx.id))
+
+  // Score each transaction and filter by allocation status (no more async calls in loop!)
   const candidates: Array<{
     transaction: Transaction
     score: MatchScore
@@ -225,8 +240,8 @@ export async function getMatchCandidates(
 
   for (const tx of transactions) {
     // Skip fully allocated transactions
-    const isFullyAllocated = await isTransactionFullyAllocated(tx.id)
-    if (isFullyAllocated) {
+    const allocation = allocationInfo.get(tx.id)
+    if (allocation?.isFullyAllocated) {
       continue
     }
 
@@ -243,14 +258,11 @@ export async function getMatchCandidates(
       continue
     }
 
-    // Get remaining amount
-    const remainingAmount = await getTransactionRemainingAmount(tx.id) ?? Math.abs(tx.amount_agorot)
-
     candidates.push({
       transaction: tx,
       score,
       confidence: score.total,
-      remainingAmount,
+      remainingAmount: allocation?.remainingAgorot ?? Math.abs(tx.amount_agorot),
     })
   }
 
@@ -489,6 +501,62 @@ export async function autoMatchInvoice(
 }
 
 /**
+ * Batch-fetch allocation info for multiple transactions at once
+ * Returns a Map of transactionId -> { isFullyAllocated, remainingAgorot }
+ */
+async function batchGetAllocationInfo(
+  transactionIds: string[]
+): Promise<Map<string, { isFullyAllocated: boolean; remainingAgorot: number }>> {
+  const result = new Map<string, { isFullyAllocated: boolean; remainingAgorot: number }>()
+
+  if (transactionIds.length === 0) return result
+
+  // Fetch all transactions' amounts in one query
+  const { data: transactions, error: txError } = await supabase
+    .from('transactions')
+    .select('id, amount_agorot')
+    .in('id', transactionIds)
+
+  if (txError || !transactions) {
+    console.error('Error batch-fetching transactions:', txError)
+    return result
+  }
+
+  // Fetch all line item allocations in one query
+  const { data: allocations, error: allocError } = await supabase
+    .from('invoice_rows')
+    .select('transaction_id, total_agorot, allocation_amount_agorot')
+    .in('transaction_id', transactionIds)
+
+  if (allocError) {
+    console.error('Error batch-fetching allocations:', allocError)
+    return result
+  }
+
+  // Build allocation sums by transaction
+  const allocationSums = new Map<string, number>()
+  for (const alloc of allocations || []) {
+    if (!alloc.transaction_id) continue
+    const current = allocationSums.get(alloc.transaction_id) || 0
+    const amount = alloc.allocation_amount_agorot ?? alloc.total_agorot ?? 0
+    allocationSums.set(alloc.transaction_id, current + Math.abs(amount))
+  }
+
+  // Build result map
+  for (const tx of transactions) {
+    const txAmount = Math.abs(tx.amount_agorot)
+    const allocated = allocationSums.get(tx.id) || 0
+    const remaining = txAmount - allocated
+    result.set(tx.id, {
+      isFullyAllocated: remaining <= 0,
+      remainingAgorot: Math.max(0, remaining),
+    })
+  }
+
+  return result
+}
+
+/**
  * Get match candidates with pre-fetched context (optimization for batch processing)
  */
 async function getMatchCandidatesWithContext(
@@ -510,7 +578,7 @@ async function getMatchCandidatesWithContext(
   const dateTo = new Date(lineItemDate)
   dateTo.setDate(dateTo.getDate() + options.dateRangeDays)
 
-  // Fetch transactions within date range
+  // Fetch transactions within date range (limit to prevent timeouts)
   const { data: transactions, error } = await supabase
     .from('transactions')
     .select(`
@@ -522,10 +590,41 @@ async function getMatchCandidatesWithContext(
     .gte('date', dateFrom.toISOString().split('T')[0])
     .lte('date', dateTo.toISOString().split('T')[0])
     .order('date', { ascending: false })
+    .limit(200) // Limit to prevent performance issues
 
   if (error || !transactions) {
     console.error('Error fetching transactions for matching:', error)
     return []
+  }
+
+  if (transactions.length === 0) {
+    return []
+  }
+
+  // Batch-fetch allocation info for all transactions at once (eliminates N+1 queries)
+  const allocationInfo = await batchGetAllocationInfo(transactions.map(tx => tx.id))
+
+  // Collect all currencies involved (line item + all transactions)
+  // A transaction is considered foreign currency if it has foreign_amount_cents AND foreign_currency
+  const currencies = new Set<string>()
+  if (lineItem.currency && lineItem.currency.toUpperCase() !== 'ILS') {
+    currencies.add(lineItem.currency.toUpperCase())
+  }
+  for (const tx of transactions) {
+    const hasForeignAmount = tx.foreign_amount_cents != null && tx.foreign_amount_cents !== 0
+    if (hasForeignAmount && tx.foreign_currency && tx.foreign_currency.toUpperCase() !== 'ILS') {
+      currencies.add(tx.foreign_currency.toUpperCase())
+    }
+  }
+
+  // Pre-fetch exchange rates for all currencies involved
+  let exchangeRates: Map<string, { rate: number; rateDate: string }> | undefined
+  if (currencies.size > 0) {
+    try {
+      exchangeRates = await getExchangeRatesForDate(lineItemDate, Array.from(currencies))
+    } catch (error) {
+      console.warn('[autoMatcher] Failed to fetch exchange rates:', error)
+    }
   }
 
   // Build scoring context
@@ -534,9 +633,10 @@ async function getMatchCandidatesWithContext(
     invoice,
     extractedData,
     vendorAliases,
+    exchangeRates,
   }
 
-  // Score each transaction and filter
+  // Score each transaction and filter (no more async calls in loop!)
   const candidates: Array<{
     transaction: Transaction
     score: MatchScore
@@ -546,8 +646,8 @@ async function getMatchCandidatesWithContext(
 
   for (const tx of transactions) {
     // Skip fully allocated transactions
-    const isFullyAllocated = await isTransactionFullyAllocated(tx.id)
-    if (isFullyAllocated) {
+    const allocation = allocationInfo.get(tx.id)
+    if (allocation?.isFullyAllocated) {
       continue
     }
 
@@ -564,14 +664,11 @@ async function getMatchCandidatesWithContext(
       continue
     }
 
-    // Get remaining amount
-    const remainingAmount = await getTransactionRemainingAmount(tx.id) ?? Math.abs(tx.amount_agorot)
-
     candidates.push({
       transaction: tx,
       score,
       confidence: score.total,
-      remainingAmount,
+      remainingAmount: allocation?.remainingAgorot ?? Math.abs(tx.amount_agorot),
     })
   }
 

@@ -4,6 +4,9 @@ import { formatShekel, formatTransactionAmount } from '@/lib/currency'
 import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
 import { parseDescriptionParts } from '@/lib/utils/merchantParser'
+import { getVendorDisplayInfo } from '@/lib/utils/vendorResolver'
+import { useVendorAliases } from '@/hooks/useVendorAliases'
+import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
 import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
 
 interface TransactionTableProps {
@@ -99,6 +102,10 @@ export function TransactionTable({
   lineItemLinkCounts,
   onLineItemLinkClick,
 }: TransactionTableProps) {
+  // Vendor resolution settings and aliases
+  const { enableInTransactionTable } = useVendorResolverSettings()
+  const { aliases } = useVendorAliases()
+
   // Check if we should show match columns (only when CC charge data is provided)
   const showMatchColumns = !!ccChargeMatchData
   // Check if we should show link column (only when handler is provided)
@@ -243,7 +250,11 @@ export function TransactionTable({
               : null
 
             // Parse description into merchant name and reference
-            const { merchantName, reference } = parseDescriptionParts(tx.description)
+            // Use vendor resolver when enabled, otherwise fall back to basic parsing
+            const { reference } = parseDescriptionParts(tx.description)
+            const merchantName = enableInTransactionTable
+              ? getVendorDisplayInfo(tx.description, aliases).displayName
+              : parseDescriptionParts(tx.description).merchantName
 
             // For CC charges, clicking row opens modal; for regular transactions, clicking row selects it
             const isCCCharge = (tx.is_credit_card_charge || tx.transaction_type === 'bank_cc_charge') && onCCChargeClick

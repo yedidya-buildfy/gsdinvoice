@@ -4,14 +4,18 @@
  */
 
 import { useState, useMemo, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { XMarkIcon, MagnifyingGlassIcon, BanknotesIcon, CreditCardIcon, CheckIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/base/modal/modal'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { formatTransactionAmount, formatLineItemAmount } from '@/lib/currency'
 import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { parseDescriptionParts } from '@/lib/utils/merchantParser'
+import { getVendorDisplayInfo } from '@/lib/utils/vendorResolver'
+import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
+import { useDebounce } from '@/hooks/useDebounce'
+import { useAuth } from '@/contexts/AuthContext'
 import {
-  getMatchableTransactions,
   linkLineItemToTransaction,
   scoreMatch,
   type TransactionWithCard,
@@ -36,14 +40,15 @@ function calculateDateRange(dateStr: string | null, daysBefore: number, daysAfte
   }
 }
 
-// Amount tolerance presets
+// Minimum match score presets (filters by match%)
 const TOLERANCE_OPTIONS = [
-  { value: -1, label: 'Not relevant' },
-  { value: 0, label: 'Exact' },
-  { value: 5, label: '5%' },
-  { value: 10, label: '10%' },
-  { value: 20, label: '20%' },
-  { value: 50, label: '50%' },
+  { value: -1, label: 'Any' },
+  { value: 100, label: '100%' },
+  { value: 90, label: '≥90%' },
+  { value: 80, label: '≥80%' },
+  { value: 70, label: '≥70%' },
+  { value: 60, label: '≥60%' },
+  { value: 51, label: '≥51%' },
 ]
 
 // Dropdown filter component matching app theme
@@ -237,21 +242,21 @@ export function LineItemLinkModal({
   lineItem,
   onLinkComplete,
 }: LineItemLinkModalProps) {
+  const { user } = useAuth()
   const { creditCards } = useCreditCards()
 
   // Vendor aliases for scoring
   const { aliases: vendorAliases } = useVendorAliases()
 
+  // Vendor resolver settings
+  const { enableInLineItemModal } = useVendorResolverSettings()
+
   // Settings store for defaults
-  const {
-    linkingDateRangeDays: defaultDateRangeDays,
-    linkingAmountTolerance: defaultAmountTolerance,
-  } = useSettingsStore()
+  const { linkingAmountTolerance: defaultAmountTolerance } = useSettingsStore()
+  const defaultDateRangeDays = 14 // Fixed default date range
 
   // State
-  const [transactions, setTransactions] = useState<TransactionWithCard[]>([])
   const [invoice, setInvoice] = useState<Invoice | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
   const [isLinking, setIsLinking] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -259,6 +264,7 @@ export function LineItemLinkModal({
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearchQuery = useDebounce(searchQuery, 300) // Debounce search to prevent race conditions
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
   const [typeFilter, setTypeFilter] = useState<'all' | 'bank' | 'cc'>('all')
   const [amountTolerance, setAmountTolerance] = useState(20)
@@ -301,65 +307,77 @@ export function LineItemLinkModal({
     fetchInvoice()
   }, [isOpen, lineItem?.invoice_id])
 
-  // Fetch transactions when modal opens or filters change
-  useEffect(() => {
-    if (!isOpen || !lineItem) {
-      setTransactions([])
-      return
-    }
+  // Build filter object for TanStack Query key (search is handled client-side for vendor name matching)
+  const candidateFilters = useMemo(() => ({
+    transactionType: typeFilter,
+    dateFrom: fromDate,
+    dateTo: toDate,
+    cardIds: selectedCardIds,
+  }), [typeFilter, fromDate, toDate, selectedCardIds])
 
-    async function fetchTransactions() {
-      if (!lineItem) return
-      setIsLoading(true)
-      setError(null)
+  // Fetch transactions with TanStack Query - automatically refetches when filters change
+  const {
+    data: transactions = [],
+    isLoading,
+  } = useQuery({
+    queryKey: ['line-item-link-transactions', user?.id, candidateFilters],
+    queryFn: async () => {
+      if (!user?.id) return []
 
-      try {
-        const types =
-          typeFilter === 'all'
-            ? ['bank_regular', 'cc_purchase'] as const
-            : typeFilter === 'bank'
-              ? ['bank_regular'] as const
-              : ['cc_purchase'] as const
+      // Build query with server-side filters
+      let query = supabase
+        .from('transactions')
+        .select(`
+          *,
+          credit_cards!credit_card_id(card_last_four, card_name, card_type)
+        `)
+        .eq('user_id', user.id)
 
-        // Use a wide date range for initial fetch, then filter by date picker values
-        // If tolerance is -1 (not relevant), use 100% to include all amounts
-        const results = await getMatchableTransactions(lineItem, {
-          dateRangeDays: 90,
-          amountTolerancePercent: amountTolerance === -1 ? 100 : amountTolerance,
-          transactionTypes: [...types],
-          creditCardId: selectedCardIds.length === 1 ? selectedCardIds[0] : undefined,
-          searchQuery: searchQuery || undefined,
-        })
-
-        // Apply additional filters
-        let filtered = results
-
-        // Filter by multiple cards
-        if (selectedCardIds.length > 1) {
-          filtered = filtered.filter(tx =>
-            tx.credit_card_id && selectedCardIds.includes(tx.credit_card_id)
-          )
-        }
-
-        // Filter by date range from date picker
-        if (fromDate || toDate) {
-          filtered = filtered.filter(tx => {
-            if (fromDate && tx.date < fromDate) return false
-            if (toDate && tx.date > toDate) return false
-            return true
-          })
-        }
-
-        setTransactions(filtered)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch transactions')
-      } finally {
-        setIsLoading(false)
+      // Transaction type filter
+      if (candidateFilters.transactionType === 'all') {
+        query = query.in('transaction_type', ['bank_regular', 'cc_purchase'])
+      } else if (candidateFilters.transactionType === 'bank') {
+        query = query.eq('transaction_type', 'bank_regular')
+      } else {
+        query = query.eq('transaction_type', 'cc_purchase')
       }
-    }
 
-    fetchTransactions()
-  }, [isOpen, lineItem, fromDate, toDate, searchQuery, selectedCardIds, typeFilter, amountTolerance])
+      // Date range filters
+      if (candidateFilters.dateFrom) {
+        query = query.gte('date', candidateFilters.dateFrom)
+      }
+      if (candidateFilters.dateTo) {
+        query = query.lte('date', candidateFilters.dateTo)
+      }
+
+      // Credit card filter
+      if (candidateFilters.cardIds.length > 0) {
+        query = query.in('credit_card_id', candidateFilters.cardIds)
+      }
+
+      // NOTE: Search filter is done client-side to match both raw description AND resolved vendor name
+      // This allows searching for "Meta" to find transactions with raw description "FACEBK *ADS"
+
+      // Order and limit
+      query = query.order('date', { ascending: false }).limit(200)
+
+      const { data, error: queryError } = await query
+
+      if (queryError) {
+        console.error('Error fetching transactions:', queryError)
+        return []
+      }
+
+      // Map the results to include credit_card info
+      return (data || []).map((tx) => ({
+        ...tx,
+        credit_card: tx.credit_cards as TransactionWithCard['credit_card'],
+      })) as TransactionWithCard[]
+    },
+    enabled: isOpen && !!user?.id,
+    staleTime: 60_000, // 1 minute
+    placeholderData: (previousData) => previousData, // Keep previous data while loading
+  })
 
   // Score transactions using new scoring algorithm
   const scoredTransactions = useMemo(() => {
@@ -373,12 +391,24 @@ export function LineItemLinkModal({
       vendorAliases: vendorAliases || [],
     }
 
+    // Calculate minimum match score threshold
+    // -1 = "Any" (show all non-disqualified), otherwise use the value directly as minimum match%
+    const minMatchScore = amountTolerance === -1 ? 0 : amountTolerance
+
+    // Prepare search filter (case-insensitive, client-side)
+    const searchLower = debouncedSearchQuery?.toLowerCase().trim() || ''
+
     return transactions
       .map(tx => {
         const score = scoreMatch(tx, scoringContext)
+        // Get resolved vendor name for display and search matching
+        const resolvedName = enableInLineItemModal
+          ? getVendorDisplayInfo(tx.description, vendorAliases).displayName
+          : parseDescriptionParts(tx.description).merchantName
         // Map to the expected format with confidence for backward compatibility
         return {
           transaction: tx,
+          resolvedName,
           score: {
             confidence: score.isDisqualified ? 0 : score.total,
             matchReasons: score.matchReasons,
@@ -386,9 +416,20 @@ export function LineItemLinkModal({
           },
         }
       })
-      .filter(item => item.score.confidence > 0) // Filter out disqualified
+      .filter(item => {
+        // Search filter - match against raw description OR resolved vendor name (case-insensitive)
+        if (searchLower && searchLower.length >= 2) {
+          const rawDescLower = item.transaction.description?.toLowerCase() || ''
+          const resolvedLower = item.resolvedName?.toLowerCase() || ''
+          if (!rawDescLower.includes(searchLower) && !resolvedLower.includes(searchLower)) {
+            return false
+          }
+        }
+        // Filter by minimum match score
+        return item.score.confidence >= minMatchScore
+      })
       .sort((a, b) => b.score.confidence - a.score.confidence)
-  }, [transactions, lineItem, invoice, vendorAliases])
+  }, [transactions, lineItem, invoice, vendorAliases, amountTolerance, enableInLineItemModal, debouncedSearchQuery])
 
   // Handle link
   const handleLink = async (transactionId: string) => {
@@ -462,10 +503,10 @@ export function LineItemLinkModal({
             }}
           />
 
-          {/* Amount tolerance */}
+          {/* Minimum match score filter */}
           <FilterDropdown
             icon={AdjustmentsHorizontalIcon}
-            label="Tolerance"
+            label="Min Match"
             value={amountTolerance}
             options={TOLERANCE_OPTIONS}
             onChange={(val) => setAmountTolerance(val as number)}
@@ -488,7 +529,7 @@ export function LineItemLinkModal({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search description..."
+              placeholder="Search transactions..."
               className="w-full ps-9 pe-3 py-2 text-sm bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
             />
           </div>
@@ -524,8 +565,7 @@ export function LineItemLinkModal({
                 </tr>
               </thead>
               <tbody>
-                {scoredTransactions.map(({ transaction, score }) => {
-                  const { merchantName } = parseDescriptionParts(transaction.description)
+                {scoredTransactions.map(({ transaction, resolvedName, score }) => {
                   const isCC = transaction.transaction_type === 'cc_purchase'
 
                   return (
@@ -547,7 +587,7 @@ export function LineItemLinkModal({
                         )}
                       </td>
                       <td className="py-2 px-3">
-                        <div className="font-medium text-text" dir="auto">{merchantName}</div>
+                        <div className="font-medium text-text" dir="auto">{resolvedName}</div>
                         {isCC && transaction.credit_card && (
                           <div className="text-xs text-text-muted">
                             {transaction.credit_card.card_name || ''} *{transaction.credit_card.card_last_four}
@@ -605,7 +645,7 @@ export function LineItemLinkModal({
           <div className="flex items-center gap-1">
             <AdjustmentsHorizontalIcon className="w-3.5 h-3.5" />
             <span>
-              {amountTolerance === -1 ? 'Any amount' : amountTolerance === 0 ? 'Exact match' : `${amountTolerance}% tolerance`}
+              {amountTolerance === -1 ? 'Any match%' : amountTolerance === 100 ? '100% match only' : `≥${amountTolerance}% match`}
               {typeFilter !== 'all' && ` | ${typeFilter === 'bank' ? 'Bank' : 'CC'} only`}
             </span>
           </div>

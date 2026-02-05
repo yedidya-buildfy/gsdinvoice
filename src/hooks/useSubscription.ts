@@ -13,17 +13,18 @@ export function useSubscription() {
     queryFn: async () => {
       if (!user) return null
 
-      const { data, error } = await supabase
+      // Tables not in generated types - using any cast for subscription features
+      const { data, error } = await (supabase as any)
         .from('subscriptions')
         .select('*')
         .eq('user_id', user.id)
-        .single()
+        .single() as { data: Subscription | null; error: { code: string } | null }
 
       if (error && error.code !== 'PGRST116') {
         throw error
       }
 
-      return data as Subscription | null
+      return data
     },
     enabled: !!user,
   })
@@ -33,19 +34,24 @@ export function usePlanLimits(planTier?: string) {
   return useQuery({
     queryKey: ['plan_limits', planTier],
     queryFn: async () => {
-      const query = supabase.from('plan_limits').select('*')
+      // Tables not in generated types - using any cast for subscription features
+      const query = (supabase as any).from('plan_limits').select('*')
 
       if (planTier) {
-        query.eq('plan_tier', planTier).single()
+        const { data, error } = await query.eq('plan_tier', planTier).single() as { data: PlanLimits | null; error: { code: string } | null }
+        if (error && error.code !== 'PGRST116') {
+          throw error
+        }
+        return data
       }
 
-      const { data, error } = await query
+      const { data, error } = await query as { data: PlanLimits[] | null; error: { code: string } | null }
 
       if (error && error.code !== 'PGRST116') {
         throw error
       }
 
-      return data as PlanLimits | PlanLimits[] | null
+      return data
     },
   })
 }
@@ -63,24 +69,25 @@ export function useCurrentUsage() {
       periodStart.setDate(1)
       periodStart.setHours(0, 0, 0, 0)
 
-      const { data, error } = await supabase
+      // Tables not in generated types - using any cast for subscription features
+      const { data, error } = await (supabase as any)
         .from('usage_records')
         .select('*')
         .eq('user_id', user.id)
         .gte('period_start', periodStart.toISOString())
         .order('period_start', { ascending: false })
         .limit(1)
-        .single()
+        .single() as { data: UsageRecord | null; error: { code: string } | null }
 
       if (error && error.code !== 'PGRST116') {
         throw error
       }
 
-      return (data as UsageRecord) ?? {
+      return data ?? {
         invoices_processed: 0,
         team_members_count: 0,
         bank_connections_count: 0,
-      }
+      } as UsageRecord
     },
     enabled: !!user,
   })
@@ -121,7 +128,8 @@ export function useCheckout() {
       const stripe = await getStripe()
       if (!stripe) throw new Error('Stripe not loaded')
 
-      const { error: stripeError } = await stripe.redirectToCheckout({
+      // Use type assertion for redirectToCheckout which exists at runtime
+      const { error: stripeError } = await (stripe as unknown as { redirectToCheckout: (opts: { sessionId: string }) => Promise<{ error?: Error }> }).redirectToCheckout({
         sessionId: data.sessionId,
       })
 

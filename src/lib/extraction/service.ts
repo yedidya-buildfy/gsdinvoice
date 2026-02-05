@@ -1,7 +1,7 @@
 /**
  * Invoice extraction service
  * Downloads files from Supabase Storage and extracts data using AI
- * Primary: Gemini 2.0 Flash | Fallback: Kimi K2.5 via Together AI (images only)
+ * Primary: Gemini 3.0 Flash | Fallback: GPT-5 mini via OpenAI (images + PDFs)
  */
 
 import * as XLSX from 'xlsx'
@@ -10,12 +10,12 @@ import { BUCKET_NAME } from '@/lib/storage'
 import type { InvoiceExtraction } from './types'
 import {
   extractWithGemini,
-  extractWithKimi,
+  extractWithOpenAI,
   getGeminiApiKey,
-  getTogetherApiKey,
+  getOpenAIApiKey,
   getMimeType,
   isSpreadsheetType,
-  isKimiSupportedType,
+  isOpenAISupportedType,
   arrayBufferToBase64,
 } from './gemini'
 
@@ -62,13 +62,13 @@ async function xlsxToCsvSheets(blob: Blob): Promise<Array<{ name: string; csv: s
 export interface ExtractionServiceResult {
   success: boolean
   extracted?: InvoiceExtraction
-  provider?: 'gemini' | 'kimi'
+  provider?: 'gemini' | 'openai'
   error?: string
 }
 
 /**
  * Download and extract invoice data from a file
- * Uses Gemini as primary, falls back to Kimi K2.5 for images if Gemini fails
+ * Uses Gemini as primary, falls back to GPT-5 mini for images/PDFs if Gemini fails
  */
 export async function extractInvoiceFromFile(
   storagePath: string,
@@ -79,15 +79,15 @@ export async function extractInvoiceFromFile(
 
   // Check API keys
   const geminiApiKey = getGeminiApiKey()
-  const togetherApiKey = getTogetherApiKey()
+  const openaiApiKey = getOpenAIApiKey()
 
   console.log('[EXTRACT] GEMINI_API_KEY configured:', !!geminiApiKey)
-  console.log('[EXTRACT] TOGETHER_API_KEY configured:', !!togetherApiKey)
+  console.log('[EXTRACT] OPENAI_API_KEY configured:', !!openaiApiKey)
 
-  if (!geminiApiKey && !togetherApiKey) {
+  if (!geminiApiKey && !openaiApiKey) {
     return {
       success: false,
-      error: 'No API keys configured - need VITE_GEMINI_API_KEY or VITE_TOGETHER_API_KEY',
+      error: 'No API keys configured - need VITE_GEMINI_API_KEY or VITE_OPENAI_API_KEY',
     }
   }
 
@@ -177,7 +177,7 @@ export async function extractInvoiceFromFile(
 
     // Try extraction with fallback
     let extracted: InvoiceExtraction
-    let usedProvider: 'gemini' | 'kimi'
+    let usedProvider: 'gemini' | 'openai'
 
     // Try Gemini first if available
     if (geminiApiKey) {
@@ -189,28 +189,28 @@ export async function extractInvoiceFromFile(
       } catch (geminiError) {
         console.error('[EXTRACT] Gemini extraction failed:', geminiError)
 
-        // Try Kimi fallback - but only for images (Kimi doesn't support PDFs via image_url)
-        if (togetherApiKey && isKimiSupportedType(mimeType)) {
-          console.log('[EXTRACT] Falling back to Kimi (image file)...')
+        // Try OpenAI GPT-5 mini fallback - supports images AND PDFs
+        if (openaiApiKey && isOpenAISupportedType(mimeType)) {
+          console.log('[EXTRACT] Falling back to OpenAI GPT-5 mini...')
           try {
-            extracted = await extractWithKimi(togetherApiKey, base64Data, mimeType)
-            usedProvider = 'kimi'
-            console.log('[EXTRACT] Kimi fallback succeeded')
-          } catch (kimiError) {
-            console.error('[EXTRACT] Kimi fallback also failed:', kimiError)
+            extracted = await extractWithOpenAI(openaiApiKey, base64Data, mimeType)
+            usedProvider = 'openai'
+            console.log('[EXTRACT] OpenAI fallback succeeded')
+          } catch (openaiError) {
+            console.error('[EXTRACT] OpenAI fallback also failed:', openaiError)
             return {
               success: false,
-              error: `Both providers failed. Gemini: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}. Kimi: ${kimiError instanceof Error ? kimiError.message : String(kimiError)}`,
+              error: `Both providers failed. Gemini: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}. OpenAI: ${openaiError instanceof Error ? openaiError.message : String(openaiError)}`,
             }
           }
-        } else if (togetherApiKey && !isKimiSupportedType(mimeType)) {
-          console.error('[EXTRACT] Kimi fallback not available for this file type (only supports images)')
+        } else if (openaiApiKey && !isOpenAISupportedType(mimeType)) {
+          console.error('[EXTRACT] OpenAI fallback not available for this file type (only supports images and PDFs)')
           return {
             success: false,
-            error: `Gemini failed and Kimi fallback not available for ${mimeType} files. Gemini error: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`,
+            error: `Gemini failed and OpenAI fallback not available for ${mimeType} files. Gemini error: ${geminiError instanceof Error ? geminiError.message : String(geminiError)}`,
           }
         } else {
-          console.error('[EXTRACT] No fallback available (VITE_TOGETHER_API_KEY not set)')
+          console.error('[EXTRACT] No fallback available (VITE_OPENAI_API_KEY not set)')
           return {
             success: false,
             error: geminiError instanceof Error ? geminiError.message : String(geminiError),
@@ -218,16 +218,16 @@ export async function extractInvoiceFromFile(
         }
       }
     } else {
-      // Only Kimi available - check if file type is supported
-      if (!isKimiSupportedType(mimeType)) {
+      // Only OpenAI available - check if file type is supported
+      if (!isOpenAISupportedType(mimeType)) {
         return {
           success: false,
-          error: `Kimi only supports images (PNG, JPG, WEBP). For ${fileType} files, configure VITE_GEMINI_API_KEY.`,
+          error: `OpenAI GPT-5 mini supports images and PDFs. For ${fileType} files, configure VITE_GEMINI_API_KEY.`,
         }
       }
-      console.log('[EXTRACT] Using Kimi (Gemini not configured)...')
-      extracted = await extractWithKimi(togetherApiKey!, base64Data, mimeType)
-      usedProvider = 'kimi'
+      console.log('[EXTRACT] Using OpenAI GPT-5 mini (Gemini not configured)...')
+      extracted = await extractWithOpenAI(openaiApiKey!, base64Data, mimeType)
+      usedProvider = 'openai'
     }
 
     console.log('[EXTRACT] Extraction complete:', {

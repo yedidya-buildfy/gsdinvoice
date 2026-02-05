@@ -798,6 +798,8 @@ export type Database = {
           match_type: 'exact' | 'contains' | 'starts_with' | 'ends_with'
           source: 'system' | 'user' | 'learned'
           priority: number
+          default_has_vat: boolean | null
+          default_vat_percentage: number | null
           created_at: string | null
           updated_at: string | null
         }
@@ -810,6 +812,8 @@ export type Database = {
           match_type?: 'exact' | 'contains' | 'starts_with' | 'ends_with'
           source?: 'system' | 'user' | 'learned'
           priority?: number
+          default_has_vat?: boolean | null
+          default_vat_percentage?: number | null
           created_at?: string | null
           updated_at?: string | null
         }
@@ -819,6 +823,8 @@ export type Database = {
           team_id?: string | null
           alias_pattern?: string
           canonical_name?: string
+          default_has_vat?: boolean | null
+          default_vat_percentage?: number | null
           match_type?: 'exact' | 'contains' | 'starts_with' | 'ends_with'
           source?: 'system' | 'user' | 'learned'
           priority?: number

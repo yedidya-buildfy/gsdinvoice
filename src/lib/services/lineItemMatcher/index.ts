@@ -32,10 +32,10 @@ export {
   scoreAmount,
   scoreDate,
   scoreCurrency,
-  scoreContext,
   scoreVendor,
   SCORING_WEIGHTS,
   MAX_RAW_SCORE,
+  MAX_RAW_SCORE_NO_REF,
   ELIGIBLE_TRANSACTION_TYPES,
   VAT_RATES,
 } from './scorer'
@@ -47,6 +47,9 @@ export type {
   ExtractedInvoiceData,
   VendorMatchResult,
 } from './scorer'
+
+// Re-export exchange rate types for convenience
+export type { ConversionDetails } from '../exchangeRates'
 
 // Re-export auto-matcher
 export {
@@ -547,6 +550,109 @@ export async function getTransactionLinkCounts(
   }
 
   return counts
+}
+
+// =============================================================================
+// Document Link Functions
+// =============================================================================
+
+/**
+ * Create a document link (is_document_link=true row in invoice_rows)
+ * Links the entire invoice document to a transaction, independent of line items
+ */
+export async function createDocumentLink(
+  invoiceId: string,
+  transactionId: string,
+  options?: {
+    matchMethod?: MatchMethod
+    matchConfidence?: number
+  }
+): Promise<LinkResult> {
+  try {
+    const { error } = await supabase
+      .from('invoice_rows')
+      .insert({
+        invoice_id: invoiceId,
+        transaction_id: transactionId,
+        is_document_link: true,
+        match_status: LINE_ITEM_MATCH_STATUS.MATCHED,
+        match_method: options?.matchMethod || MATCH_METHOD.MANUAL,
+        match_confidence: options?.matchConfidence || null,
+        matched_at: new Date().toISOString(),
+      })
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Update existing document link to a new transaction
+ * Sets all required match fields (not just transaction_id)
+ */
+export async function updateDocumentLink(
+  documentLinkId: string,
+  transactionId: string,
+  options?: {
+    matchMethod?: MatchMethod
+    matchConfidence?: number
+  }
+): Promise<LinkResult> {
+  try {
+    const { error } = await supabase
+      .from('invoice_rows')
+      .update({
+        transaction_id: transactionId,
+        match_status: LINE_ITEM_MATCH_STATUS.MATCHED,
+        match_method: options?.matchMethod || MATCH_METHOD.MANUAL,
+        match_confidence: options?.matchConfidence || null,
+        matched_at: new Date().toISOString(),
+      })
+      .eq('id', documentLinkId)
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Remove a document link (delete the row)
+ */
+export async function removeDocumentLink(documentLinkId: string): Promise<LinkResult> {
+  try {
+    const { error } = await supabase
+      .from('invoice_rows')
+      .delete()
+      .eq('id', documentLinkId)
+      .eq('is_document_link', true)
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
 }
 
 // =============================================================================

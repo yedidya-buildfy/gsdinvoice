@@ -22,6 +22,18 @@ export interface VendorDisplayInfo {
 }
 
 /**
+ * VAT default settings from a vendor alias
+ */
+export interface VendorVatDefault {
+  /** Whether VAT is enabled by default (null = no default) */
+  hasVat: boolean | null
+  /** Default VAT percentage (null = use system default) */
+  vatPercentage: number | null
+  /** The alias that provided the VAT default */
+  sourceAlias?: VendorAlias
+}
+
+/**
  * Checks if a transaction description matches a single alias pattern.
  * Pattern matching is case-insensitive.
  *
@@ -250,4 +262,67 @@ export function findMatchingAliases(
 
   const sortedAliases = sortAliasesByPriority(aliases)
   return sortedAliases.filter((alias) => matchesAliasPattern(description, alias))
+}
+
+/**
+ * Gets VAT default settings for a transaction based on vendor aliases.
+ * Returns the VAT settings from the highest-priority matching alias that has VAT defaults set.
+ *
+ * @param description - The transaction description to check
+ * @param aliases - Array of vendor aliases to check against
+ * @returns VAT default settings, or null values if no alias with VAT defaults matched
+ *
+ * @example
+ * ```ts
+ * // Alias has VAT default set
+ * const vatDefault = getVendorVatDefault('FACEBK *ADS', aliases)
+ * // returns { hasVat: false, vatPercentage: null, sourceAlias: {...} }
+ *
+ * // No alias match or no VAT default
+ * const noDefault = getVendorVatDefault('Unknown', aliases)
+ * // returns { hasVat: null, vatPercentage: null }
+ * ```
+ */
+export function getVendorVatDefault(
+  description: string,
+  aliases: VendorAlias[]
+): VendorVatDefault {
+  if (!description || !aliases || aliases.length === 0) {
+    return { hasVat: null, vatPercentage: null }
+  }
+
+  const sortedAliases = sortAliasesByPriority(aliases)
+
+  for (const alias of sortedAliases) {
+    if (matchesAliasPattern(description, alias) && alias.default_has_vat !== null) {
+      return {
+        hasVat: alias.default_has_vat,
+        vatPercentage: alias.default_vat_percentage,
+        sourceAlias: alias,
+      }
+    }
+  }
+
+  return { hasVat: null, vatPercentage: null }
+}
+
+/**
+ * Gets comprehensive vendor info including display name and VAT defaults.
+ * Combines getVendorDisplayInfo and getVendorVatDefault for convenience.
+ *
+ * @param description - The transaction description to resolve
+ * @param aliases - Array of vendor aliases to check against
+ * @returns Object with display info and VAT defaults
+ */
+export function getVendorInfo(
+  description: string,
+  aliases: VendorAlias[]
+): VendorDisplayInfo & { vatDefault: VendorVatDefault } {
+  const displayInfo = getVendorDisplayInfo(description, aliases)
+  const vatDefault = getVendorVatDefault(description, aliases)
+
+  return {
+    ...displayInfo,
+    vatDefault,
+  }
 }
