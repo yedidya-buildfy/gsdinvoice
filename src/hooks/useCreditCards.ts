@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import type { CreditCard, Transaction } from '@/types/database'
 
 // Extended transaction with joined credit card info
@@ -20,13 +21,21 @@ interface UseCreditCardsReturn {
   refetch: () => Promise<unknown>
 }
 
-async function fetchCreditCards(userId: string): Promise<CreditCard[]> {
-  console.log('[useCreditCards] Fetching credit cards for user:', userId)
-  const { data, error } = await supabase
+async function fetchCreditCards(userId: string, teamId: string | null): Promise<CreditCard[]> {
+  console.log('[useCreditCards] Fetching credit cards for user:', userId, 'team:', teamId)
+  let query = supabase
     .from('credit_cards')
     .select('*')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false })
+
+  // Filter by team if provided, otherwise get personal cards (no team)
+  if (teamId) {
+    query = query.eq('team_id', teamId)
+  } else {
+    query = query.is('team_id', null)
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false })
 
   console.log('[useCreditCards] Fetch result:', { count: data?.length, error })
   if (error) throw error
@@ -35,11 +44,12 @@ async function fetchCreditCards(userId: string): Promise<CreditCard[]> {
 
 export function useCreditCards(): UseCreditCardsReturn {
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['credit_cards', user?.id],
-    queryFn: () => fetchCreditCards(user!.id),
-    enabled: !!user,
+    queryKey: ['credit_cards', user?.id, currentTeam?.id],
+    queryFn: () => fetchCreditCards(user!.id, currentTeam?.id ?? null),
+    enabled: !!user && !!currentTeam,
     staleTime: 30000, // 30s consistent with project pattern
   })
 
@@ -99,6 +109,7 @@ interface CreateCreditCardInput {
  */
 export function useCreateCreditCard() {
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -109,6 +120,7 @@ export function useCreateCreditCard() {
         .from('credit_cards')
         .insert({
           user_id: user.id,
+          team_id: currentTeam?.id ?? null,
           card_last_four: input.cardLastFour,
           card_name: input.cardName || null,
           card_type: input.cardType,
@@ -169,9 +181,10 @@ interface UseCreditCardTransactionsReturn {
 
 async function fetchCreditCardTransactions(
   userId: string,
+  teamId: string | null,
   cardId?: string
 ): Promise<TransactionWithCard[]> {
-  console.log('[useCreditCardTransactions] Fetching transactions for user:', userId, 'card:', cardId)
+  console.log('[useCreditCardTransactions] Fetching transactions for user:', userId, 'team:', teamId, 'card:', cardId)
 
   // NEW SCHEMA: Query CC purchases from transactions table with transaction_type = 'cc_purchase'
   // Join with credit_cards to get card_last_four using credit_card_id
@@ -187,6 +200,13 @@ async function fetchCreditCardTransactions(
     `)
     .eq('user_id', userId)
     .eq('transaction_type', 'cc_purchase')
+
+  // Filter by team if provided, otherwise get personal transactions (no team)
+  if (teamId) {
+    query = query.eq('team_id', teamId)
+  } else {
+    query = query.is('team_id', null)
+  }
 
   if (cardId) {
     query = query.eq('credit_card_id', cardId)
@@ -210,11 +230,12 @@ async function fetchCreditCardTransactions(
 
 export function useCreditCardTransactions(cardId?: string): UseCreditCardTransactionsReturn {
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['cc-purchases', user?.id, cardId],
-    queryFn: () => fetchCreditCardTransactions(user!.id, cardId),
-    enabled: !!user,
+    queryKey: ['cc-purchases', user?.id, currentTeam?.id, cardId],
+    queryFn: () => fetchCreditCardTransactions(user!.id, currentTeam?.id ?? null, cardId),
+    enabled: !!user && !!currentTeam,
     staleTime: 30000, // 30s consistent with project pattern
   })
 

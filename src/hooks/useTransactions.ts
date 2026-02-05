@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import type { Transaction } from '@/types/database'
 
 interface UseTransactionsReturn {
@@ -10,8 +11,11 @@ interface UseTransactionsReturn {
   refetch: () => Promise<unknown>
 }
 
-async function fetchTransactions(userId: string): Promise<Transaction[]> {
-  console.log('[useTransactions] Fetching transactions for user:', userId)
+async function fetchTransactions(
+  userId: string,
+  teamId: string | null
+): Promise<Transaction[]> {
+  console.log('[useTransactions] Fetching transactions for user:', userId, 'team:', teamId)
 
   // Fetch all transactions - Supabase default limit is 1000, so we need to paginate
   const allTransactions: Transaction[] = []
@@ -20,12 +24,21 @@ async function fetchTransactions(userId: string): Promise<Transaction[]> {
   let hasMore = true
 
   while (hasMore) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
       .order('date', { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1)
+
+    // Filter by team if provided, otherwise get personal transactions (no team)
+    if (teamId) {
+      query = query.eq('team_id', teamId)
+    } else {
+      query = query.is('team_id', null)
+    }
+
+    const { data, error } = await query
 
     if (error) throw error
 
@@ -44,11 +57,12 @@ async function fetchTransactions(userId: string): Promise<Transaction[]> {
 
 export function useTransactions(): UseTransactionsReturn {
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['transactions', user?.id],
-    queryFn: () => fetchTransactions(user!.id),
-    enabled: !!user,
+    queryKey: ['transactions', user?.id, currentTeam?.id],
+    queryFn: () => fetchTransactions(user!.id, currentTeam?.id ?? null),
+    enabled: !!user && !!currentTeam,
     staleTime: 30000, // 30s consistent with project pattern
   })
 

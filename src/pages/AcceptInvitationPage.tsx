@@ -103,7 +103,7 @@ export function AcceptInvitationPage() {
           <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircleIcon className="w-8 h-8 text-green-500" />
           </div>
-          <h1 className="text-2xl font-bold text-text mb-2">Welcome to the Team!</h1>
+          <h1 className="text-2xl font-bold text-text mb-2">You're in!</h1>
           <p className="text-text-muted mb-6">
             You have successfully joined{' '}
             <span className="text-text font-medium">

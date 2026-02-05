@@ -40,21 +40,31 @@ function datesWithinWindow(date1: string, date2: string): boolean {
  *
  * @param file The file to check
  * @param userId The user's ID
+ * @param teamId The team's ID (optional, for team-scoped duplicate check)
  * @returns Duplicate check result with matches if found
  */
 export async function checkFileDuplicate(
   file: File,
-  userId: string
+  userId: string,
+  teamId?: string | null
 ): Promise<FileDuplicateCheckResult> {
   const fileHash = generateFileHash(file)
   const matches: FileDuplicateMatch[] = []
 
   // Primary check: Exact hash match
-  const { data: hashMatches, error: hashError } = await supabase
+  let hashQuery = supabase
     .from('files')
     .select('id, original_name, created_at, storage_path, file_hash')
-    .eq('user_id', userId)
     .eq('file_hash', fileHash)
+
+  // Filter by team if provided, otherwise by user
+  if (teamId) {
+    hashQuery = hashQuery.eq('team_id', teamId)
+  } else {
+    hashQuery = hashQuery.eq('user_id', userId).is('team_id', null)
+  }
+
+  const { data: hashMatches, error: hashError } = await hashQuery
 
   if (!hashError && hashMatches && hashMatches.length > 0) {
     for (const match of hashMatches) {
@@ -78,12 +88,20 @@ export async function checkFileDuplicate(
     // We can't do semantic matching without parsing the file first
     // This would require extracting vendor/amount/date before upload
     // For now, we also check for files with same name (ignoring size)
-    const { data: nameMatches, error: nameError } = await supabase
+    let nameQuery = supabase
       .from('files')
       .select('id, original_name, created_at, storage_path')
-      .eq('user_id', userId)
       .eq('original_name', file.name)
       .neq('file_hash', fileHash) // Different hash but same name
+
+    // Filter by team if provided, otherwise by user
+    if (teamId) {
+      nameQuery = nameQuery.eq('team_id', teamId)
+    } else {
+      nameQuery = nameQuery.eq('user_id', userId).is('team_id', null)
+    }
+
+    const { data: nameMatches, error: nameError } = await nameQuery
 
     if (!nameError && nameMatches && nameMatches.length > 0) {
       for (const match of nameMatches) {
@@ -118,13 +136,15 @@ export async function checkFileDuplicate(
  * @param totalAmountAgorot Total amount in agorot
  * @param invoiceDate Invoice date (YYYY-MM-DD)
  * @param excludeFileId File ID to exclude (the current file)
+ * @param teamId Team ID (optional, for team-scoped duplicate check)
  */
 export async function checkSemanticDuplicate(
   userId: string,
   vendorName: string | null,
   totalAmountAgorot: number | null,
   invoiceDate: string | null,
-  excludeFileId: string
+  excludeFileId: string,
+  teamId?: string | null
 ): Promise<FileDuplicateMatch[]> {
   if (!vendorName || !totalAmountAgorot || !invoiceDate) {
     return []
@@ -136,7 +156,7 @@ export async function checkSemanticDuplicate(
   const minAmount = Math.floor(totalAmountAgorot * (1 - AMOUNT_TOLERANCE_PERCENT / 100))
   const maxAmount = Math.ceil(totalAmountAgorot * (1 + AMOUNT_TOLERANCE_PERCENT / 100))
 
-  const { data: similarInvoices, error } = await supabase
+  let query = supabase
     .from('invoices')
     .select(`
       id,
@@ -151,10 +171,18 @@ export async function checkSemanticDuplicate(
         storage_path
       )
     `)
-    .eq('user_id', userId)
     .neq('file_id', excludeFileId)
     .gte('total_amount_agorot', minAmount)
     .lte('total_amount_agorot', maxAmount)
+
+  // Filter by team if provided, otherwise by user
+  if (teamId) {
+    query = query.eq('team_id', teamId)
+  } else {
+    query = query.eq('user_id', userId).is('team_id', null)
+  }
+
+  const { data: similarInvoices, error } = await query
 
   if (error || !similarInvoices) {
     return []

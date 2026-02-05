@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { parseCreditCardStatement, type ParsedCreditCardTransaction } from '@/lib/parsers/creditCardParser'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import { runCCBankMatching, type MatchingResult } from '@/lib/services/ccBankMatcher'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { utf8ToBase64 } from '@/lib/utils/hashUtils'
@@ -37,6 +38,7 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
   const [duplicateCount, setDuplicateCount] = useState(0)
   const [matchedCount, setMatchedCount] = useState(0)
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const { ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger } = useSettingsStore()
 
@@ -82,12 +84,19 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
       const cardIdMap: Record<string, string> = {}
 
       for (const cardLastFour of uniqueCards) {
-        const { data: existing, error: fetchError } = await supabase
+        let cardQuery = supabase
           .from('credit_cards')
           .select('id')
           .eq('user_id', user.id)
           .eq('card_last_four', cardLastFour)
-          .maybeSingle()
+
+        if (currentTeam?.id) {
+          cardQuery = cardQuery.eq('team_id', currentTeam.id)
+        } else {
+          cardQuery = cardQuery.is('team_id', null)
+        }
+
+        const { data: existing, error: fetchError } = await cardQuery.maybeSingle()
 
         if (fetchError) {
           throw new Error(`Failed to check existing cards: ${fetchError.message}`)
@@ -98,6 +107,7 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
         } else {
           const newCard: CreditCardInsert = {
             user_id: user.id,
+            team_id: currentTeam?.id ?? null,
             card_last_four: cardLastFour,
             card_type: 'visa',
           }
@@ -132,6 +142,7 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
       // NEW SCHEMA: All CC data now in transactions table with transaction_type = 'cc_purchase'
       const inserts: TransactionInsert[] = txWithHashes.map(({ tx, hash }) => ({
         user_id: user.id,
+        team_id: currentTeam?.id ?? null,
         date: tx.date,
         value_date: tx.billingDate || tx.date, // charge_date
         description: tx.merchantName, // merchant_name
@@ -216,7 +227,7 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
       setStatus('error')
       isProcessingRef.current = false
     }
-  }, [user, ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger])
+  }, [user, currentTeam, ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger])
 
   return {
     currentFile,

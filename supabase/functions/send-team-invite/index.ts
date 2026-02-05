@@ -44,7 +44,7 @@ function generateEmailHtml({
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Team Invitation</title>
+  <title>Business Invitation</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f4f5;">
   <table role="presentation" style="width: 100%; border-collapse: collapse;">
@@ -71,7 +71,7 @@ function generateEmailHtml({
                 <strong style="color: #111827;">${teamName}</strong> as a <strong style="color: #6366f1;">${roleDisplay}</strong>.
               </p>
               <p style="margin: 0 0 30px; color: #374151; font-size: 16px; line-height: 1.6;">
-                Click the button below to accept the invitation and join the team.
+                Click the button below to accept the invitation and join the business.
               </p>
 
               <!-- CTA Button -->
@@ -138,7 +138,7 @@ Hi there,
 
 ${inviterName} has invited you to join ${teamName} as a ${roleDisplay}.
 
-Click the link below to accept the invitation and join the team:
+Click the link below to accept the invitation and join the business:
 ${inviteUrl}
 
 This invitation will expire in 7 days.
@@ -240,7 +240,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log(`Sending team invite email to ${email} for team ${teamName}`)
+    console.log(`Sending business invite email to ${email} for business ${teamName}`)
 
     // Send the email
     const { data, error } = await resend.emails.send({

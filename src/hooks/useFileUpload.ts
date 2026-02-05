@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { uploadFile, getFileType, isValidFileType } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import { checkFileDuplicate } from '@/lib/duplicates'
 import type { FileInsert } from '@/types/database'
 import type { FileDuplicateMatch, DuplicateAction } from '@/lib/duplicates/types'
@@ -45,6 +46,7 @@ export function useFileUpload(): UseFileUploadReturn {
   const [error, setError] = useState<string | null>(null)
   const [duplicateResult, setDuplicateResult] = useState<FileDuplicateResult | null>(null)
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   // Queue for files to upload
   const uploadQueueRef = useRef<File[]>([])
@@ -56,7 +58,7 @@ export function useFileUpload(): UseFileUploadReturn {
    * Upload a single file (called after duplicate check or action)
    */
   const uploadSingleFile = useCallback(async (file: File, fileHash: string): Promise<boolean> => {
-    if (!user) return false
+    if (!user || !currentTeam) return false
 
     try {
       // Progress: 30% - Starting upload
@@ -73,9 +75,10 @@ export function useFileUpload(): UseFileUploadReturn {
       // Progress: 60% - File uploaded, saving to database
       setCurrentProgress(60)
 
-      // Insert record into files table with file_hash
+      // Insert record into files table with file_hash and team_id
       const fileRecord: FileInsert & { file_hash: string } = {
         user_id: user.id,
+        team_id: currentTeam.id,
         storage_path: path,
         file_type: getFileType(file),
         source_type: 'invoice',
@@ -101,7 +104,7 @@ export function useFileUpload(): UseFileUploadReturn {
       setError(err instanceof Error ? err.message : 'Unknown error')
       return false
     }
-  }, [user])
+  }, [user, currentTeam])
 
   /**
    * Process the upload queue sequentially
@@ -113,6 +116,11 @@ export function useFileUpload(): UseFileUploadReturn {
 
     if (!user) {
       setError('User not authenticated')
+      return
+    }
+
+    if (!currentTeam) {
+      setError('No team selected')
       return
     }
 
@@ -133,9 +141,9 @@ export function useFileUpload(): UseFileUploadReturn {
       setCurrentProgress(0)
 
       try {
-        // Check for duplicates before upload
+        // Check for duplicates before upload (scoped to team)
         setCurrentProgress(10)
-        const duplicateCheck = await checkFileDuplicate(file, user.id)
+        const duplicateCheck = await checkFileDuplicate(file, user.id, currentTeam.id)
 
         if (duplicateCheck.isDuplicate) {
           // Store pending file and show modal
@@ -168,7 +176,7 @@ export function useFileUpload(): UseFileUploadReturn {
     setCurrentProgress(0)
     setIsUploading(false)
     isProcessingRef.current = false
-  }, [user, uploadSingleFile])
+  }, [user, currentTeam, uploadSingleFile])
 
   /**
    * Add files and start uploading immediately

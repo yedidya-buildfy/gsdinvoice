@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import type { Invoice } from '@/types/database'
 
 /**
@@ -53,13 +55,22 @@ export type InvoiceWithFile = Invoice & {
  */
 export function useInvoices(options?: UseInvoicesOptions) {
   const { status, fileId } = options ?? {}
+  const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   return useQuery({
-    queryKey: ['invoices', status, fileId],
+    queryKey: ['invoices', user?.id, currentTeam?.id, status, fileId],
     queryFn: async () => {
       let query = supabase
         .from('invoices')
         .select('*, file:files(original_name, storage_path), invoice_rows(id, transaction_id)')
+
+      // Filter by team
+      if (currentTeam?.id) {
+        query = query.eq('team_id', currentTeam.id)
+      } else {
+        query = query.is('team_id', null)
+      }
 
       if (status) {
         query = query.eq('status', status)
@@ -107,6 +118,7 @@ export function useInvoices(options?: UseInvoicesOptions) {
 
       return invoicesWithStatus as InvoiceWithFile[]
     },
+    enabled: !!user?.id && !!currentTeam,
     staleTime: 30 * 1000, // 30 seconds, matches existing pattern
   })
 }

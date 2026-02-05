@@ -80,7 +80,7 @@ export function TeamProvider({ children }: TeamProviderProps) {
 
       // If user has no teams, create a personal team
       if (teamsWithRoles.length === 0) {
-        const newTeam = await createPersonalTeam(user.id, user.user_metadata?.full_name)
+        const newTeam = await createPersonalTeam(user.id)
         if (newTeam) {
           setTeams([newTeam])
           setCurrentTeam(newTeam)
@@ -88,16 +88,16 @@ export function TeamProvider({ children }: TeamProviderProps) {
       }
     } catch (err) {
       console.error('[TeamContext] Error fetching teams:', err)
-      setError(err instanceof Error ? err : new Error('Failed to fetch teams'))
+      setError(err instanceof Error ? err : new Error('Failed to fetch businesses'))
     } finally {
       setIsLoading(false)
     }
   }, [user])
 
   // Create a personal team for the user
-  const createPersonalTeam = async (userId: string, userName?: string): Promise<TeamWithRole | null> => {
+  const createPersonalTeam = async (userId: string): Promise<TeamWithRole | null> => {
     try {
-      const teamName = userName ? `${userName}'s Team` : 'My Team'
+      const teamName = 'Personal'
       const slug = `team-${userId.slice(0, 8)}-${Date.now()}`
 
       // Create team
@@ -180,7 +180,7 @@ export function TeamProvider({ children }: TeamProviderProps) {
 export function useTeam() {
   const context = useContext(TeamContext)
   if (context === undefined) {
-    throw new Error('useTeam must be used within a TeamProvider')
+    throw new Error('useTeam must be used within a TeamProvider. This hook provides business context.')
   }
   return context
 }

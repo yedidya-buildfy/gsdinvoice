@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { checkLineItemDuplicates } from '@/lib/duplicates'
 import { processAutoMatch } from '@/hooks/useAutoMatch'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useTeam } from '@/contexts/TeamContext'
 import type {
   ExtractionRequest,
   ExtendedExtractionResult,
@@ -72,6 +73,7 @@ function ensureLineItems(
  */
 export function useExtractDocument() {
   const queryClient = useQueryClient()
+  const { currentTeam } = useTeam()
 
   return useMutation<ExtendedExtractionResult, Error, ExtractionRequest>({
     onMutate: async ({ fileId }) => {
@@ -226,7 +228,7 @@ export function useExtractDocument() {
       if (autoMatchEnabled && (matchingTrigger === 'on_upload' || matchingTrigger === 'after_all_uploads')) {
         console.log('[useExtractDocument] Auto-matching enabled, triggering for invoice:', invoiceId)
         try {
-          const autoMatchResult = await processAutoMatch([invoiceId], autoMatchThreshold)
+          const autoMatchResult = await processAutoMatch([invoiceId], autoMatchThreshold, currentTeam?.id ?? null)
           console.log('[useExtractDocument] Auto-match result:', {
             matched: autoMatchResult.matched,
             skipped: autoMatchResult.skipped,
@@ -358,6 +360,7 @@ export async function handleLineItemDuplicateAction(
  */
 export function useExtractMultipleDocuments() {
   const queryClient = useQueryClient()
+  const { currentTeam } = useTeam()
 
   return useMutation<LineItemDuplicateInfo[], Error, ExtractionRequest[]>({
     onMutate: async (documents) => {
@@ -578,7 +581,7 @@ export function useExtractMultipleDocuments() {
         if (invoiceIdsToMatch.length > 0) {
           console.log('[useExtractMultiple] Auto-matching', invoiceIdsToMatch.length, 'invoices')
           try {
-            const autoMatchResult = await processAutoMatch(invoiceIdsToMatch, autoMatchThreshold)
+            const autoMatchResult = await processAutoMatch(invoiceIdsToMatch, autoMatchThreshold, currentTeam?.id ?? null)
             console.log('[useExtractMultiple] Auto-match result:', {
               matched: autoMatchResult.matched,
               skipped: autoMatchResult.skipped,

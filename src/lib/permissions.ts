@@ -101,9 +101,9 @@ export function getRoleLabel(role: TeamRole): string {
  */
 export function getRoleDescription(role: TeamRole): string {
   const descriptions: Record<TeamRole, string> = {
-    owner: 'Full access, can delete team and transfer ownership',
+    owner: 'Full access, can delete business and transfer ownership',
     admin: 'Manage members, full access to all data and settings',
-    member: 'Create and edit data, cannot manage team settings',
+    member: 'Create and edit data, cannot manage business settings',
     viewer: 'View-only access to all data',
   }
   return descriptions[role]

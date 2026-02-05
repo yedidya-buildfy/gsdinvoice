@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import type { CCBankMatchResult, Transaction } from '@/types/database'
 
 // CC transaction shape for display (from transactions table with transaction_type = 'cc_purchase')
@@ -46,13 +47,26 @@ interface UseCCBankMatchSummaryReturn {
   error: Error | null
 }
 
-async function fetchMatchResults(userId: string): Promise<MatchResultWithDetails[]> {
-  // Fetch match results
-  const { data: results, error: resultsError } = await supabase
+async function fetchMatchResults(
+  userId: string,
+  teamId: string | null
+): Promise<MatchResultWithDetails[]> {
+  // Build query with team filtering
+  let query = supabase
     .from('cc_bank_match_results')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
+
+  // Filter by team if provided, otherwise get personal match results (no team)
+  if (teamId) {
+    query = query.eq('team_id', teamId)
+  } else {
+    query = query.is('team_id', null)
+  }
+
+  // Fetch match results
+  const { data: results, error: resultsError } = await query
 
   if (resultsError) throw resultsError
   if (!results || results.length === 0) return []
@@ -114,11 +128,12 @@ async function fetchMatchResults(userId: string): Promise<MatchResultWithDetails
 
 export function useCCBankMatchResults(): UseCCBankMatchResultsReturn {
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['cc-bank-match-results', user?.id],
-    queryFn: () => fetchMatchResults(user!.id),
-    enabled: !!user,
+    queryKey: ['cc-bank-match-results', user?.id, currentTeam?.id],
+    queryFn: () => fetchMatchResults(user!.id, currentTeam?.id ?? null),
+    enabled: !!user && !!currentTeam,
     staleTime: 30000, // 30s cache
   })
 
@@ -160,6 +175,7 @@ interface UseUpdateMatchStatusReturn {
 export function useUpdateMatchStatus(): UseUpdateMatchStatusReturn {
   const queryClient = useQueryClient()
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const mutation = useMutation({
     mutationFn: async ({ matchId, status }: { matchId: string; status: string }) => {
@@ -171,7 +187,7 @@ export function useUpdateMatchStatus(): UseUpdateMatchStatusReturn {
       if (error) throw error
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cc-bank-match-results', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['cc-bank-match-results', user?.id, currentTeam?.id] })
     },
   })
 
@@ -191,6 +207,7 @@ interface UseUnmatchCCTransactionsReturn {
 export function useUnmatchCCTransactions(): UseUnmatchCCTransactionsReturn {
   const queryClient = useQueryClient()
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const mutation = useMutation({
     mutationFn: async ({ matchId, ccTransactionIds }: { matchId: string; ccTransactionIds: string[] }) => {
@@ -258,7 +275,7 @@ export function useUnmatchCCTransactions(): UseUnmatchCCTransactionsReturn {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cc-bank-match-results', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['cc-bank-match-results', user?.id, currentTeam?.id] })
     },
   })
 
@@ -305,6 +322,7 @@ interface UseCCTransactionsReturn {
 
 export function useCCTransactions(filters: CCTransactionFilters): UseCCTransactionsReturn {
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
   const dateField = filters.dateField || 'transaction_date'
   const connectionStatus = filters.connectionStatus || 'not_connected'
 
@@ -312,7 +330,7 @@ export function useCCTransactions(filters: CCTransactionFilters): UseCCTransacti
   const dbDateField = dateField === 'transaction_date' ? 'date' : 'value_date'
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['cc-transactions-display', user?.id, filters],
+    queryKey: ['cc-transactions-display', user?.id, currentTeam?.id, filters],
     queryFn: async () => {
       // NEW SCHEMA: Query CC purchases from transactions table with transaction_type = 'cc_purchase'
       let query = supabase
@@ -321,6 +339,13 @@ export function useCCTransactions(filters: CCTransactionFilters): UseCCTransacti
         .eq('user_id', user!.id)
         .eq('transaction_type', 'cc_purchase')
         .order(dbDateField, { ascending: false })
+
+      // Filter by team if provided, otherwise get personal transactions (no team)
+      if (currentTeam?.id) {
+        query = query.eq('team_id', currentTeam.id)
+      } else {
+        query = query.is('team_id', null)
+      }
 
       // Apply connection status filter based on parent_bank_charge_id
       if (connectionStatus === 'connected') {
@@ -367,7 +392,7 @@ export function useCCTransactions(filters: CCTransactionFilters): UseCCTransacti
 
       return mapped
     },
-    enabled: !!user,
+    enabled: !!user && !!currentTeam,
     staleTime: 30000,
   })
 
@@ -425,10 +450,11 @@ interface UseBankCCChargesReturn {
 
 export function useBankCCCharges(filters: BankCCChargeFilters): UseBankCCChargesReturn {
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
   const connectionStatus = filters.connectionStatus || 'all'
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['bank-cc-charges', user?.id, filters],
+    queryKey: ['bank-cc-charges', user?.id, currentTeam?.id, filters],
     queryFn: async () => {
       // Fetch bank CC charges (transaction_type = 'bank_cc_charge')
       let query = supabase
@@ -437,6 +463,13 @@ export function useBankCCCharges(filters: BankCCChargeFilters): UseBankCCCharges
         .eq('user_id', user!.id)
         .eq('transaction_type', 'bank_cc_charge')
         .order('date', { ascending: false })
+
+      // Filter by team if provided, otherwise get personal transactions (no team)
+      if (currentTeam?.id) {
+        query = query.eq('team_id', currentTeam.id)
+      } else {
+        query = query.is('team_id', null)
+      }
 
       if (filters.fromDate) {
         query = query.gte('date', filters.fromDate)
@@ -483,7 +516,7 @@ export function useBankCCCharges(filters: BankCCChargeFilters): UseBankCCCharges
 
       return mapped
     },
-    enabled: !!user,
+    enabled: !!user && !!currentTeam,
     staleTime: 30000,
   })
 
@@ -504,6 +537,7 @@ interface UseAttachCCTransactionsReturn {
 export function useAttachCCTransactions(): UseAttachCCTransactionsReturn {
   const queryClient = useQueryClient()
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const mutation = useMutation({
     mutationFn: async ({ bankTransactionId, ccTransactionIds }: { bankTransactionId: string; ccTransactionIds: string[] }) => {
@@ -591,6 +625,7 @@ export function useAttachCCTransactions(): UseAttachCCTransactionsReturn {
           .from('cc_bank_match_results')
           .insert({
             user_id: user!.id,
+            team_id: currentTeam?.id ?? null,
             bank_transaction_id: bankTransactionId,
             bank_charge_id: bankTransactionId, // Use new field
             card_last_four: cardLastFour,
@@ -609,9 +644,9 @@ export function useAttachCCTransactions(): UseAttachCCTransactionsReturn {
       console.log('[Attach] Match result created/updated successfully')
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cc-bank-match-results', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['cc-bank-match-results', user?.id, currentTeam?.id] })
       // Invalidate all cc-transactions-display queries (matches any filters)
-      queryClient.invalidateQueries({ queryKey: ['cc-transactions-display', user?.id] })
+      queryClient.invalidateQueries({ queryKey: ['cc-transactions-display', user?.id, currentTeam?.id] })
     },
   })
 

@@ -37,7 +37,7 @@ export function TeamMemberList() {
   if (!members || members.length === 0) {
     return (
       <p className="text-sm text-text-muted text-center py-4">
-        No team members found.
+        No business members found.
       </p>
     )
   }
@@ -178,8 +178,8 @@ export function TeamMemberList() {
         isOpen={!!removeConfirm}
         onConfirm={handleRemove}
         onCancel={() => setRemoveConfirm(null)}
-        title="Remove Team Member"
-        message={`Are you sure you want to remove ${removeConfirm?.user.profile?.full_name || removeConfirm?.user.email} from the team? They will lose access to all team data.`}
+        title="Remove Business Member"
+        message={`Are you sure you want to remove ${removeConfirm?.user.profile?.full_name || removeConfirm?.user.email} from this business? They will lose access to all business data.`}
         confirmLabel={removeMember.isPending ? 'Removing...' : 'Remove'}
         cancelLabel="Cancel"
         variant="danger"

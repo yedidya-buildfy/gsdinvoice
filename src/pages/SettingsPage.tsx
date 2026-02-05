@@ -45,7 +45,7 @@ type SettingsTabId = 'profile' | 'team' | 'rules' | 'credit-cards' | 'billing'
 
 const settingsTabs: { id: SettingsTabId; label: string }[] = [
   { id: 'profile', label: 'Profile' },
-  { id: 'team', label: 'Team' },
+  { id: 'team', label: 'Business' },
   { id: 'rules', label: 'Rules' },
   { id: 'credit-cards', label: 'Credit Cards' },
   { id: 'billing', label: 'Billing & Plans' },
@@ -685,7 +685,7 @@ function ProfileTab() {
   )
 }
 
-// Bento Section component for Team tab
+// Bento Section component for Business tab
 interface BentoSectionProps {
   icon: React.ComponentType<{ className?: string }>
   title: string
@@ -724,7 +724,7 @@ function TeamTab() {
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  // Load team name
+  // Load business name
   useEffect(() => {
     if (currentTeam) {
       setTeamName(currentTeam.name)
@@ -744,11 +744,11 @@ function TeamTab() {
 
     try {
       await updateTeam.mutateAsync({ name: teamName.trim() })
-      setSaveMessage({ type: 'success', text: 'Team name updated' })
+      setSaveMessage({ type: 'success', text: 'Business name updated' })
       setHasNameChanges(false)
       setTimeout(() => setSaveMessage(null), 3000)
     } catch (err) {
-      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update team' })
+      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update business' })
     } finally {
       setIsSaving(false)
     }
@@ -760,7 +760,7 @@ function TeamTab() {
       await leaveTeam.mutateAsync(currentTeam.id)
       setShowLeaveConfirm(false)
     } catch (err) {
-      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to leave team' })
+      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to leave business' })
     }
   }
 
@@ -770,7 +770,7 @@ function TeamTab() {
       await deleteTeam.mutateAsync(currentTeam.id)
       setShowDeleteConfirm(false)
     } catch (err) {
-      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to delete team' })
+      setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to delete business' })
     }
   }
 
@@ -804,7 +804,7 @@ function TeamTab() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-        {/* Team Overview Card - Large featured */}
+        {/* Business Overview Card - Large featured */}
         <div className="md:col-span-2 bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 rounded-xl p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4">
@@ -813,7 +813,7 @@ function TeamTab() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-text">{currentTeam.name}</h3>
-                <p className="text-sm text-text-muted mt-1">Manage your team members and settings</p>
+                <p className="text-sm text-text-muted mt-1">Manage your business members and settings</p>
                 <div className="mt-3 flex items-center gap-2">
                   <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-400 rounded-full capitalize">{userRole}</span>
                 </div>
@@ -829,7 +829,7 @@ function TeamTab() {
               <UserPlusIcon className="w-6 h-6 text-primary" />
             </div>
             <h3 className="text-sm font-semibold text-text">Invite Member</h3>
-            <p className="text-xs text-text-muted mt-1 mb-4">Add team members</p>
+            <p className="text-xs text-text-muted mt-1 mb-4">Add business members</p>
             <button
               type="button"
               onClick={() => setShowInviteModal(true)}
@@ -848,23 +848,23 @@ function TeamTab() {
           </div>
         )}
 
-        {/* Team Settings Card */}
+        {/* Business Settings Card */}
         {canManage && (
           <div className="md:col-span-2 lg:col-span-3">
             <BentoSection
               icon={CogIcon}
-              title="Team Settings"
-              description="Manage your team's name"
+              title="Business Settings"
+              description="Manage your business name"
             >
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">Team Name</label>
+                  <label className="block text-xs text-text-muted mb-1.5">Business Name</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
                       value={teamName}
                       onChange={(e) => setTeamName(e.target.value)}
-                      placeholder="Enter team name"
+                      placeholder="Enter business name"
                       className="flex-1 px-3 py-2 bg-background/50 border border-text-muted/20 rounded-lg text-text text-sm placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
                     />
                     {hasNameChanges && (
@@ -884,11 +884,11 @@ function TeamTab() {
           </div>
         )}
 
-        {/* Team Members Section */}
+        {/* Business Members Section */}
         <div className="md:col-span-2 lg:col-span-3">
           <div className="flex items-center gap-2 mb-3">
             <UserIcon className="w-4 h-4 text-text-muted" />
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Team Members</h4>
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Business Members</h4>
           </div>
           <div className="bg-surface border border-text-muted/10 rounded-xl p-5">
             <TeamMemberList />
@@ -915,38 +915,38 @@ function TeamTab() {
             <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wider">Danger Zone</h4>
           </div>
           <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-5 space-y-3">
-            {/* Leave Team (for non-owners) */}
+            {/* Leave Business (for non-owners) */}
             {!isOwner && (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-text">Leave Team</p>
-                  <p className="text-xs text-text-muted">You will lose access to all team data</p>
+                  <p className="text-sm font-medium text-text">Leave Business</p>
+                  <p className="text-xs text-text-muted">You will lose access to all business data</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowLeaveConfirm(true)}
                   className="px-4 py-2 text-sm text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors"
                 >
-                  Leave Team
+                  Leave Business
                 </button>
               </div>
             )}
 
-            {/* Delete Team (owner only) */}
+            {/* Delete Business (owner only) */}
             {canDelete && (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-text">Delete Team</p>
-                  <p className="text-xs text-text-muted">Permanently delete this team and all its data</p>
+                  <p className="text-sm font-medium text-text">Delete Business</p>
+                  <p className="text-xs text-text-muted">Permanently delete this business and all its data</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
                   disabled={teams.length <= 1}
                   className="px-4 py-2 text-sm text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={teams.length <= 1 ? 'Cannot delete your only team' : undefined}
+                  title={teams.length <= 1 ? 'Cannot delete your only business' : undefined}
                 >
-                  Delete Team
+                  Delete Business
                 </button>
               </div>
             )}
@@ -966,9 +966,9 @@ function TeamTab() {
         isOpen={showLeaveConfirm}
         onConfirm={handleLeaveTeam}
         onCancel={() => setShowLeaveConfirm(false)}
-        title="Leave Team"
-        message={`Are you sure you want to leave "${currentTeam.name}"? You will lose access to all team data.`}
-        confirmLabel={leaveTeam.isPending ? 'Leaving...' : 'Leave Team'}
+        title="Leave Business"
+        message={`Are you sure you want to leave "${currentTeam.name}"? You will lose access to all business data.`}
+        confirmLabel={leaveTeam.isPending ? 'Leaving...' : 'Leave Business'}
         cancelLabel="Cancel"
         variant="danger"
       />
@@ -978,9 +978,9 @@ function TeamTab() {
         isOpen={showDeleteConfirm}
         onConfirm={handleDeleteTeam}
         onCancel={() => setShowDeleteConfirm(false)}
-        title="Delete Team"
-        message={`Are you sure you want to permanently delete "${currentTeam.name}"? This action cannot be undone and all team data will be lost.`}
-        confirmLabel={deleteTeam.isPending ? 'Deleting...' : 'Delete Team'}
+        title="Delete Business"
+        message={`Are you sure you want to permanently delete "${currentTeam.name}"? This action cannot be undone and all business data will be lost.`}
+        confirmLabel={deleteTeam.isPending ? 'Deleting...' : 'Delete Business'}
         cancelLabel="Cancel"
         variant="danger"
       />
@@ -1044,7 +1044,7 @@ function BillingTab() {
       price: { monthly: 0, yearly: 0 },
       features: [
         '20 invoices/month',
-        '1 team member',
+        '1 business member',
         '1 bank connection',
         'Manual CC matching',
         'Basic reports',
@@ -1058,7 +1058,7 @@ function BillingTab() {
       price: { monthly: 29, yearly: 290 },
       features: [
         '200 invoices/month',
-        '3 team members',
+        '3 business members',
         '3 bank connections',
         'Auto CC matching suggestions',
         'Advanced reports & exports',
@@ -1070,11 +1070,11 @@ function BillingTab() {
     {
       id: 'business' as const,
       name: 'Business',
-      description: 'For teams and enterprises',
+      description: 'For larger organizations',
       price: { monthly: 79, yearly: 790 },
       features: [
         'Unlimited invoices',
-        '10 team members',
+        '10 business members',
         'Unlimited bank connections',
         'AI-powered matching',
         'Custom rules & workflows',
@@ -1178,7 +1178,7 @@ function BillingTab() {
             </div>
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span className="text-text-muted">Team Members</span>
+                <span className="text-text-muted">Business Members</span>
                 <span className="text-text">
                   {usage?.team_members_count ?? 1} / {limits?.max_team_members ?? 1}
                 </span>

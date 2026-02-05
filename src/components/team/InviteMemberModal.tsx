@@ -105,7 +105,7 @@ export function InviteMemberModal({ isOpen, onClose }: InviteMemberModalProps) {
               <UserPlusIcon className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-text">Invite Member</h2>
+              <h2 className="text-lg font-semibold text-text">Invite to Business</h2>
               <p className="text-sm text-text-muted">
                 Invite someone to {currentTeam?.name}
               </p>

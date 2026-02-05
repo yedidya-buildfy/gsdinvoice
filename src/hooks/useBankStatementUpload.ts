@@ -4,6 +4,7 @@ import { detectCreditCardCharge } from '@/lib/services/creditCardLinker'
 import { runCCBankMatching } from '@/lib/services/ccBankMatcher'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { utf8ToBase64, generateUniqueHash } from '@/lib/utils/hashUtils'
 import type { TransactionInsert } from '@/types/database'
@@ -56,6 +57,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
   const [duplicateCheckResult, setDuplicateCheckResult] = useState<TransactionDuplicateCheckResult | null>(null)
   const [showDuplicateModal, setShowDuplicateModal] = useState(false)
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
 
   const { ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger } = useSettingsStore()
 
@@ -67,6 +69,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
   // Check for duplicates by querying the database in batches
   const checkForDuplicates = async (
     userId: string,
+    teamId: string | null,
     txWithHashes: TransactionWithHash[]
   ): Promise<TransactionDuplicateCheckResult> => {
     const hashes = txWithHashes.map((t) => t.hash)
@@ -86,11 +89,19 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
     for (let i = 0; i < hashes.length; i += BATCH_SIZE) {
       const batchHashes = hashes.slice(i, i + BATCH_SIZE)
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('transactions')
         .select('id, hash, date, description, amount_agorot, reference, created_at')
         .eq('user_id', userId)
         .in('hash', batchHashes)
+
+      if (teamId) {
+        query = query.eq('team_id', teamId)
+      } else {
+        query = query.is('team_id', null)
+      }
+
+      const { data, error } = await query
 
       if (error) {
         console.error('[Upload] Error checking duplicates:', error)
@@ -164,6 +175,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
 
             return {
               user_id: user.id,
+              team_id: currentTeam?.id ?? null,
               date: tx.date,
               value_date: tx.valueDate,
               description: tx.description,
@@ -224,11 +236,19 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
           const BATCH_SIZE = 50
           for (let i = 0; i < hashesToDelete.length; i += BATCH_SIZE) {
             const batch = hashesToDelete.slice(i, i + BATCH_SIZE)
-            const { error: deleteError } = await supabase
+            let deleteQuery = supabase
               .from('transactions')
               .delete()
               .eq('user_id', user.id)
               .in('hash', batch)
+
+            if (currentTeam?.id) {
+              deleteQuery = deleteQuery.eq('team_id', currentTeam.id)
+            } else {
+              deleteQuery = deleteQuery.is('team_id', null)
+            }
+
+            const { error: deleteError } = await deleteQuery
 
             if (deleteError) {
               console.error('[Upload] Delete error:', deleteError)
@@ -245,6 +265,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
 
           return {
             user_id: user.id,
+            team_id: currentTeam?.id ?? null,
             date: tx.date,
             value_date: tx.valueDate,
             description: tx.description,
@@ -283,6 +304,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
 
           return {
             user_id: user.id,
+            team_id: currentTeam?.id ?? null,
             date: tx.date,
             value_date: tx.valueDate,
             description: tx.description,
@@ -360,7 +382,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
     if (!duplicateCheckResult) return
 
     executeSave(action, pendingTransactionsRef.current, duplicateCheckResult)
-  }, [duplicateCheckResult, user, ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger])
+  }, [duplicateCheckResult, user, currentTeam, ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger])
 
   const addFile = useCallback(async (file: File) => {
     console.log('[Upload] addFile called with:', file.name)
@@ -419,7 +441,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
       console.log('[Upload] Step 3: Checking for duplicates...')
       setProgress(45)
 
-      const duplicateResult = await checkForDuplicates(user.id, txWithHashes)
+      const duplicateResult = await checkForDuplicates(user.id, currentTeam?.id ?? null, txWithHashes)
       console.log('[Upload] Duplicate check complete:', duplicateResult.duplicateCount, 'duplicates found')
       setProgress(50)
 
@@ -446,7 +468,7 @@ export function useBankStatementUpload(): UseBankStatementUploadReturn {
       setStatus('error')
       isProcessingRef.current = false
     }
-  }, [user, ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger])
+  }, [user, currentTeam, ccBankDateRangeDays, ccBankAmountTolerance, matchingTrigger])
 
   return {
     currentFile,

@@ -869,6 +869,7 @@ export type Database = {
         Args: { ids: string[]; update_data: Json }
         Returns: number
       }
+      can_create_business: { Args: Record<PropertyKey, never>; Returns: boolean }
       check_invitation_rate_limit: {
         Args: { p_user_id: string }
         Returns: boolean

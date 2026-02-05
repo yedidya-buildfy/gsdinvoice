@@ -11,6 +11,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useTeam } from '@/contexts/TeamContext'
 import { scoreMatch, ELIGIBLE_TRANSACTION_TYPES, type ScoringContext } from '@/lib/services/lineItemMatcher/scorer'
 import { linkLineItemToTransaction } from '@/lib/services/lineItemMatcher'
 import type { Transaction, InvoiceRow, Invoice, VendorAlias } from '@/types/database'
@@ -64,7 +65,8 @@ async function fetchVendorAliases(): Promise<VendorAlias[]> {
  */
 export async function processAutoMatch(
   invoiceIds: string[],
-  threshold: number
+  threshold: number,
+  teamId: string | null
 ): Promise<AutoMatchBatchResult> {
   console.log('[AutoMatch] Starting with', invoiceIds.length, 'invoices, threshold:', threshold)
 
@@ -80,10 +82,18 @@ export async function processAutoMatch(
 
   // Step 1: Fetch all invoices with their line items
   console.log('[AutoMatch] Step 1: Fetching invoices and line items...')
-  const { data: invoices, error: invoicesError } = await supabase
+  let invoicesQuery = supabase
     .from('invoices')
     .select('*')
     .in('id', invoiceIds)
+
+  if (teamId) {
+    invoicesQuery = invoicesQuery.eq('team_id', teamId)
+  } else {
+    invoicesQuery = invoicesQuery.is('team_id', null)
+  }
+
+  const { data: invoices, error: invoicesError } = await invoicesQuery
 
   if (invoicesError || !invoices) {
     console.error('[AutoMatch] Error fetching invoices:', invoicesError)
@@ -134,13 +144,21 @@ export async function processAutoMatch(
 
   // Step 3: Fetch all transactions in date range
   console.log('[AutoMatch] Step 2: Fetching transactions...')
-  const { data: transactions, error: txError } = await supabase
+  let transactionsQuery = supabase
     .from('transactions')
     .select('*')
     .in('transaction_type', ELIGIBLE_TRANSACTION_TYPES)
     .eq('is_income', false)
     .gte('date', minDate.toISOString().split('T')[0])
     .lte('date', maxDate.toISOString().split('T')[0])
+
+  if (teamId) {
+    transactionsQuery = transactionsQuery.eq('team_id', teamId)
+  } else {
+    transactionsQuery = transactionsQuery.is('team_id', null)
+  }
+
+  const { data: transactions, error: txError } = await transactionsQuery
 
   if (txError || !transactions) {
     console.error('[AutoMatch] Error fetching transactions:', txError)
@@ -274,11 +292,12 @@ export async function processAutoMatch(
 export function useAutoMatch() {
   const queryClient = useQueryClient()
   const { autoMatchThreshold } = useSettingsStore()
+  const { currentTeam } = useTeam()
 
   return useMutation({
     mutationFn: async (requests: AutoMatchRequest[]): Promise<AutoMatchBatchResult> => {
       const invoiceIds = requests.map(r => r.invoiceId)
-      return processAutoMatch(invoiceIds, autoMatchThreshold)
+      return processAutoMatch(invoiceIds, autoMatchThreshold, currentTeam?.id ?? null)
     },
     onSuccess: () => {
       console.log('[AutoMatch] Success, invalidating queries')

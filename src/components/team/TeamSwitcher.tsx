@@ -145,7 +145,7 @@ export function TeamSwitcher({ isExpanded }: TeamSwitcherProps) {
                 <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-dashed border-text-muted/30">
                   <PlusIcon className="h-3 w-3" />
                 </div>
-                <span className="text-sm">Create team</span>
+                <span className="text-sm">Create business</span>
               </button>
             </div>
           </div>
