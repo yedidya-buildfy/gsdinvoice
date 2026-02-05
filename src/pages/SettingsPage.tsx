@@ -989,6 +989,8 @@ function TeamTab() {
 }
 
 function BillingTab() {
+  const { user } = useAuth()
+  const { teams } = useTeam()
   const { data: subscription, isLoading: subLoading } = useSubscription()
   const { data: usage } = useCurrentUsage()
   const { data: planLimits } = usePlanLimits(subscription?.plan_tier)
@@ -1011,6 +1013,10 @@ function BillingTab() {
   const limits = planLimits as PlanLimits | null
   const invoicesUsed = usage?.invoices_processed ?? 0
   const invoiceLimit = limits?.max_invoices_per_month ?? 20
+
+  // Count businesses owned by the user
+  const businessesOwned = teams.filter(t => t.owner_id === user?.id).length
+  const businessLimit = limits?.max_businesses ?? 1
 
   const handleUpgrade = async (planId: 'pro' | 'business') => {
     try {
@@ -1155,7 +1161,7 @@ function BillingTab() {
             <div className="p-2 bg-blue-500/10 rounded-lg">
               <DocumentDuplicateIcon className="w-5 h-5 text-blue-500" />
             </div>
-            <h3 className="text-sm font-semibold text-text">Usage This Period</h3>
+            <h3 className="text-sm font-semibold text-text">Usage</h3>
           </div>
           <div className="space-y-3">
             <div>
@@ -1181,13 +1187,44 @@ function BillingTab() {
             </div>
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span className="text-text-muted">Business Members</span>
+                <span className="text-text-muted">Businesses</span>
+                <span className="text-text">
+                  {businessesOwned} / {businessLimit === null ? '∞' : businessLimit}
+                </span>
+              </div>
+              <div className="h-2 bg-text-muted/10 rounded-full overflow-hidden">
+                <div
+                  className={cx(
+                    'h-full rounded-full transition-all',
+                    businessLimit && businessesOwned / businessLimit > 0.9
+                      ? 'bg-red-500'
+                      : businessLimit && businessesOwned / businessLimit > 0.7
+                        ? 'bg-amber-500'
+                        : 'bg-primary'
+                  )}
+                  style={{ width: businessLimit ? `${Math.min(100, (businessesOwned / businessLimit) * 100)}%` : '0%' }}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-text-muted">Team Members</span>
                 <span className="text-text">
                   {usage?.team_members_count ?? 1} / {limits?.max_team_members ?? 1}
                 </span>
               </div>
               <div className="h-2 bg-text-muted/10 rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: '10%' }} />
+                <div
+                  className={cx(
+                    'h-full rounded-full transition-all',
+                    limits?.max_team_members && (usage?.team_members_count ?? 1) / limits.max_team_members > 0.9
+                      ? 'bg-red-500'
+                      : limits?.max_team_members && (usage?.team_members_count ?? 1) / limits.max_team_members > 0.7
+                        ? 'bg-amber-500'
+                        : 'bg-primary'
+                  )}
+                  style={{ width: limits?.max_team_members ? `${Math.min(100, ((usage?.team_members_count ?? 1) / limits.max_team_members) * 100)}%` : '0%' }}
+                />
               </div>
             </div>
           </div>
