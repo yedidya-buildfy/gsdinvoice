@@ -13,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfile } from '@/hooks/useProfile'
+import { TeamSwitcher } from '@/components/team/TeamSwitcher'
 
 interface NavChild {
   to: string
@@ -104,6 +105,11 @@ export function Sidebar() {
         {isExpanded && (
           <span className="text-lg font-semibold text-text">VAT Manager</span>
         )}
+      </div>
+
+      {/* Team Switcher */}
+      <div className="border-b border-text-muted/20 py-2">
+        <TeamSwitcher isExpanded={isExpanded} />
       </div>
 
       {/* Navigation */}
