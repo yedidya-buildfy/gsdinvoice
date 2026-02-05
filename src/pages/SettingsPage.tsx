@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router'
+import { useQuery } from '@tanstack/react-query'
+import { supabase } from '@/lib/supabase'
 import { useSubscription, useCurrentUsage, usePlanLimits, useCheckout, useManageSubscription } from '@/hooks/useSubscription'
 import type { PlanLimits } from '@/types/subscription'
 import {
@@ -34,7 +36,7 @@ import { useProfile, useUpdateProfile, useUploadAvatar, useRemoveAvatar } from '
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeam } from '@/contexts/TeamContext'
 import { ConfirmDialog } from '@/components/ui/base/modal/confirm-dialog'
-import { TeamMemberList, PendingInvitationsList, InviteMemberModal } from '@/components/team'
+import { TeamMemberList, PendingInvitationsList, InviteMemberModal, CreateTeamModal } from '@/components/team'
 import { VendorAliasesSection } from '@/components/settings/VendorAliasesSection'
 import { useUpdateTeam, useLeaveTeam, useDeleteTeam } from '@/hooks/useTeamManagement'
 import { canManageTeam, canInviteMembers, canDeleteTeam } from '@/lib/permissions'
@@ -718,11 +720,25 @@ function TeamTab() {
 
   const [teamName, setTeamName] = useState('')
   const [showInviteModal, setShowInviteModal] = useState(false)
+  const [showCreateBusinessModal, setShowCreateBusinessModal] = useState(false)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [hasNameChanges, setHasNameChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Check if user can create more businesses based on their plan
+  const { data: canCreateBusiness } = useQuery({
+    queryKey: ['can-create-business'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('can_create_business')
+      if (error) {
+        console.error('Error checking business limit:', error)
+        return true // Allow creation on error to avoid blocking
+      }
+      return data as boolean
+    },
+  })
 
   // Load business name
   useEffect(() => {
@@ -848,6 +864,32 @@ function TeamTab() {
           </div>
         )}
 
+        {/* Create Business Card */}
+        {canCreateBusiness ? (
+          <div className="bg-surface border border-text-muted/10 rounded-xl p-5 flex flex-col items-center justify-center text-center">
+            <div className="p-3 bg-primary/10 rounded-xl mb-3">
+              <BuildingOfficeIcon className="w-6 h-6 text-primary" />
+            </div>
+            <h3 className="text-sm font-semibold text-text">Create Business</h3>
+            <p className="text-xs text-text-muted mt-1 mb-4">Add a new business</p>
+            <button
+              type="button"
+              onClick={() => setShowCreateBusinessModal(true)}
+              className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              Create Business
+            </button>
+          </div>
+        ) : (
+          <div className="bg-surface border border-text-muted/10 rounded-xl p-5 flex flex-col items-center justify-center text-center">
+            <div className="p-3 bg-text-muted/10 rounded-xl mb-3">
+              <BuildingOfficeIcon className="w-6 h-6 text-text-muted" />
+            </div>
+            <h3 className="text-sm font-semibold text-text">Create Business</h3>
+            <p className="text-xs text-text-muted mt-1">Business limit reached</p>
+          </div>
+        )}
+
         {/* Business Settings Card */}
         {canManage && (
           <div className="md:col-span-2 lg:col-span-3">
@@ -959,6 +1001,12 @@ function TeamTab() {
       <InviteMemberModal
         isOpen={showInviteModal}
         onClose={() => setShowInviteModal(false)}
+      />
+
+      {/* Create Business Modal */}
+      <CreateTeamModal
+        isOpen={showCreateBusinessModal}
+        onClose={() => setShowCreateBusinessModal(false)}
       />
 
       {/* Leave Confirmation */}
