@@ -15,7 +15,7 @@ ARG VITE_POSTHOG_KEY
 ARG VITE_POSTHOG_HOST
 ARG VITE_STRIPE_PUBLISHABLE_KEY
 
-RUN npm run build
+RUN npx vite build
 
 # Production stage
 FROM nginx:alpine
