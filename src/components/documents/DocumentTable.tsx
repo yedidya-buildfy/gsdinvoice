@@ -13,6 +13,10 @@ import { formatCurrency } from '@/lib/currency'
 import { ExtractionStatus } from './ExtractionStatus'
 import type { ExtractionStatus as ExtractionStatusType } from '@/lib/extraction/types'
 import { isImageType } from '@/lib/storage'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
+import { DOCUMENT_COLUMNS } from '@/types/columnVisibility'
+import type { DocumentColumnKey } from '@/types/columnVisibility'
 
 export type DocumentWithInvoice = DocumentWithUrl & {
   invoice?: InvoiceWithFile | null
@@ -234,45 +238,65 @@ function BankLinkBadge({
   )
 }
 
-function SkeletonRow() {
+function SkeletonRow({ isVisible }: { isVisible: (col: DocumentColumnKey) => boolean }) {
   return (
     <tr className="animate-pulse">
       <td className="px-4 py-3 text-start">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-5 w-5 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-14 bg-surface rounded inline-block" />
-      </td>
+      {isVisible('type') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-5 w-5 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('size') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-14 bg-surface rounded inline-block" />
+        </td>
+      )}
       <td className="px-4 py-3 text-start">
         <div className="h-4 w-48 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-24 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-20 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-20 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-10 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-12 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-12 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-start">
-        <div className="h-5 w-16 bg-surface rounded inline-block" />
-      </td>
+      {isVisible('vendor') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-24 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('total') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-20 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('vatAmount') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-20 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('added') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('items') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-10 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('confidence') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-12 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('bankLink') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-12 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('aiStatus') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-5 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
     </tr>
   )
 }
@@ -288,6 +312,7 @@ export function DocumentTable({
   sortDirection,
   onSort,
 }: DocumentTableProps) {
+  const { visibility, isVisible, toggle, reset } = useColumnVisibility('document')
   const allSelected = documents.length > 0 && selectedIds.size === documents.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < documents.length
 
@@ -314,28 +339,36 @@ export function DocumentTable({
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-text-muted/20">
+        <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
+          <ColumnVisibilityDropdown
+            columns={DOCUMENT_COLUMNS}
+            visibility={visibility}
+            onToggle={toggle}
+            onReset={reset}
+          />
+        </div>
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
               <th className="px-4 py-3 text-start w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">Type</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Size</th>
+              {isVisible('type') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">Type</th>}
+              {isVisible('size') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Size</th>}
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Name</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Vendor</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-24">Total</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Added</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-14">Items</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Confidence</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Bank Link</th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">AI Status</th>
+              {isVisible('vendor') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Vendor</th>}
+              {isVisible('total') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-24">Total</th>}
+              {isVisible('vatAmount') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT</th>}
+              {isVisible('added') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Added</th>}
+              {isVisible('items') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-14">Items</th>}
+              {isVisible('confidence') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Confidence</th>}
+              {isVisible('bankLink') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Bank Link</th>}
+              {isVisible('aiStatus') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">AI Status</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
             {[1, 2, 3, 4].map((i) => (
-              <SkeletonRow key={i} />
+              <SkeletonRow key={i} isVisible={isVisible} />
             ))}
           </tbody>
         </table>
@@ -349,6 +382,14 @@ export function DocumentTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-text-muted/20">
+      <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
+        <ColumnVisibilityDropdown
+          columns={DOCUMENT_COLUMNS}
+          visibility={visibility}
+          onToggle={toggle}
+          onReset={reset}
+        />
+      </div>
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
@@ -363,18 +404,22 @@ export function DocumentTable({
                 className={checkboxClass}
               />
             </th>
-            <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">
-              Type
-            </th>
-            <SortHeader
-              column="file_size"
-              label="Size"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-20"
-            />
+            {isVisible('type') && (
+              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">
+                Type
+              </th>
+            )}
+            {isVisible('size') && (
+              <SortHeader
+                column="file_size"
+                label="Size"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-20"
+              />
+            )}
             <SortHeader
               column="original_name"
               label="Name"
@@ -383,77 +428,93 @@ export function DocumentTable({
               onSort={onSort}
               align="start"
             />
-            <SortHeader
-              column="vendor_name"
-              label="Vendor"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-            />
-            <SortHeader
-              column="total_amount_agorot"
-              label="Total"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-24"
-            />
-            <SortHeader
-              column="vat_amount_agorot"
-              label="VAT"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-24"
-            />
-            <SortHeader
-              column="created_at"
-              label="Added"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-20"
-            />
-            <SortHeader
-              column="line_items_count"
-              label="Items"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-14"
-            />
-            <SortHeader
-              column="confidence_score"
-              label="Confidence"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-20"
-            />
-            <SortHeader
-              column="bank_link"
-              label="Bank Link"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-20"
-            />
-            <SortHeader
-              column="status"
-              label="AI Status"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              className="w-28"
-            />
+            {isVisible('vendor') && (
+              <SortHeader
+                column="vendor_name"
+                label="Vendor"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+              />
+            )}
+            {isVisible('total') && (
+              <SortHeader
+                column="total_amount_agorot"
+                label="Total"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-24"
+              />
+            )}
+            {isVisible('vatAmount') && (
+              <SortHeader
+                column="vat_amount_agorot"
+                label="VAT"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-24"
+              />
+            )}
+            {isVisible('added') && (
+              <SortHeader
+                column="created_at"
+                label="Added"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-20"
+              />
+            )}
+            {isVisible('items') && (
+              <SortHeader
+                column="line_items_count"
+                label="Items"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-14"
+              />
+            )}
+            {isVisible('confidence') && (
+              <SortHeader
+                column="confidence_score"
+                label="Confidence"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-20"
+              />
+            )}
+            {isVisible('bankLink') && (
+              <SortHeader
+                column="bank_link"
+                label="Bank Link"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-20"
+              />
+            )}
+            {isVisible('aiStatus') && (
+              <SortHeader
+                column="status"
+                label="AI Status"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                className="w-28"
+              />
+            )}
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -475,12 +536,16 @@ export function DocumentTable({
                     className={checkboxClass}
                   />
                 </td>
-                <td className="px-4 py-3 text-start">
-                  <FileTypeIcon fileType={doc.file_type || 'unknown'} />
-                </td>
-                <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
-                  {doc.file_size != null ? formatFileSize(doc.file_size) : '-'}
-                </td>
+                {isVisible('type') && (
+                  <td className="px-4 py-3 text-start">
+                    <FileTypeIcon fileType={doc.file_type || 'unknown'} />
+                  </td>
+                )}
+                {isVisible('size') && (
+                  <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
+                    {doc.file_size != null ? formatFileSize(doc.file_size) : '-'}
+                  </td>
+                )}
                 <td className="px-4 py-3 text-start">
                   <div className="flex items-center gap-3">
                     {isImageType(doc.file_type || '') && (
@@ -496,44 +561,60 @@ export function DocumentTable({
                     </span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
-                  {invoice?.vendor_name || '-'}
-                </td>
-                <td className="px-4 py-3 text-start text-sm font-medium text-text">
-                  {invoice?.total_amount_agorot ? formatCurrency(invoice.total_amount_agorot, invoice.currency || 'ILS') : '-'}
-                </td>
-                <td className="px-4 py-3 text-start text-sm text-text-muted">
-                  {invoice?.vat_amount_agorot ? formatCurrency(invoice.vat_amount_agorot, invoice.currency || 'ILS') : '-'}
-                </td>
-                <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
-                  {doc.created_at ? formatDate(doc.created_at) : '-'}
-                </td>
-                <td className="px-4 py-3 text-start text-sm text-text-muted">
-                  {getLineItemsCount(invoice) > 0 ? getLineItemsCount(invoice) : '-'}
-                </td>
-                <td className="px-4 py-3 text-start">
-                  <ConfidenceBadge score={invoice?.confidence_score ?? null} />
-                </td>
-                <td className="px-4 py-3 text-start">
-                  <BankLinkBadge
-                    status={invoice?.bankLinkStatus}
-                    stats={invoice?.line_item_stats}
-                    onClick={invoice?.id && onBankLinkClick ? () => onBankLinkClick(invoice.id, invoice.vendor_name) : undefined}
-                  />
-                </td>
-                <td className="px-4 py-3 text-start">
-                  <ExtractionStatus
-                    status={getExtractionStatus(doc.status)}
-                    confidence={
-                      doc.extracted_data &&
-                      typeof doc.extracted_data === 'object' &&
-                      'confidence' in doc.extracted_data
-                        ? (doc.extracted_data.confidence as number)
-                        : null
-                    }
-                    errorMessage={doc.error_message}
-                  />
-                </td>
+                {isVisible('vendor') && (
+                  <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
+                    {invoice?.vendor_name || '-'}
+                  </td>
+                )}
+                {isVisible('total') && (
+                  <td className="px-4 py-3 text-start text-sm font-medium text-text">
+                    {invoice?.total_amount_agorot ? formatCurrency(invoice.total_amount_agorot, invoice.currency || 'ILS') : '-'}
+                  </td>
+                )}
+                {isVisible('vatAmount') && (
+                  <td className="px-4 py-3 text-start text-sm text-text-muted">
+                    {invoice?.vat_amount_agorot ? formatCurrency(invoice.vat_amount_agorot, invoice.currency || 'ILS') : '-'}
+                  </td>
+                )}
+                {isVisible('added') && (
+                  <td className="px-4 py-3 text-start text-sm text-text-muted whitespace-nowrap">
+                    {doc.created_at ? formatDate(doc.created_at) : '-'}
+                  </td>
+                )}
+                {isVisible('items') && (
+                  <td className="px-4 py-3 text-start text-sm text-text-muted">
+                    {getLineItemsCount(invoice) > 0 ? getLineItemsCount(invoice) : '-'}
+                  </td>
+                )}
+                {isVisible('confidence') && (
+                  <td className="px-4 py-3 text-start">
+                    <ConfidenceBadge score={invoice?.confidence_score ?? null} />
+                  </td>
+                )}
+                {isVisible('bankLink') && (
+                  <td className="px-4 py-3 text-start">
+                    <BankLinkBadge
+                      status={invoice?.bankLinkStatus}
+                      stats={invoice?.line_item_stats}
+                      onClick={invoice?.id && onBankLinkClick ? () => onBankLinkClick(invoice.id, invoice.vendor_name) : undefined}
+                    />
+                  </td>
+                )}
+                {isVisible('aiStatus') && (
+                  <td className="px-4 py-3 text-start">
+                    <ExtractionStatus
+                      status={getExtractionStatus(doc.status)}
+                      confidence={
+                        doc.extracted_data &&
+                        typeof doc.extracted_data === 'object' &&
+                        'confidence' in doc.extracted_data
+                          ? (doc.extracted_data.confidence as number)
+                          : null
+                      }
+                      errorMessage={doc.error_message}
+                    />
+                  </td>
+                )}
               </tr>
             )
           })}

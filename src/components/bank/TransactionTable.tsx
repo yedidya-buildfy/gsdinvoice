@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { ChevronUpIcon, ChevronDownIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { Transaction } from '@/types/database'
 import { formatShekel, formatTransactionAmount } from '@/lib/currency'
@@ -8,6 +9,10 @@ import { getVendorDisplayInfo } from '@/lib/utils/vendorResolver'
 import { useVendorAliases } from '@/hooks/useVendorAliases'
 import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
 import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
+import { TRANSACTION_COLUMNS } from '@/types/columnVisibility'
+import type { TransactionColumnKey } from '@/types/columnVisibility'
 
 interface TransactionTableProps {
   transactions: Transaction[]
@@ -58,7 +63,7 @@ function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 
 // Checkbox styling: dark background with green border (uses custom CSS class)
 const checkboxClass = 'checkbox-dark'
 
-function SkeletonRow() {
+function SkeletonRow({ isVisible }: { isVisible: (col: TransactionColumnKey) => boolean }) {
   return (
     <tr className="animate-pulse">
       <td className="px-4 py-3 text-center">
@@ -67,24 +72,36 @@ function SkeletonRow() {
       <td className="px-4 py-3 text-start">
         <div className="h-4 w-32 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-24 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-10 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
+      {isVisible('date') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('amount') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-24 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('vat') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-4 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('vatPercent') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-10 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('vatAmount') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('reference') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
     </tr>
   )
 }
@@ -105,11 +122,23 @@ export function TransactionTable({
   // Vendor resolution settings and aliases
   const { enableInTransactionTable } = useVendorResolverSettings()
   const { aliases } = useVendorAliases()
+  const { visibility, isVisible, toggle, reset } = useColumnVisibility('transaction')
 
   // Check if we should show match columns (only when CC charge data is provided)
   const showMatchColumns = !!ccChargeMatchData
   // Check if we should show link column (only when handler is provided)
   const showLinkColumn = !!onLineItemLinkClick
+
+  // Build set of active conditional columns (only show in dropdown when their condition is met)
+  const activeConditionalColumns = useMemo(() => {
+    const active = new Set<TransactionColumnKey>(['date', 'amount', 'vat', 'vatPercent', 'vatAmount', 'reference'])
+    if (showLinkColumn) active.add('invoice')
+    if (showMatchColumns) {
+      active.add('matchPercent')
+      active.add('matched')
+    }
+    return active
+  }, [showLinkColumn, showMatchColumns])
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
 
@@ -136,6 +165,15 @@ export function TransactionTable({
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-text-muted/20">
+        <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
+          <ColumnVisibilityDropdown
+            columns={TRANSACTION_COLUMNS}
+            visibility={visibility}
+            onToggle={toggle}
+            onReset={reset}
+            activeConditionalColumns={activeConditionalColumns}
+          />
+        </div>
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
@@ -143,17 +181,17 @@ export function TransactionTable({
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Description</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">Amount</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Reference</th>
+              {isVisible('date') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>}
+              {isVisible('amount') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">Amount</th>}
+              {isVisible('vat') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>}
+              {isVisible('vatPercent') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>}
+              {isVisible('vatAmount') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>}
+              {isVisible('reference') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">Reference</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
             {[1, 2, 3, 4].map((i) => (
-              <SkeletonRow key={i} />
+              <SkeletonRow key={i} isVisible={isVisible} />
             ))}
           </tbody>
         </table>
@@ -167,6 +205,15 @@ export function TransactionTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-text-muted/20">
+      <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
+        <ColumnVisibilityDropdown
+          columns={TRANSACTION_COLUMNS}
+          visibility={visibility}
+          onToggle={toggle}
+          onReset={reset}
+          activeConditionalColumns={activeConditionalColumns}
+        />
+      </div>
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
@@ -189,53 +236,65 @@ export function TransactionTable({
               onSort={onSort}
               align="start"
             />
-            <SortHeader
-              column="date"
-              label="Date"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-            />
-            <SortHeader
-              column="amount_agorot"
-              label="Amount"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-            />
-            <SortHeader
-              column="has_vat"
-              label="VAT"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-            />
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
-              VAT %
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
-              VAT Amt
-            </th>
-            <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
-              Reference
-            </th>
-            {showLinkColumn && (
+            {isVisible('date') && (
+              <SortHeader
+                column="date"
+                label="Date"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+              />
+            )}
+            {isVisible('amount') && (
+              <SortHeader
+                column="amount_agorot"
+                label="Amount"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+              />
+            )}
+            {isVisible('vat') && (
+              <SortHeader
+                column="has_vat"
+                label="VAT"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+              />
+            )}
+            {isVisible('vatPercent') && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">
+                VAT %
+              </th>
+            )}
+            {isVisible('vatAmount') && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
+                VAT Amt
+              </th>
+            )}
+            {isVisible('reference') && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">
+                Reference
+              </th>
+            )}
+            {showLinkColumn && isVisible('invoice') && (
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
                 Invoice
               </th>
             )}
-            {showMatchColumns && (
-              <>
-                <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
-                  Match %
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
-                  Matched
-                </th>
-              </>
+            {showMatchColumns && isVisible('matchPercent') && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+                Match %
+              </th>
+            )}
+            {showMatchColumns && isVisible('matched') && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
+                Matched
+              </th>
             )}
           </tr>
         </thead>
@@ -295,31 +354,43 @@ export function TransactionTable({
                     </>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {formatDisplayDate(tx.date)}
-                </td>
-                <td className={`px-4 py-3 text-center text-sm font-medium ${amountColor} whitespace-nowrap`}>
-                  {formatTransactionAmount(tx)}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {tx.is_income ? (
-                    <span className="text-text-muted/30">-</span>
-                  ) : hasVat ? (
-                    <CheckIcon className="w-4 h-4 text-green-400 inline-block" />
-                  ) : (
-                    <XMarkIcon className="w-4 h-4 text-text-muted/30 inline-block" />
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {tx.is_income ? '-' : hasVat ? `${vatPercentage}%` : '-'}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {tx.is_income ? '-' : (vatAmount !== null ? formatShekel(vatAmount) : '-')}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted">
-                  {tx.reference || '-'}
-                </td>
-                {showLinkColumn && (
+                {isVisible('date') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                    {formatDisplayDate(tx.date)}
+                  </td>
+                )}
+                {isVisible('amount') && (
+                  <td className={`px-4 py-3 text-center text-sm font-medium ${amountColor} whitespace-nowrap`}>
+                    {formatTransactionAmount(tx)}
+                  </td>
+                )}
+                {isVisible('vat') && (
+                  <td className="px-4 py-3 text-center">
+                    {tx.is_income ? (
+                      <span className="text-text-muted/30">-</span>
+                    ) : hasVat ? (
+                      <CheckIcon className="w-4 h-4 text-green-400 inline-block" />
+                    ) : (
+                      <XMarkIcon className="w-4 h-4 text-text-muted/30 inline-block" />
+                    )}
+                  </td>
+                )}
+                {isVisible('vatPercent') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                    {tx.is_income ? '-' : hasVat ? `${vatPercentage}%` : '-'}
+                  </td>
+                )}
+                {isVisible('vatAmount') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                    {tx.is_income ? '-' : (vatAmount !== null ? formatShekel(vatAmount) : '-')}
+                  </td>
+                )}
+                {isVisible('reference') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted">
+                    {tx.reference || '-'}
+                  </td>
+                )}
+                {showLinkColumn && isVisible('invoice') && (
                   <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                     <TransactionMatchBadge
                       linkedCount={lineItemLinkCounts?.get(tx.id) || 0}
@@ -331,18 +402,22 @@ export function TransactionTable({
                   const matchData = ccChargeMatchData?.get(tx.id)
                   return (
                     <>
-                      <td className="px-4 py-3 text-center text-sm whitespace-nowrap">
-                        {matchData ? (
-                          <span className={matchData.matchPercentage >= 100 ? 'text-green-400' : matchData.matchPercentage >= 90 ? 'text-yellow-400' : 'text-red-400'}>
-                            {matchData.matchPercentage}%
-                          </span>
-                        ) : (
-                          <span className="text-text-muted/30">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                        {matchData ? matchData.matchedCount : '-'}
-                      </td>
+                      {isVisible('matchPercent') && (
+                        <td className="px-4 py-3 text-center text-sm whitespace-nowrap">
+                          {matchData ? (
+                            <span className={matchData.matchPercentage >= 100 ? 'text-green-400' : matchData.matchPercentage >= 90 ? 'text-yellow-400' : 'text-red-400'}>
+                              {matchData.matchPercentage}%
+                            </span>
+                          ) : (
+                            <span className="text-text-muted/30">-</span>
+                          )}
+                        </td>
+                      )}
+                      {isVisible('matched') && (
+                        <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                          {matchData ? matchData.matchedCount : '-'}
+                        </td>
+                      )}
                     </>
                   )
                 })()}

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { ColumnVisibilityState, TransactionColumnKey, CreditCardColumnKey, DocumentColumnKey } from '@/types/columnVisibility'
 
 export type DuplicateAction = 'skip' | 'replace' | 'add'
 export type MatchingTrigger = 'manual' | 'on_upload' | 'after_all_uploads'
@@ -73,6 +74,27 @@ interface SettingsState {
     key: K,
     value: VendorResolverSettings[K]
   ) => void
+
+  // Column visibility
+  columnVisibility: ColumnVisibilityState
+  setColumnVisibility: (table: keyof ColumnVisibilityState, column: string, visible: boolean) => void
+  resetColumnVisibility: (table: keyof ColumnVisibilityState) => void
+}
+
+function defaultColumnVisibility(): ColumnVisibilityState {
+  const txCols: Record<TransactionColumnKey, boolean> = {
+    date: true, amount: true, vat: true, vatPercent: true, vatAmount: true,
+    reference: true, invoice: true, matchPercent: true, matched: true,
+  }
+  const ccCols: Record<CreditCardColumnKey, boolean> = {
+    date: true, amount: true, currency: true, vat: true, vatPercent: true,
+    vatAmount: true, billing: true, status: true, card: true, link: true, invoice: true,
+  }
+  const docCols: Record<DocumentColumnKey, boolean> = {
+    type: true, size: true, vendor: true, total: true, vatAmount: true,
+    added: true, items: true, confidence: true, bankLink: true, aiStatus: true,
+  }
+  return { transaction: txCols, creditCard: ccCols, document: docCols }
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -141,6 +163,26 @@ export const useSettingsStore = create<SettingsState>()(
             [key]: value,
           },
         })),
+
+      // Column visibility - default all to true
+      columnVisibility: defaultColumnVisibility(),
+      setColumnVisibility: (table, column, visible) =>
+        set((state) => ({
+          columnVisibility: {
+            ...state.columnVisibility,
+            [table]: {
+              ...state.columnVisibility[table],
+              [column]: visible,
+            },
+          },
+        })),
+      resetColumnVisibility: (table) =>
+        set((state) => ({
+          columnVisibility: {
+            ...state.columnVisibility,
+            [table]: defaultColumnVisibility()[table],
+          },
+        })),
     }),
     {
       name: 'vat-manager-settings',
@@ -159,6 +201,7 @@ export const useSettingsStore = create<SettingsState>()(
         autoMatchEnabled: state.autoMatchEnabled,
         tablePageSize: state.tablePageSize,
         vendorResolver: state.vendorResolver,
+        columnVisibility: state.columnVisibility,
       }),
     }
   )

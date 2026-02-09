@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, XMarkIcon, LinkIcon, InformationCircleIcon } from '@heroicons/react/24/outline'
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
@@ -11,6 +12,10 @@ import { getVendorDisplayInfo } from '@/lib/utils/vendorResolver'
 import { useVendorAliases } from '@/hooks/useVendorAliases'
 import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
 import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
+import { CREDIT_CARD_COLUMNS } from '@/types/columnVisibility'
+import type { CreditCardColumnKey } from '@/types/columnVisibility'
 
 
 // Sort column type includes actual fields plus synthetic columns
@@ -114,46 +119,60 @@ function SortHeader({ column, label, sortColumn, sortDirection, onSort, align = 
 // Checkbox styling: dark background with green border (uses custom CSS class)
 const checkboxClass = 'checkbox-dark'
 
-function SkeletonRow() {
+function SkeletonRow({ isVisible }: { isVisible: (col: CreditCardColumnKey) => boolean }) {
   return (
     <tr className="animate-pulse">
-      {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
       <td className="px-4 py-3 text-center">
         <div className="h-4 w-4 bg-surface rounded inline-block" />
       </td>
       <td className="px-4 py-3 text-start">
         <div className="h-4 w-32 bg-surface rounded inline-block" />
       </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="ps-4 pe-1 py-3 text-end">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="ps-1 pe-4 py-3 text-start">
-        <div className="h-4 w-8 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-10 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-16 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-12 bg-surface rounded inline-block" />
-      </td>
-      <td className="px-4 py-3 text-center">
-        <div className="h-4 w-4 bg-surface rounded inline-block" />
-      </td>
+      {isVisible('date') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {(isVisible('amount') || isVisible('currency')) && (
+        <td className="ps-4 pe-1 py-3 text-end" colSpan={isVisible('amount') && isVisible('currency') ? 2 : 1}>
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('vat') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-4 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('vatPercent') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-10 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('vatAmount') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('billing') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-16 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('status') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-4 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('card') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-12 bg-surface rounded inline-block" />
+        </td>
+      )}
+      {isVisible('link') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-4 w-4 bg-surface rounded inline-block" />
+        </td>
+      )}
     </tr>
   )
 }
@@ -174,9 +193,20 @@ export function CreditCardTable({
   // Vendor resolution settings and aliases
   const { enableInCreditCardTable } = useVendorResolverSettings()
   const { aliases } = useVendorAliases()
+  const { visibility, isVisible, toggle, reset } = useColumnVisibility('creditCard')
 
   // Check if we should show line item link column (only when handler is provided)
   const showLineItemLinkColumn = !!onLineItemLinkClick
+
+  // Build set of active conditional columns
+  const activeConditionalColumns = useMemo(() => {
+    const active = new Set<CreditCardColumnKey>([
+      'date', 'amount', 'currency', 'vat', 'vatPercent', 'vatAmount',
+      'billing', 'status', 'card', 'link',
+    ])
+    if (showLineItemLinkColumn) active.add('invoice')
+    return active
+  }, [showLineItemLinkColumn])
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
 
@@ -203,29 +233,37 @@ export function CreditCardTable({
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-text-muted/20">
+        <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
+          <ColumnVisibilityDropdown
+            columns={CREDIT_CARD_COLUMNS}
+            visibility={visibility}
+            onToggle={toggle}
+            onReset={reset}
+            activeConditionalColumns={activeConditionalColumns}
+          />
+        </div>
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
-              {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
               <th className="px-4 py-3 text-center w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
               <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Merchant</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>
-              <th className="ps-4 pe-1 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Amount</th>
-              <th className="ps-1 pe-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">Cur</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Billing</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Status</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Card</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Link</th>
+              {isVisible('date') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>}
+              {isVisible('amount') && <th className="ps-4 pe-1 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Amount</th>}
+              {isVisible('currency') && <th className="ps-1 pe-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">Cur</th>}
+              {isVisible('vat') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>}
+              {isVisible('vatPercent') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>}
+              {isVisible('vatAmount') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>}
+              {isVisible('billing') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Billing</th>}
+              {isVisible('status') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Status</th>}
+              {isVisible('card') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">Card</th>}
+              {isVisible('link') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Link</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
             {[1, 2, 3, 4].map((i) => (
-              <SkeletonRow key={i} />
+              <SkeletonRow key={i} isVisible={isVisible} />
             ))}
           </tbody>
         </table>
@@ -239,10 +277,18 @@ export function CreditCardTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-text-muted/20">
+      <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
+        <ColumnVisibilityDropdown
+          columns={CREDIT_CARD_COLUMNS}
+          visibility={visibility}
+          onToggle={toggle}
+          onReset={reset}
+          activeConditionalColumns={activeConditionalColumns}
+        />
+      </div>
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
-            {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
             <th className="px-4 py-3 text-center w-12">
               <input
                 type="checkbox"
@@ -263,97 +309,117 @@ export function CreditCardTable({
               align="start"
               tooltip="From CC statement"
             />
-            <SortHeader
-              column="date"
-              label="Date"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="Transaction date"
-            />
-            <SortHeader
-              column="amount_agorot"
-              label="Amount"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="end"
-              tooltip="In foreign currency if applicable"
-            />
-            <SortHeader
-              column="foreign_currency"
-              label="Cur"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-              tooltip="Original transaction currency"
-            />
-            <SortHeader
-              column="has_vat"
-              label="VAT"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="Has VAT deduction"
-            />
-            <SortHeader
-              column="vat_percentage"
-              label="VAT %"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="VAT rate (default 18%)"
-            />
-            <SortHeader
-              column="vat_amount"
-              label="VAT Amt"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="Calculated from ILS amount"
-            />
-            <SortHeader
-              column="value_date"
-              label="Billing"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="Date charged to bank"
-            />
-            <SortHeader
-              column="linked_bank_transaction_id"
-              label="Status"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="Matched to the credit card in column Card"
-            />
-            <SortHeader
-              column="credit_card_id"
-              label="Card"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="Last 4 digits"
-            />
-            <SortHeader
-              column="cc_bank_link_id"
-              label="Link"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="center"
-              tooltip="This expense connected to a credit card charge"
-            />
-            {showLineItemLinkColumn && (
+            {isVisible('date') && (
+              <SortHeader
+                column="date"
+                label="Date"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="Transaction date"
+              />
+            )}
+            {isVisible('amount') && (
+              <SortHeader
+                column="amount_agorot"
+                label="Amount"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="end"
+                tooltip="In foreign currency if applicable"
+              />
+            )}
+            {isVisible('currency') && (
+              <SortHeader
+                column="foreign_currency"
+                label="Cur"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+                tooltip="Original transaction currency"
+              />
+            )}
+            {isVisible('vat') && (
+              <SortHeader
+                column="has_vat"
+                label="VAT"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="Has VAT deduction"
+              />
+            )}
+            {isVisible('vatPercent') && (
+              <SortHeader
+                column="vat_percentage"
+                label="VAT %"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="VAT rate (default 18%)"
+              />
+            )}
+            {isVisible('vatAmount') && (
+              <SortHeader
+                column="vat_amount"
+                label="VAT Amt"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="Calculated from ILS amount"
+              />
+            )}
+            {isVisible('billing') && (
+              <SortHeader
+                column="value_date"
+                label="Billing"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="Date charged to bank"
+              />
+            )}
+            {isVisible('status') && (
+              <SortHeader
+                column="linked_bank_transaction_id"
+                label="Status"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="Matched to the credit card in column Card"
+              />
+            )}
+            {isVisible('card') && (
+              <SortHeader
+                column="credit_card_id"
+                label="Card"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="Last 4 digits"
+              />
+            )}
+            {isVisible('link') && (
+              <SortHeader
+                column="cc_bank_link_id"
+                label="Link"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                tooltip="This expense connected to a credit card charge"
+              />
+            )}
+            {showLineItemLinkColumn && isVisible('invoice') && (
               <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">
                 Invoice
               </th>
@@ -394,7 +460,6 @@ export function CreditCardTable({
                 onClick={() => handleSelectOne(tx.id)}
                 className={`hover:bg-surface/30 transition-colors cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
               >
-                {/* Columns: checkbox, merchant, date, amount, currency, vat, vat%, vat amt, billing, status, card, link */}
                 <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
@@ -409,54 +474,75 @@ export function CreditCardTable({
                     <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {formatDisplayDate(tx.date)}
-                </td>
-                <td className="ps-4 pe-1 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap" colSpan={2}>
-                  {displayAmount}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {hasVat ? (
-                    <CheckIcon className="w-4 h-4 text-green-400 inline-block" />
-                  ) : (
-                    <XMarkIcon className="w-4 h-4 text-text-muted/30 inline-block" />
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {hasVat ? `${vatPercentage}%` : '-'}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {vatAmount !== null ? formatShekel(vatAmount) : '-'}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
-                  {formatDisplayDate(tx.value_date)}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {isLinked ? (
-                    <CheckCircleIcon className="w-5 h-5 text-green-400 inline-block" />
-                  ) : (
-                    <ClockIcon className="w-5 h-5 text-text-muted/50 inline-block" />
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
-                  {cardLastFour}
-                </td>
-                <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    onClick={() => {
-                      if (tx.cc_bank_link_id) {
-                        onBankChargeClick?.(tx.cc_bank_link_id)
-                      } else {
-                        onLinkCCTransaction?.(tx.id)
-                      }
-                    }}
-                    className="cursor-pointer hover:text-primary transition-colors"
-                    title={tx.cc_bank_link_id ? 'View linked bank charge' : 'Link to bank charge'}
+                {isVisible('date') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                    {formatDisplayDate(tx.date)}
+                  </td>
+                )}
+                {(isVisible('amount') || isVisible('currency')) && (
+                  <td
+                    className="ps-4 pe-1 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap"
+                    colSpan={isVisible('amount') && isVisible('currency') ? 2 : 1}
                   >
-                    <LinkIcon className={`w-5 h-5 inline-block ${tx.cc_bank_link_id ? 'text-green-400 hover:text-green-300' : 'text-text-muted/50 hover:text-primary'}`} />
-                  </button>
-                </td>
-                {showLineItemLinkColumn && (
+                    {displayAmount}
+                  </td>
+                )}
+                {isVisible('vat') && (
+                  <td className="px-4 py-3 text-center">
+                    {hasVat ? (
+                      <CheckIcon className="w-4 h-4 text-green-400 inline-block" />
+                    ) : (
+                      <XMarkIcon className="w-4 h-4 text-text-muted/30 inline-block" />
+                    )}
+                  </td>
+                )}
+                {isVisible('vatPercent') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                    {hasVat ? `${vatPercentage}%` : '-'}
+                  </td>
+                )}
+                {isVisible('vatAmount') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                    {vatAmount !== null ? formatShekel(vatAmount) : '-'}
+                  </td>
+                )}
+                {isVisible('billing') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted whitespace-nowrap">
+                    {formatDisplayDate(tx.value_date)}
+                  </td>
+                )}
+                {isVisible('status') && (
+                  <td className="px-4 py-3 text-center">
+                    {isLinked ? (
+                      <CheckCircleIcon className="w-5 h-5 text-green-400 inline-block" />
+                    ) : (
+                      <ClockIcon className="w-5 h-5 text-text-muted/50 inline-block" />
+                    )}
+                  </td>
+                )}
+                {isVisible('card') && (
+                  <td className="px-4 py-3 text-center text-sm text-text-muted font-mono">
+                    {cardLastFour}
+                  </td>
+                )}
+                {isVisible('link') && (
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => {
+                        if (tx.cc_bank_link_id) {
+                          onBankChargeClick?.(tx.cc_bank_link_id)
+                        } else {
+                          onLinkCCTransaction?.(tx.id)
+                        }
+                      }}
+                      className="cursor-pointer hover:text-primary transition-colors"
+                      title={tx.cc_bank_link_id ? 'View linked bank charge' : 'Link to bank charge'}
+                    >
+                      <LinkIcon className={`w-5 h-5 inline-block ${tx.cc_bank_link_id ? 'text-green-400 hover:text-green-300' : 'text-text-muted/50 hover:text-primary'}`} />
+                    </button>
+                  </td>
+                )}
+                {showLineItemLinkColumn && isVisible('invoice') && (
                   <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                     <TransactionMatchBadge
                       linkedCount={lineItemLinkCounts?.get(tx.id) || 0}
