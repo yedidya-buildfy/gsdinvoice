@@ -3,8 +3,8 @@
 
 -- Add VAT columns
 ALTER TABLE vendor_aliases
-  ADD COLUMN default_has_vat BOOLEAN DEFAULT NULL,
-  ADD COLUMN default_vat_percentage NUMERIC(5,2) DEFAULT NULL;
+  ADD COLUMN IF NOT EXISTS default_has_vat BOOLEAN DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS default_vat_percentage NUMERIC(5,2) DEFAULT NULL;
 
 -- Add comment for documentation
 COMMENT ON COLUMN vendor_aliases.default_has_vat IS 'Default VAT setting for transactions matching this alias (null = no default)';

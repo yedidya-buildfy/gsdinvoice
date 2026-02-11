@@ -5,6 +5,7 @@ export interface InvoiceFilterState {
   fileTypes: string[] // 'pdf' | 'xlsx' | 'csv' | 'image'
   aiStatus: 'all' | 'pending' | 'processing' | 'processed' | 'failed'
   bankLinkStatus: 'all' | 'yes' | 'partly' | 'no'
+  approvalStatus: 'all' | 'approved' | 'not_approved'
 }
 
 export function getDefaultInvoiceFilters(): InvoiceFilterState {
@@ -15,5 +16,6 @@ export function getDefaultInvoiceFilters(): InvoiceFilterState {
     fileTypes: [],
     aiStatus: 'all',
     bankLinkStatus: 'all',
+    approvalStatus: 'all',
   }
 }

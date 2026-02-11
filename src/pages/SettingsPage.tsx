@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { useSubscription, useCurrentUsage, usePlanLimits, useCheckout, useManageSubscription } from '@/hooks/useSubscription'
+import { useSubscription, useCurrentUsage, usePlanLimits, useCheckout, useManageSubscription, useUpdateSubscription } from '@/hooks/useSubscription'
 import type { PlanLimits } from '@/types/subscription'
 import {
   CogIcon,
@@ -36,7 +36,8 @@ import { useProfile, useUpdateProfile, useUploadAvatar, useRemoveAvatar } from '
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeam } from '@/contexts/TeamContext'
 import { ConfirmDialog } from '@/components/ui/base/modal/confirm-dialog'
-import { TeamMemberList, PendingInvitationsList, InviteMemberModal, CreateTeamModal } from '@/components/team'
+import { TeamMemberList, PendingInvitationsList, InviteMemberModal, CreateTeamModal, BusinessCard } from '@/components/team'
+import { useTeamMemberCounts } from '@/hooks/useTeamMembers'
 import { VendorAliasesSection } from '@/components/settings/VendorAliasesSection'
 import { useUpdateTeam, useLeaveTeam, useDeleteTeam } from '@/hooks/useTeamManagement'
 import { canManageTeam, canInviteMembers, canDeleteTeam } from '@/lib/permissions'
@@ -687,36 +688,14 @@ function ProfileTab() {
   )
 }
 
-// Bento Section component for Business tab
-interface BentoSectionProps {
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  description: string
-  children: React.ReactNode
-}
-
-function BentoSection({ icon: Icon, title, description, children }: BentoSectionProps) {
-  return (
-    <div className="bg-surface border border-text-muted/10 rounded-xl p-5">
-      <div className="flex items-start gap-3 mb-4">
-        <div className="p-2 bg-primary/10 rounded-lg">
-          <Icon className="w-5 h-5 text-primary" />
-        </div>
-        <div>
-          <h3 className="text-sm font-semibold text-text">{title}</h3>
-          <p className="text-xs text-text-muted mt-0.5">{description}</p>
-        </div>
-      </div>
-      <div>{children}</div>
-    </div>
-  )
-}
-
 function TeamTab() {
-  const { currentTeam, teams } = useTeam()
+  const { user } = useAuth()
+  const { currentTeam, teams, switchTeam } = useTeam()
   const updateTeam = useUpdateTeam()
   const leaveTeam = useLeaveTeam()
   const deleteTeam = useDeleteTeam()
+  const { data: subscription } = useSubscription()
+  const { data: planLimits } = usePlanLimits(subscription?.plan_tier)
 
   const [teamName, setTeamName] = useState('')
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -739,6 +718,15 @@ function TeamTab() {
       return data as boolean
     },
   })
+
+  // Get member counts for all teams
+  const teamIds = teams.map(t => t.id)
+  const { data: memberCounts } = useTeamMemberCounts(teamIds)
+
+  // Calculate business usage
+  const businessesOwned = teams.filter(t => t.owner_id === user?.id).length
+  const limits = planLimits as PlanLimits | null
+  const businessLimit = limits?.max_businesses ?? 1
 
   // Load business name
   useEffect(() => {
@@ -805,7 +793,7 @@ function TeamTab() {
   const isOwner = userRole === 'owner'
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Save message */}
       {saveMessage && (
         <div
@@ -818,86 +806,92 @@ function TeamTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-
-        {/* Business Overview Card - Large featured */}
-        <div className="md:col-span-2 bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 rounded-xl p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-purple-500/20 rounded-xl">
-                <UserGroupIcon className="w-6 h-6 text-purple-500" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-text">{currentTeam.name}</h3>
-                <p className="text-sm text-text-muted mt-1">Manage your business members and settings</p>
-                <div className="mt-3 flex items-center gap-2">
-                  <span className="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-400 rounded-full capitalize">{userRole}</span>
-                </div>
-              </div>
-            </div>
+      {/* ==================== SECTION 1: YOUR BUSINESSES ==================== */}
+      <div className="bg-surface border border-text-muted/10 rounded-xl p-5">
+        {/* Section Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <BuildingOfficeIcon className="w-5 h-5 text-text-muted" />
+            <h3 className="text-sm font-semibold text-text uppercase tracking-wider">Your Businesses</h3>
           </div>
-        </div>
-
-        {/* Invite Card */}
-        {canInvite ? (
-          <div className="bg-surface border border-text-muted/10 rounded-xl p-5 flex flex-col items-center justify-center text-center">
-            <div className="p-3 bg-primary/10 rounded-xl mb-3">
-              <UserPlusIcon className="w-6 h-6 text-primary" />
-            </div>
-            <h3 className="text-sm font-semibold text-text">Invite Member</h3>
-            <p className="text-xs text-text-muted mt-1 mb-4">Add business members</p>
-            <button
-              type="button"
-              onClick={() => setShowInviteModal(true)}
-              className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              Send Invite
-            </button>
-          </div>
-        ) : (
-          <div className="bg-surface border border-text-muted/10 rounded-xl p-5 flex flex-col items-center justify-center text-center">
-            <div className="p-3 bg-text-muted/10 rounded-xl mb-3">
-              <UserPlusIcon className="w-6 h-6 text-text-muted" />
-            </div>
-            <h3 className="text-sm font-semibold text-text">Invite Member</h3>
-            <p className="text-xs text-text-muted mt-1">Admin access required</p>
-          </div>
-        )}
-
-        {/* Create Business Card */}
-        {canCreateBusiness ? (
-          <div className="bg-surface border border-text-muted/10 rounded-xl p-5 flex flex-col items-center justify-center text-center">
-            <div className="p-3 bg-primary/10 rounded-xl mb-3">
-              <BuildingOfficeIcon className="w-6 h-6 text-primary" />
-            </div>
-            <h3 className="text-sm font-semibold text-text">Create Business</h3>
-            <p className="text-xs text-text-muted mt-1 mb-4">Add a new business</p>
+          {canCreateBusiness ? (
             <button
               type="button"
               onClick={() => setShowCreateBusinessModal(true)}
-              className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary/90 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm rounded-lg hover:bg-primary/90 transition-colors"
             >
+              <PlusIcon className="w-4 h-4" />
               Create Business
             </button>
-          </div>
-        ) : (
-          <div className="bg-surface border border-text-muted/10 rounded-xl p-5 flex flex-col items-center justify-center text-center">
-            <div className="p-3 bg-text-muted/10 rounded-xl mb-3">
-              <BuildingOfficeIcon className="w-6 h-6 text-text-muted" />
-            </div>
-            <h3 className="text-sm font-semibold text-text">Create Business</h3>
-            <p className="text-xs text-text-muted mt-1">Business limit reached</p>
-          </div>
-        )}
+          ) : (
+            <span className="text-xs text-text-muted">Business limit reached</span>
+          )}
+        </div>
 
-        {/* Business Settings Card */}
-        {canManage && (
-          <div className="md:col-span-2 lg:col-span-3">
-            <BentoSection
-              icon={CogIcon}
-              title="Business Settings"
-              description="Manage your business name"
-            >
+        {/* Business Cards - Horizontal scroll on mobile, grid on desktop */}
+        <div className="flex gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-3 lg:grid-cols-4 md:overflow-visible md:pb-0">
+          {teams.map((team) => (
+            <BusinessCard
+              key={team.id}
+              team={team}
+              isCurrent={team.id === currentTeam.id}
+              onSelect={() => switchTeam(team.id)}
+              memberCount={memberCounts?.[team.id]}
+            />
+          ))}
+        </div>
+
+        {/* Usage indicator */}
+        <div className="mt-4 pt-4 border-t border-text-muted/10">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-text-muted">
+              {businessesOwned} / {businessLimit === null ? 'Unlimited' : businessLimit} businesses owned
+            </span>
+            {businessLimit !== null && businessesOwned >= businessLimit && (
+              <a href="#billing" className="text-primary hover:underline">
+                Upgrade for more
+              </a>
+            )}
+          </div>
+          {businessLimit !== null && (
+            <div className="mt-2 h-1.5 bg-text-muted/10 rounded-full overflow-hidden">
+              <div
+                className={cx(
+                  'h-full rounded-full transition-all',
+                  businessesOwned / businessLimit > 0.9
+                    ? 'bg-red-500'
+                    : businessesOwned / businessLimit > 0.7
+                      ? 'bg-amber-500'
+                      : 'bg-primary'
+                )}
+                style={{ width: `${Math.min(100, (businessesOwned / businessLimit) * 100)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ==================== SECTION 2: CURRENT BUSINESS SETTINGS ==================== */}
+      <div className="space-y-4">
+        {/* Section Header */}
+        <div className="flex items-center gap-2">
+          <CogIcon className="w-5 h-5 text-text-muted" />
+          <h3 className="text-sm font-semibold text-text uppercase tracking-wider">
+            Current Business: <span className="text-primary">{currentTeam.name}</span>
+          </h3>
+        </div>
+
+        {/* Settings & Invite Cards - 2 column grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Business Settings Card */}
+          {canManage && (
+            <div className="bg-surface border border-text-muted/10 rounded-xl p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <CogIcon className="w-5 h-5 text-primary" />
+                </div>
+                <h4 className="text-sm font-semibold text-text">Business Settings</h4>
+              </div>
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs text-text-muted mb-1.5">Business Name</label>
@@ -909,28 +903,54 @@ function TeamTab() {
                       placeholder="Enter business name"
                       className="flex-1 px-3 py-2 bg-background/50 border border-text-muted/20 rounded-lg text-text text-sm placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
                     />
-                    {hasNameChanges && (
-                      <button
-                        type="button"
-                        onClick={handleSaveTeamName}
-                        disabled={isSaving || !teamName.trim()}
-                        className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {isSaving ? 'Saving...' : 'Save'}
-                      </button>
-                    )}
                   </div>
                 </div>
+                {hasNameChanges && (
+                  <button
+                    type="button"
+                    onClick={handleSaveTeamName}
+                    disabled={isSaving || !teamName.trim()}
+                    className="w-full px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                )}
               </div>
-            </BentoSection>
+            </div>
+          )}
+
+          {/* Invite Member Card */}
+          <div className="bg-surface border border-text-muted/10 rounded-xl p-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className={cx('p-2 rounded-lg', canInvite ? 'bg-primary/10' : 'bg-text-muted/10')}>
+                <UserPlusIcon className={cx('w-5 h-5', canInvite ? 'text-primary' : 'text-text-muted')} />
+              </div>
+              <h4 className="text-sm font-semibold text-text">Invite Member</h4>
+            </div>
+            {canInvite ? (
+              <>
+                <p className="text-xs text-text-muted mb-4">Add team members to collaborate on this business</p>
+                <button
+                  type="button"
+                  onClick={() => setShowInviteModal(true)}
+                  className="w-full px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary/90 transition-colors"
+                >
+                  Send Invite
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-text-muted">Admin or owner access required to invite members</p>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Business Members Section */}
-        <div className="md:col-span-2 lg:col-span-3">
+        <div>
           <div className="flex items-center gap-2 mb-3">
             <UserIcon className="w-4 h-4 text-text-muted" />
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Business Members</h4>
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+              Members ({memberCounts?.[currentTeam.id] ?? 0})
+            </h4>
           </div>
           <div className="bg-surface border border-text-muted/10 rounded-xl p-5">
             <TeamMemberList />
@@ -939,7 +959,7 @@ function TeamTab() {
 
         {/* Pending Invitations Section */}
         {canInvite && (
-          <div className="md:col-span-2 lg:col-span-3">
+          <div>
             <div className="flex items-center gap-2 mb-3">
               <EnvelopeIcon className="w-4 h-4 text-text-muted" />
               <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Pending Invitations</h4>
@@ -951,7 +971,7 @@ function TeamTab() {
         )}
 
         {/* Danger Zone */}
-        <div className="md:col-span-2 lg:col-span-3">
+        <div>
           <div className="flex items-center gap-2 mb-3">
             <TrashIcon className="w-4 h-4 text-red-400" />
             <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wider">Danger Zone</h4>
@@ -994,7 +1014,6 @@ function TeamTab() {
             )}
           </div>
         </div>
-
       </div>
 
       {/* Invite Modal */}
@@ -1043,6 +1062,7 @@ function BillingTab() {
   const { data: usage } = useCurrentUsage()
   const { data: planLimits } = usePlanLimits(subscription?.plan_tier)
   const checkout = useCheckout()
+  const updateSubscription = useUpdateSubscription()
   const manageSubscription = useManageSubscription()
   const [searchParams] = useSearchParams()
 
@@ -1068,11 +1088,23 @@ function BillingTab() {
 
   const handleUpgrade = async (planId: 'pro' | 'business') => {
     try {
-      await checkout.mutateAsync({ planId, interval: billingInterval })
+      // If user has an existing Stripe subscription, update it directly
+      // Otherwise, create a new checkout session
+      if (subscription?.stripe_subscription_id) {
+        await updateSubscription.mutateAsync({ planId, interval: billingInterval })
+        // Show success message for in-app plan change
+        setShowSuccessMessage(true)
+        setTimeout(() => setShowSuccessMessage(false), 5000)
+      } else {
+        // Checkout will redirect to Stripe, success message shown on return
+        await checkout.mutateAsync({ planId, interval: billingInterval })
+      }
     } catch (err) {
-      console.error('Checkout error:', err)
+      console.error('Subscription error:', err)
     }
   }
+
+  const isChangingPlan = checkout.isPending || updateSubscription.isPending
 
   const handleManageBilling = async () => {
     try {
@@ -1376,7 +1408,7 @@ function BillingTab() {
                 <button
                   type="button"
                   onClick={() => handleUpgrade(plan.id as 'pro' | 'business')}
-                  disabled={checkout.isPending}
+                  disabled={isChangingPlan}
                   className={cx(
                     'w-full px-4 py-2 text-sm rounded-lg transition-colors',
                     plan.popular
@@ -1384,7 +1416,7 @@ function BillingTab() {
                       : 'bg-surface border border-primary text-primary hover:bg-primary/10'
                   )}
                 >
-                  {checkout.isPending ? 'Loading...' : currentPlan === 'free' ? 'Start 14-Day Trial' : 'Upgrade'}
+                  {isChangingPlan ? 'Loading...' : currentPlan === 'free' ? 'Start 14-Day Trial' : 'Change Plan'}
                 </button>
               )}
             </div>

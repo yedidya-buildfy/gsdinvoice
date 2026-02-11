@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { Session, User, AuthError } from '@supabase/supabase-js'
+import type { Session, User, AuthError, Provider } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { identifyUser, resetUser, captureEvent } from '@/lib/posthog'
 
@@ -9,6 +9,7 @@ interface AuthContextType {
   loading: boolean
   signUp: (email: string, password: string, name?: string) => Promise<{ error: AuthError | null }>
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>
+  signInWithOAuth: (provider: Provider) => Promise<{ error: AuthError | null }>
   signOut: () => Promise<{ error: AuthError | null }>
 }
 
@@ -23,26 +24,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get initial session on mount (restores persisted session)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-
-      // Identify user with PostHog if already logged in
-      if (session?.user) {
-        identifyUser(session.user.id, {
-          email: session.user.email,
-          name: session.user.user_metadata?.full_name,
-          created_at: session.user.created_at,
-        })
-      }
-    })
+    let mounted = true
 
     // Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return
+
       setSession(session)
+      setLoading(false)
 
       // Identify user with PostHog on sign in
       if (session?.user) {
@@ -62,8 +53,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     })
 
+    // Get initial session on mount (restores persisted session)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return
+
+      setSession(session)
+      setLoading(false)
+
+      // Identify user with PostHog if already logged in
+      if (session?.user) {
+        identifyUser(session.user.id, {
+          email: session.user.email,
+          name: session.user.user_metadata?.full_name,
+          created_at: session.user.created_at,
+        })
+      }
+    })
+
     // Cleanup subscription on unmount
     return () => {
+      mounted = false
       subscription.unsubscribe()
     }
   }, [])
@@ -89,6 +98,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return { error }
   }
 
+  const signInWithOAuth = async (provider: Provider) => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/`,
+      },
+    })
+    return { error }
+  }
+
   const signOut = async () => {
     const { error } = await supabase.auth.signOut({ scope: 'local' })
     return { error }
@@ -100,6 +119,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     loading,
     signUp,
     signIn,
+    signInWithOAuth,
     signOut,
   }
 

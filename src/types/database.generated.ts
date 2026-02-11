@@ -123,6 +123,97 @@ export type Database = {
           },
         ]
       }
+      credit_card_transactions: {
+        Row: {
+          amount_agorot: number
+          bank_transaction_id: string | null
+          card_last_four: string
+          charge_date: string
+          created_at: string | null
+          credit_card_id: string | null
+          currency: string
+          foreign_amount_cents: number | null
+          foreign_currency: string | null
+          hash: string | null
+          id: string
+          match_confidence: number | null
+          match_status: string | null
+          merchant_name: string
+          normalized_merchant: string | null
+          notes: string | null
+          source_file_id: string | null
+          transaction_date: string
+          transaction_type: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_agorot: number
+          bank_transaction_id?: string | null
+          card_last_four: string
+          charge_date: string
+          created_at?: string | null
+          credit_card_id?: string | null
+          currency?: string
+          foreign_amount_cents?: number | null
+          foreign_currency?: string | null
+          hash?: string | null
+          id?: string
+          match_confidence?: number | null
+          match_status?: string | null
+          merchant_name: string
+          normalized_merchant?: string | null
+          notes?: string | null
+          source_file_id?: string | null
+          transaction_date: string
+          transaction_type?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_agorot?: number
+          bank_transaction_id?: string | null
+          card_last_four?: string
+          charge_date?: string
+          created_at?: string | null
+          credit_card_id?: string | null
+          currency?: string
+          foreign_amount_cents?: number | null
+          foreign_currency?: string | null
+          hash?: string | null
+          id?: string
+          match_confidence?: number | null
+          match_status?: string | null
+          merchant_name?: string
+          normalized_merchant?: string | null
+          notes?: string | null
+          source_file_id?: string | null
+          transaction_date?: string
+          transaction_type?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_card_transactions_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_transactions_credit_card_id_fkey"
+            columns: ["credit_card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_transactions_source_file_id_fkey"
+            columns: ["source_file_id"]
+            isOneToOne: false
+            referencedRelation: "files"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_cards: {
         Row: {
           card_last_four: string
@@ -433,6 +524,7 @@ export type Database = {
           has_api_access: boolean | null
           has_auto_matching: boolean | null
           max_bank_connections: number | null
+          max_businesses: number | null
           max_invoices_per_month: number | null
           max_team_members: number | null
           name: string
@@ -445,6 +537,7 @@ export type Database = {
           has_api_access?: boolean | null
           has_auto_matching?: boolean | null
           max_bank_connections?: number | null
+          max_businesses?: number | null
           max_invoices_per_month?: number | null
           max_team_members?: number | null
           name: string
@@ -457,6 +550,7 @@ export type Database = {
           has_api_access?: boolean | null
           has_auto_matching?: boolean | null
           max_bank_connections?: number | null
+          max_businesses?: number | null
           max_invoices_per_month?: number | null
           max_team_members?: number | null
           name?: string
@@ -473,6 +567,7 @@ export type Database = {
           created_at: string | null
           currency: string | null
           date_format: string | null
+          email: string | null
           email_bank_sync_alerts: boolean | null
           email_new_invoice: boolean | null
           email_payment_received: boolean | null
@@ -491,6 +586,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           date_format?: string | null
+          email?: string | null
           email_bank_sync_alerts?: boolean | null
           email_new_invoice?: boolean | null
           email_payment_received?: boolean | null
@@ -509,6 +605,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           date_format?: string | null
+          email?: string | null
           email_bank_sync_alerts?: boolean | null
           email_new_invoice?: boolean | null
           email_payment_received?: boolean | null
@@ -999,7 +1096,7 @@ export type Database = {
         Args: { ids: string[]; update_data: Json }
         Returns: number
       }
-      can_create_business: { Args: Record<PropertyKey, never>; Returns: boolean }
+      can_create_business: { Args: never; Returns: boolean }
       can_upload_invoice: { Args: { p_user_id: string }; Returns: boolean }
       check_invitation_rate_limit: {
         Args: { p_user_id: string }
@@ -1010,6 +1107,13 @@ export type Database = {
         Returns: string
       }
       generate_team_slug: { Args: { team_name: string }; Returns: string }
+      get_team_member_emails: {
+        Args: { p_team_id: string }
+        Returns: {
+          email: string
+          user_id: string
+        }[]
+      }
       get_user_team_role: { Args: { check_team_id: string }; Returns: string }
       increment_invoice_usage: {
         Args: { p_user_id: string }

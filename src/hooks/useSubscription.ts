@@ -163,6 +163,45 @@ export function useManageSubscription() {
   })
 }
 
+export function useUpdateSubscription() {
+  const { user } = useAuth()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      planId,
+      interval,
+    }: {
+      planId: PlanId
+      interval: BillingInterval
+    }) => {
+      if (!user) throw new Error('User not authenticated')
+
+      const plan = STRIPE_CONFIG.plans[planId]
+      const price = plan.prices[interval]
+
+      if (!price) throw new Error('Invalid plan or interval')
+
+      // Call Supabase Edge Function to update subscription
+      const { data, error } = await supabase.functions.invoke('update-subscription', {
+        body: {
+          userId: user.id,
+          priceId: price.id,
+          planTier: planId,
+        },
+      })
+
+      if (error) throw error
+      if (data.error) throw new Error(data.error)
+
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subscription'] })
+    },
+  })
+}
+
 export function useCanUploadInvoice() {
   const { data: subscription } = useSubscription()
   const { data: usage } = useCurrentUsage()

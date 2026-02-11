@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import type { Team, TeamWithRole, TeamContextType } from '@/types/team'
@@ -17,6 +17,9 @@ export function TeamProvider({ children }: TeamProviderProps) {
   const [currentTeam, setCurrentTeam] = useState<TeamWithRole | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
+
+  // Guard against concurrent team creation (race condition prevention)
+  const isCreatingTeamRef = useRef(false)
 
   // Fetch user's teams with their roles
   const fetchTeams = useCallback(async () => {
@@ -78,12 +81,17 @@ export function TeamProvider({ children }: TeamProviderProps) {
 
       setCurrentTeam(selectedTeam)
 
-      // If user has no teams, create a personal team
-      if (teamsWithRoles.length === 0) {
-        const newTeam = await createPersonalTeam(user.id)
-        if (newTeam) {
-          setTeams([newTeam])
-          setCurrentTeam(newTeam)
+      // If user has no teams, create a personal team (with race condition guard)
+      if (teamsWithRoles.length === 0 && !isCreatingTeamRef.current) {
+        isCreatingTeamRef.current = true
+        try {
+          const newTeam = await createPersonalTeam(user.id)
+          if (newTeam) {
+            setTeams([newTeam])
+            setCurrentTeam(newTeam)
+          }
+        } finally {
+          isCreatingTeamRef.current = false
         }
       }
     } catch (err) {
@@ -97,6 +105,24 @@ export function TeamProvider({ children }: TeamProviderProps) {
   // Create a personal team for the user
   const createPersonalTeam = async (userId: string): Promise<TeamWithRole | null> => {
     try {
+      // Double-check user doesn't already have teams (race condition prevention)
+      const { data: existingMembership } = await supabase
+        .from('team_members')
+        .select('team:teams(*)')
+        .eq('user_id', userId)
+        .is('removed_at', null)
+        .limit(1)
+        .single()
+
+      if (existingMembership?.team) {
+        // User already has a team, return it instead of creating a duplicate
+        const existingTeam = existingMembership.team as unknown as Team
+        return {
+          ...existingTeam,
+          role: 'owner' as const,
+        }
+      }
+
       const teamName = 'Personal'
       const slug = `team-${userId.slice(0, 8)}-${Date.now()}`
 

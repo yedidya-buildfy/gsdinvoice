@@ -4,6 +4,9 @@ import {
   ClockIcon,
   XMarkIcon,
   ArrowPathIcon,
+  CheckIcon,
+  ExclamationTriangleIcon,
+  ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline'
 import { useTeamInvitations, useRevokeInvitation, useResendInvitation } from '@/hooks/useTeamInvitations'
 import { RoleBadge } from './RoleBadge'
@@ -16,6 +19,22 @@ export function PendingInvitationsList() {
   const resendInvitation = useResendInvitation()
 
   const [revokeConfirm, setRevokeConfirm] = useState<TeamInvitation | null>(null)
+  const [resendStatus, setResendStatus] = useState<{ id: string; success: boolean } | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const getInviteUrl = (token: string) => {
+    return `${window.location.origin}/invite/${token}`
+  }
+
+  const handleCopyLink = async (invitation: TeamInvitation) => {
+    try {
+      await navigator.clipboard.writeText(getInviteUrl(invitation.token))
+      setCopiedId(invitation.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy link:', err)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -42,10 +61,16 @@ export function PendingInvitationsList() {
   }
 
   const handleResend = async (invitationId: string) => {
+    setResendStatus(null)
     try {
-      await resendInvitation.mutateAsync(invitationId)
+      const result = await resendInvitation.mutateAsync(invitationId)
+      setResendStatus({ id: invitationId, success: result?.emailSent ?? false })
+      // Clear status after 3 seconds
+      setTimeout(() => setResendStatus(null), 3000)
     } catch (err) {
       console.error('Failed to resend invitation:', err)
+      setResendStatus({ id: invitationId, success: false })
+      setTimeout(() => setResendStatus(null), 3000)
     }
   }
 
@@ -88,16 +113,40 @@ export function PendingInvitationsList() {
             <div className="flex items-center gap-3">
               <RoleBadge role={invitation.role} />
 
-              {/* Resend */}
+              {/* Copy Link */}
               <button
                 type="button"
-                onClick={() => handleResend(invitation.id)}
-                disabled={resendInvitation.isPending}
-                className="p-2 text-text-muted hover:text-text transition-colors rounded-lg hover:bg-text-muted/10 disabled:opacity-50"
-                title="Resend invitation"
+                onClick={() => handleCopyLink(invitation)}
+                className="p-2 text-text-muted hover:text-text transition-colors rounded-lg hover:bg-text-muted/10"
+                title="Copy invitation link"
               >
-                <ArrowPathIcon className="h-4 w-4" />
+                {copiedId === invitation.id ? (
+                  <CheckIcon className="h-4 w-4 text-green-400" />
+                ) : (
+                  <ClipboardDocumentIcon className="h-4 w-4" />
+                )}
               </button>
+
+              {/* Resend */}
+              {resendStatus?.id === invitation.id ? (
+                <div className={`p-2 rounded-lg ${resendStatus.success ? 'bg-green-500/10' : 'bg-amber-500/10'}`}>
+                  {resendStatus.success ? (
+                    <CheckIcon className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <ExclamationTriangleIcon className="h-4 w-4 text-amber-400" title="Email may not have been sent - share the link manually" />
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleResend(invitation.id)}
+                  disabled={resendInvitation.isPending}
+                  className="p-2 text-text-muted hover:text-text transition-colors rounded-lg hover:bg-text-muted/10 disabled:opacity-50"
+                  title="Resend invitation"
+                >
+                  <ArrowPathIcon className={`h-4 w-4 ${resendInvitation.isPending ? 'animate-spin' : ''}`} />
+                </button>
+              )}
 
               {/* Revoke */}
               <button

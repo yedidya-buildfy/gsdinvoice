@@ -11,6 +11,7 @@ export interface TransactionFilterState {
 interface TransactionFiltersProps {
   filters: TransactionFilterState
   onChange: (filters: TransactionFilterState) => void
+  children?: React.ReactNode
 }
 
 const TYPE_OPTIONS: { value: TransactionFilterState['type']; label: string }[] = [
@@ -69,7 +70,7 @@ function TypeSelect({
   )
 }
 
-export function TransactionFilters({ filters, onChange }: TransactionFiltersProps) {
+export function TransactionFilters({ filters, onChange, children }: TransactionFiltersProps) {
   const handleDateChange = (startDate: string, endDate: string) => {
     onChange({ ...filters, dateFrom: startDate, dateTo: endDate })
   }
@@ -100,6 +101,8 @@ export function TransactionFilters({ filters, onChange }: TransactionFiltersProp
           className="w-full ps-10 pe-4 py-2 bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50"
         />
       </div>
+
+      {children}
     </div>
   )
 }

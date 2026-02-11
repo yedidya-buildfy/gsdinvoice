@@ -11,7 +11,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Create vendor_aliases table
-CREATE TABLE vendor_aliases (
+CREATE TABLE IF NOT EXISTS vendor_aliases (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
@@ -25,16 +25,17 @@ CREATE TABLE vendor_aliases (
 );
 
 -- Create unique index with COALESCE for null team_id handling
-CREATE UNIQUE INDEX idx_vendor_aliases_unique_pattern
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_aliases_unique_pattern
   ON vendor_aliases (user_id, COALESCE(team_id, '00000000-0000-0000-0000-000000000000'::uuid), alias_pattern);
 
 -- Create indexes for efficient lookups
-CREATE INDEX idx_vendor_aliases_user ON vendor_aliases(user_id);
-CREATE INDEX idx_vendor_aliases_team ON vendor_aliases(team_id);
-CREATE INDEX idx_vendor_aliases_pattern ON vendor_aliases(alias_pattern);
-CREATE INDEX idx_vendor_aliases_canonical ON vendor_aliases(canonical_name);
+CREATE INDEX IF NOT EXISTS idx_vendor_aliases_user ON vendor_aliases(user_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_aliases_team ON vendor_aliases(team_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_aliases_pattern ON vendor_aliases(alias_pattern);
+CREATE INDEX IF NOT EXISTS idx_vendor_aliases_canonical ON vendor_aliases(canonical_name);
 
 -- Trigger to auto-update updated_at timestamp
+DROP TRIGGER IF EXISTS update_vendor_aliases_updated_at ON vendor_aliases;
 CREATE TRIGGER update_vendor_aliases_updated_at
   BEFORE UPDATE ON vendor_aliases
   FOR EACH ROW
@@ -46,6 +47,7 @@ ALTER TABLE vendor_aliases ENABLE ROW LEVEL SECURITY;
 -- RLS Policies
 
 -- Users can view their own aliases OR team aliases if active team member
+DROP POLICY IF EXISTS "Users can view own or team aliases" ON vendor_aliases;
 CREATE POLICY "Users can view own or team aliases"
   ON vendor_aliases FOR SELECT TO authenticated
   USING (
@@ -54,17 +56,20 @@ CREATE POLICY "Users can view own or team aliases"
   );
 
 -- Users can create their own aliases
+DROP POLICY IF EXISTS "Users can create own aliases" ON vendor_aliases;
 CREATE POLICY "Users can create own aliases"
   ON vendor_aliases FOR INSERT TO authenticated
   WITH CHECK (user_id = auth.uid());
 
 -- Users can update their own aliases
+DROP POLICY IF EXISTS "Users can update own aliases" ON vendor_aliases;
 CREATE POLICY "Users can update own aliases"
   ON vendor_aliases FOR UPDATE TO authenticated
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
 
 -- Users can delete their own aliases
+DROP POLICY IF EXISTS "Users can delete own aliases" ON vendor_aliases;
 CREATE POLICY "Users can delete own aliases"
   ON vendor_aliases FOR DELETE TO authenticated
   USING (user_id = auth.uid());
@@ -123,6 +128,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to enforce alias limit on insert
+DROP TRIGGER IF EXISTS enforce_vendor_alias_limit ON vendor_aliases;
 CREATE TRIGGER enforce_vendor_alias_limit
   BEFORE INSERT ON vendor_aliases
   FOR EACH ROW

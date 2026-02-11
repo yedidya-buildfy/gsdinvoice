@@ -7,6 +7,7 @@ import {
   ChevronDownIcon,
   LinkIcon,
 } from '@heroicons/react/24/outline'
+import { CheckCircleIcon } from '@heroicons/react/24/solid'
 import type { DocumentWithUrl } from '@/hooks/useDocuments'
 import type { InvoiceWithFile } from '@/hooks/useInvoices'
 import { formatCurrency } from '@/lib/currency'
@@ -14,8 +15,6 @@ import { ExtractionStatus } from './ExtractionStatus'
 import type { ExtractionStatus as ExtractionStatusType } from '@/lib/extraction/types'
 import { isImageType } from '@/lib/storage'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
-import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
-import { DOCUMENT_COLUMNS } from '@/types/columnVisibility'
 import type { DocumentColumnKey } from '@/types/columnVisibility'
 
 export type DocumentWithInvoice = DocumentWithUrl & {
@@ -23,6 +22,7 @@ export type DocumentWithInvoice = DocumentWithUrl & {
 }
 
 export type DocumentSortColumn =
+  | 'is_approved'
   | 'original_name'
   | 'file_size'
   | 'vendor_name'
@@ -41,6 +41,8 @@ interface DocumentTableProps {
   onSelectionChange?: (selectedIds: Set<string>) => void
   onRowClick?: (document: DocumentWithInvoice) => void
   onBankLinkClick?: (invoiceId: string, vendorName: string | null) => void
+  onApprovalToggle?: (invoiceId: string, isApproved: boolean) => void
+  approvingIds?: Set<string>
   sortColumn?: DocumentSortColumn
   sortDirection?: 'asc' | 'desc'
   onSort?: (column: DocumentSortColumn) => void
@@ -178,7 +180,7 @@ function BankLinkBadge({
   stats?: { total: number; linked: number }
   onClick?: () => void
 }) {
-  const baseClass = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium transition-colors'
+  const baseClass = 'inline-flex items-center justify-center gap-1 min-w-[4.5rem] px-2 py-0.5 rounded text-xs font-medium transition-colors'
   const clickableClass = onClick ? 'cursor-pointer hover:ring-1 hover:ring-current' : ''
 
   if (!status || status === 'no') {
@@ -297,6 +299,11 @@ function SkeletonRow({ isVisible }: { isVisible: (col: DocumentColumnKey) => boo
           <div className="h-5 w-16 bg-surface rounded inline-block" />
         </td>
       )}
+      {isVisible('approval') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-5 w-5 bg-surface rounded inline-block" />
+        </td>
+      )}
     </tr>
   )
 }
@@ -308,11 +315,13 @@ export function DocumentTable({
   onSelectionChange,
   onRowClick,
   onBankLinkClick,
+  onApprovalToggle,
+  approvingIds = new Set(),
   sortColumn,
   sortDirection,
   onSort,
 }: DocumentTableProps) {
-  const { visibility, isVisible, toggle, reset } = useColumnVisibility('document')
+  const { isVisible } = useColumnVisibility('document')
   const allSelected = documents.length > 0 && selectedIds.size === documents.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < documents.length
 
@@ -339,14 +348,6 @@ export function DocumentTable({
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-text-muted/20">
-        <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
-          <ColumnVisibilityDropdown
-            columns={DOCUMENT_COLUMNS}
-            visibility={visibility}
-            onToggle={toggle}
-            onReset={reset}
-          />
-        </div>
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
@@ -362,8 +363,9 @@ export function DocumentTable({
               {isVisible('added') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Added</th>}
               {isVisible('items') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-14">Items</th>}
               {isVisible('confidence') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Confidence</th>}
-              {isVisible('bankLink') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Bank Link</th>}
-              {isVisible('aiStatus') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-28">AI Status</th>}
+              {isVisible('bankLink') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-36">Link to Transaction</th>}
+              {isVisible('aiStatus') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-36">AI Status</th>}
+              {isVisible('approval') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Approved</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
@@ -382,14 +384,6 @@ export function DocumentTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-text-muted/20">
-      <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
-        <ColumnVisibilityDropdown
-          columns={DOCUMENT_COLUMNS}
-          visibility={visibility}
-          onToggle={toggle}
-          onReset={reset}
-        />
-      </div>
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>
@@ -496,12 +490,12 @@ export function DocumentTable({
             {isVisible('bankLink') && (
               <SortHeader
                 column="bank_link"
-                label="Bank Link"
+                label="Link to Transaction"
                 sortColumn={sortColumn}
                 sortDirection={sortDirection}
                 onSort={onSort}
                 align="start"
-                className="w-20"
+                className="w-36"
               />
             )}
             {isVisible('aiStatus') && (
@@ -512,7 +506,18 @@ export function DocumentTable({
                 sortDirection={sortDirection}
                 onSort={onSort}
                 align="start"
-                className="w-28"
+                className="w-36"
+              />
+            )}
+            {isVisible('approval') && (
+              <SortHeader
+                column="is_approved"
+                label="Approved"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="center"
+                className="w-14"
               />
             )}
           </tr>
@@ -613,6 +618,29 @@ export function DocumentTable({
                       }
                       errorMessage={doc.error_message}
                     />
+                  </td>
+                )}
+                {isVisible('approval') && (
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    {invoice ? (
+                      <button
+                        type="button"
+                        onClick={() => onApprovalToggle?.(invoice.id, !invoice.is_approved)}
+                        disabled={approvingIds.has(invoice.id)}
+                        className="inline-flex items-center justify-center disabled:opacity-50"
+                        title={invoice.is_approved ? 'Unapprove' : 'Approve'}
+                      >
+                        {approvingIds.has(invoice.id) ? (
+                          <div className="h-5 w-5 border-2 border-text-muted/30 border-t-primary rounded-full animate-spin" />
+                        ) : invoice.is_approved ? (
+                          <CheckCircleIcon className="h-5 w-5 text-green-400" />
+                        ) : (
+                          <div className="h-5 w-5 rounded border-2 border-text-muted/40 hover:border-green-400 transition-colors" />
+                        )}
+                      </button>
+                    ) : (
+                      <span className="text-text-muted">-</span>
+                    )}
                   </td>
                 )}
               </tr>

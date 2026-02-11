@@ -53,6 +53,42 @@ BEGIN
   ) THEN
     ALTER TABLE profiles DROP CONSTRAINT profiles_currency_check;
   END IF;
+
+  -- Drop new constraint if it exists (idempotent)
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'profiles_currency_format_check'
+    AND table_name = 'profiles'
+  ) THEN
+    ALTER TABLE profiles DROP CONSTRAINT profiles_currency_format_check;
+  END IF;
+
+  -- Drop invoices constraint if it exists
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'invoices_currency_format_check'
+    AND table_name = 'invoices'
+  ) THEN
+    ALTER TABLE invoices DROP CONSTRAINT invoices_currency_format_check;
+  END IF;
+
+  -- Drop invoice_rows constraint if it exists
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'invoice_rows_currency_format_check'
+    AND table_name = 'invoice_rows'
+  ) THEN
+    ALTER TABLE invoice_rows DROP CONSTRAINT invoice_rows_currency_format_check;
+  END IF;
+
+  -- Drop transactions constraint if it exists
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'transactions_foreign_currency_format_check'
+    AND table_name = 'transactions'
+  ) THEN
+    ALTER TABLE transactions DROP CONSTRAINT transactions_foreign_currency_format_check;
+  END IF;
 END $$;
 
 -- Add new flexible constraint

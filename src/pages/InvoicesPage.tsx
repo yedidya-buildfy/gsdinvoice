@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { TrashIcon, SparklesIcon, BoltIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, SparklesIcon, BoltIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import { FileUploader } from '@/components/upload/FileUploader'
 import {
   DocumentTable,
@@ -8,6 +8,9 @@ import {
   type DocumentSortColumn,
 } from '@/components/documents/DocumentTable'
 import { InvoiceFilters } from '@/components/documents/InvoiceFilters'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
+import { DOCUMENT_COLUMNS } from '@/types/columnVisibility'
 import {
   getDefaultInvoiceFilters,
   type InvoiceFilterState,
@@ -25,6 +28,7 @@ import {
 import { useInvoices } from '@/hooks/useInvoices'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAutoMatch, type AutoMatchBatchResult } from '@/hooks/useAutoMatch'
+import { useUpdateInvoiceApproval } from '@/hooks/useUpdateInvoiceApproval'
 import { supabase } from '@/lib/supabase'
 import type { ExtractionRequest, LineItemDuplicateInfo } from '@/lib/extraction/types'
 import type { DuplicateAction } from '@/lib/duplicates/types'
@@ -38,12 +42,18 @@ export function InvoicesPage() {
   const extractMultiple = useExtractMultipleDocuments()
   const autoMatch = useAutoMatch()
   const { autoExtractOnUpload, autoMatchEnabled, tablePageSize } = useSettingsStore()
+  const { visibility, toggle, reset } = useColumnVisibility('document')
+  const approvalMutation = useUpdateInvoiceApproval()
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [duplicateQueue, setDuplicateQueue] = useState<LineItemDuplicateInfo[]>([])
   const [isHandlingDuplicates, setIsHandlingDuplicates] = useState(false)
+
+  // Approval loading state
+  const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set())
+  const [approvalError, setApprovalError] = useState<string | null>(null)
 
   // Bank link modal state
   const [bankLinkModal, setBankLinkModal] = useState<{ invoiceId: string; vendorName: string | null } | null>(null)
@@ -118,6 +128,13 @@ export function InvoicesPage() {
         if (bankLinkStatus !== filters.bankLinkStatus) return false
       }
 
+      // Approval Status filter
+      if (filters.approvalStatus !== 'all') {
+        const isApproved = doc.invoice?.is_approved ?? false
+        if (filters.approvalStatus === 'approved' && !isApproved) return false
+        if (filters.approvalStatus === 'not_approved' && isApproved) return false
+      }
+
       return true
     })
   }, [documentsWithInvoices, filters])
@@ -129,6 +146,10 @@ export function InvoicesPage() {
       let bVal: string | number
 
       switch (sortColumn) {
+        case 'is_approved':
+          aVal = a.invoice?.is_approved ? 1 : 0
+          bVal = b.invoice?.is_approved ? 1 : 0
+          break
         case 'original_name':
           aVal = a.original_name?.toLowerCase() || ''
           bVal = b.original_name?.toLowerCase() || ''
@@ -364,6 +385,30 @@ export function InvoicesPage() {
     queryClient.invalidateQueries({ queryKey: ['invoices'] })
   }
 
+  const handleApprovalToggle = (invoiceId: string, isApproved: boolean) => {
+    setApprovalError(null)
+    setApprovingIds((prev) => new Set(prev).add(invoiceId))
+    approvalMutation.mutate(
+      { invoiceId, isApproved },
+      {
+        onError: (error: unknown) => {
+          const err = error as { message?: string }
+          const message = err?.message || 'Failed to update approval status'
+          setApprovalError(message)
+          // Auto-dismiss after 5 seconds
+          setTimeout(() => setApprovalError(null), 5000)
+        },
+        onSettled: () => {
+          setApprovingIds((prev) => {
+            const next = new Set(prev)
+            next.delete(invoiceId)
+            return next
+          })
+        },
+      }
+    )
+  }
+
   const handleExtractInModal = () => {
     if (!selectedDocument) return
 
@@ -417,7 +462,8 @@ export function InvoicesPage() {
     filters.dateTo ||
     filters.fileTypes.length > 0 ||
     filters.aiStatus !== 'all' ||
-    filters.bankLinkStatus !== 'all'
+    filters.bankLinkStatus !== 'all' ||
+    filters.approvalStatus !== 'all'
 
   return (
     <div className="p-6">
@@ -496,10 +542,28 @@ export function InvoicesPage() {
           </div>
         )}
 
+        {/* Approval error toast */}
+        {approvalError && (
+          <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <div className="flex items-center gap-2 text-red-400 text-sm">
+              <ExclamationTriangleIcon className="w-4 h-4 shrink-0" />
+              <span className="font-medium">Approval update failed</span>
+            </div>
+            <div className="text-xs text-text-muted mt-1">{approvalError}</div>
+          </div>
+        )}
+
         {/* Filters */}
         {totalCount > 0 && (
           <div className="mb-4">
-            <InvoiceFilters filters={filters} onChange={handleFilterChange} />
+            <InvoiceFilters filters={filters} onChange={handleFilterChange}>
+              <ColumnVisibilityDropdown
+                columns={DOCUMENT_COLUMNS}
+                visibility={visibility}
+                onToggle={toggle}
+                onReset={reset}
+              />
+            </InvoiceFilters>
           </div>
         )}
 
@@ -511,6 +575,8 @@ export function InvoicesPage() {
           onSelectionChange={setSelectedIds}
           onRowClick={handleRowClick}
           onBankLinkClick={handleBankLinkClick}
+          onApprovalToggle={handleApprovalToggle}
+          approvingIds={approvingIds}
           sortColumn={sortColumn}
           sortDirection={sortDirection}
           onSort={handleSort}

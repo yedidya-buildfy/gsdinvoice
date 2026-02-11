@@ -12,6 +12,10 @@ import { TransactionLinkModal } from '@/components/money-movements/TransactionLi
 import { TransactionLineItemsDrawer } from '@/components/money-movements/TransactionLineItemsDrawer'
 import { Pagination } from '@/components/ui/Pagination'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
+import { TRANSACTION_COLUMNS } from '@/types/columnVisibility'
+import type { TransactionColumnKey } from '@/types/columnVisibility'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { parseMerchantName } from '@/lib/utils/merchantParser'
@@ -28,6 +32,16 @@ export function CCChargesTab({ onCCChargeClick, onRefetch }: CCChargesTabProps) 
   const { isUpdating, updateBatch, updateAllByMerchant, saveMerchantPreferencesBatch } = useUpdateTransactionVat()
   const { matchResults } = useCCBankMatchResults()
   const { tablePageSize } = useSettingsStore()
+  const { visibility, toggle, reset } = useColumnVisibility('transaction')
+
+  // CCChargesTab shows Invoice, Match%, and Matched columns
+  const activeTransactionColumns = useMemo(() => {
+    const active = new Set<TransactionColumnKey>([
+      'date', 'amount', 'vat', 'vatPercent', 'vatAmount', 'reference',
+      'invoice', 'matchPercent', 'matched',
+    ])
+    return active
+  }, [])
 
   // Create lookup map for CC charge match data
   const ccChargeMatchData = useMemo(() => {
@@ -295,7 +309,15 @@ export function CCChargesTab({ onCCChargeClick, onRefetch }: CCChargesTabProps) 
 
       {/* Filters */}
       {ccChargeTransactions.length > 0 && (
-        <TransactionFilters filters={filters} onChange={handleFiltersChange} />
+        <TransactionFilters filters={filters} onChange={handleFiltersChange}>
+          <ColumnVisibilityDropdown
+            columns={TRANSACTION_COLUMNS}
+            visibility={visibility}
+            onToggle={toggle}
+            onReset={reset}
+            activeConditionalColumns={activeTransactionColumns}
+          />
+        </TransactionFilters>
       )}
 
       {/* Table */}

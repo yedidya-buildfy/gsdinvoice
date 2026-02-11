@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { CCBankMatchWidget } from '@/components/dashboard/CCBankMatchWidget'
+import { MatchingGapsWidget } from '@/components/dashboard/MatchingGapsWidget'
 
 export function DashboardPage() {
   // Global date filter for all dashboard widgets - default to no filter (show all data)
@@ -24,12 +25,13 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Dashboard Widgets Grid - future widgets will go here */}
+      {/* Dashboard Widgets Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* CC Matching Widget */}
-        <CCBankMatchWidget fromDate={fromDate} toDate={toDate} />
+        {/* Invoice-Transaction Matching Gaps */}
+        <MatchingGapsWidget fromDate={fromDate} toDate={toDate} />
 
-        {/* Future widgets can be added here */}
+        {/* CC-Bank Matching Widget */}
+        <CCBankMatchWidget fromDate={fromDate} toDate={toDate} />
       </div>
     </div>
   )

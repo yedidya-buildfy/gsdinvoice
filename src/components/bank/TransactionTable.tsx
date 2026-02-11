@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { ChevronUpIcon, ChevronDownIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { Transaction } from '@/types/database'
 import { formatShekel, formatTransactionAmount } from '@/lib/currency'
@@ -10,8 +9,6 @@ import { useVendorAliases } from '@/hooks/useVendorAliases'
 import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
 import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
-import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
-import { TRANSACTION_COLUMNS } from '@/types/columnVisibility'
 import type { TransactionColumnKey } from '@/types/columnVisibility'
 
 interface TransactionTableProps {
@@ -122,23 +119,12 @@ export function TransactionTable({
   // Vendor resolution settings and aliases
   const { enableInTransactionTable } = useVendorResolverSettings()
   const { aliases } = useVendorAliases()
-  const { visibility, isVisible, toggle, reset } = useColumnVisibility('transaction')
+  const { isVisible } = useColumnVisibility('transaction')
 
   // Check if we should show match columns (only when CC charge data is provided)
   const showMatchColumns = !!ccChargeMatchData
   // Check if we should show link column (only when handler is provided)
   const showLinkColumn = !!onLineItemLinkClick
-
-  // Build set of active conditional columns (only show in dropdown when their condition is met)
-  const activeConditionalColumns = useMemo(() => {
-    const active = new Set<TransactionColumnKey>(['date', 'amount', 'vat', 'vatPercent', 'vatAmount', 'reference'])
-    if (showLinkColumn) active.add('invoice')
-    if (showMatchColumns) {
-      active.add('matchPercent')
-      active.add('matched')
-    }
-    return active
-  }, [showLinkColumn, showMatchColumns])
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
 
@@ -165,15 +151,6 @@ export function TransactionTable({
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-text-muted/20">
-        <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
-          <ColumnVisibilityDropdown
-            columns={TRANSACTION_COLUMNS}
-            visibility={visibility}
-            onToggle={toggle}
-            onReset={reset}
-            activeConditionalColumns={activeConditionalColumns}
-          />
-        </div>
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
@@ -205,15 +182,6 @@ export function TransactionTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-text-muted/20">
-      <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
-        <ColumnVisibilityDropdown
-          columns={TRANSACTION_COLUMNS}
-          visibility={visibility}
-          onToggle={toggle}
-          onReset={reset}
-          activeConditionalColumns={activeConditionalColumns}
-        />
-      </div>
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>

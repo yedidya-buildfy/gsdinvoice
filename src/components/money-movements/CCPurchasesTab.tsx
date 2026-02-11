@@ -12,6 +12,10 @@ import { TransactionLinkModal } from '@/components/money-movements/TransactionLi
 import { TransactionLineItemsDrawer } from '@/components/money-movements/TransactionLineItemsDrawer'
 import { Pagination } from '@/components/ui/Pagination'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
+import { CREDIT_CARD_COLUMNS } from '@/types/columnVisibility'
+import type { CreditCardColumnKey } from '@/types/columnVisibility'
 import { linkCreditCardTransactions } from '@/lib/services/creditCardLinker'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -235,6 +239,16 @@ export function CCPurchasesTab({ onBankChargeClick, onLinkCCTransaction, onRefet
   const { transactions: allTransactions, isLoading, refetch } = useCreditCardTransactions()
   const { isUpdating, updateBatch, updateAllByMerchant, saveMerchantPreferencesBatch } = useUpdateTransactionVat()
   const { tablePageSize } = useSettingsStore()
+  const { visibility, toggle, reset } = useColumnVisibility('creditCard')
+
+  // CC Purchases shows Invoice column when line item linking is available
+  const activeCCColumns = useMemo(() => {
+    const active = new Set<CreditCardColumnKey>([
+      'date', 'amount', 'currency', 'vat', 'vatPercent', 'vatAmount',
+      'billing', 'status', 'card', 'link', 'invoice',
+    ])
+    return active
+  }, [])
 
   const [filters, setFilters] = useState<CreditCardFilterState>({
     search: '',
@@ -667,6 +681,14 @@ export function CCPurchasesTab({ onBankChargeClick, onLinkCCTransaction, onRefet
               </button>
             )}
           </div>
+
+          <ColumnVisibilityDropdown
+            columns={CREDIT_CARD_COLUMNS}
+            visibility={visibility}
+            onToggle={toggle}
+            onReset={reset}
+            activeConditionalColumns={activeCCColumns}
+          />
         </div>
       )}
 

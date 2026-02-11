@@ -71,42 +71,50 @@ ALTER TABLE credit_card_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cc_bank_match_results ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies for credit_card_transactions (team access - all users can access all data)
+DROP POLICY IF EXISTS "Users can view all credit_card_transactions" ON credit_card_transactions;
 CREATE POLICY "Users can view all credit_card_transactions"
   ON credit_card_transactions FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "Users can insert credit_card_transactions" ON credit_card_transactions;
 CREATE POLICY "Users can insert credit_card_transactions"
   ON credit_card_transactions FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Users can update credit_card_transactions" ON credit_card_transactions;
 CREATE POLICY "Users can update credit_card_transactions"
   ON credit_card_transactions FOR UPDATE
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "Users can delete credit_card_transactions" ON credit_card_transactions;
 CREATE POLICY "Users can delete credit_card_transactions"
   ON credit_card_transactions FOR DELETE
   TO authenticated
   USING (true);
 
 -- RLS policies for cc_bank_match_results (team access)
+DROP POLICY IF EXISTS "Users can view all cc_bank_match_results" ON cc_bank_match_results;
 CREATE POLICY "Users can view all cc_bank_match_results"
   ON cc_bank_match_results FOR SELECT
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "Users can insert cc_bank_match_results" ON cc_bank_match_results;
 CREATE POLICY "Users can insert cc_bank_match_results"
   ON cc_bank_match_results FOR INSERT
   TO authenticated
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Users can update cc_bank_match_results" ON cc_bank_match_results;
 CREATE POLICY "Users can update cc_bank_match_results"
   ON cc_bank_match_results FOR UPDATE
   TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS "Users can delete cc_bank_match_results" ON cc_bank_match_results;
 CREATE POLICY "Users can delete cc_bank_match_results"
   ON cc_bank_match_results FOR DELETE
   TO authenticated

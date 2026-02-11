@@ -35,24 +35,22 @@ export function useTeamMembers() {
       // Get user IDs
       const userIds = members.map((m) => m.user_id)
 
-      // Fetch profiles for each user
+      // Fetch profiles for each user (includes email)
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('user_id, full_name, avatar_url')
+        .select('user_id, full_name, avatar_url, email')
         .in('user_id', userIds)
 
       const profileMap = new Map(profiles?.map((p) => [p.user_id, p]) || [])
 
-      // Fetch user emails using admin API or RPC function
-      // For now, we'll use the profile data and show user_id if no profile exists
-      // In production, you would use a server-side function to get emails
       return members.map((member) => {
         const profile = profileMap.get(member.user_id)
+        const email = profile?.email || member.user_id.slice(0, 8) + '...'
         return {
           ...member,
           role: member.role as TeamMemberWithProfile['role'],
           user: {
-            email: profile?.full_name || member.user_id.slice(0, 8) + '...', // Fallback to partial user_id
+            email,
             profile: profile || null,
           },
         }
@@ -146,6 +144,43 @@ export function useRemoveMember() {
 /**
  * Hook to transfer team ownership
  */
+/**
+ * Hook to fetch member counts for multiple teams
+ */
+export function useTeamMemberCounts(teamIds: string[]) {
+  return useQuery({
+    queryKey: ['team-member-counts', teamIds],
+    queryFn: async (): Promise<Record<string, number>> => {
+      if (teamIds.length === 0) {
+        return {}
+      }
+
+      const { data, error } = await supabase
+        .from('team_members')
+        .select('team_id')
+        .in('team_id', teamIds)
+        .is('removed_at', null)
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      // Count members per team
+      const counts: Record<string, number> = {}
+      for (const teamId of teamIds) {
+        counts[teamId] = 0
+      }
+      for (const member of data || []) {
+        counts[member.team_id] = (counts[member.team_id] || 0) + 1
+      }
+
+      return counts
+    },
+    enabled: teamIds.length > 0,
+    staleTime: 60 * 1000, // Cache for 1 minute
+  })
+}
+
 export function useTransferOwnership() {
   const queryClient = useQueryClient()
   const { currentTeam, refreshTeams } = useTeam()

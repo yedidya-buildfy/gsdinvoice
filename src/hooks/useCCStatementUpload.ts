@@ -163,32 +163,54 @@ export function useCCStatementUpload(): UseCCStatementUploadReturn {
 
       setProgress(60)
 
-      // Step 4: Upsert CC transactions with ON CONFLICT DO NOTHING (60-80%)
-      // This is database-level duplicate protection - much more reliable than pre-checking
-      // The unique constraint on (user_id, hash) ensures duplicates are ignored
-      setProgress(70)
+      // Step 4: Check for duplicates then insert new transactions (60-80%)
+      setProgress(65)
 
-      // Use upsert with ignoreDuplicates: true which generates ON CONFLICT DO NOTHING
-      // This is efficient because:
-      // 1. No URL length limits (single request handles all data)
-      // 2. Database handles duplicate detection atomically
-      // 3. No race conditions between check and insert
-      const { error: insertError, data: insertedData } = await supabase
-        .from('transactions')
-        .upsert(inserts, {
-          onConflict: 'user_id,hash',
-          ignoreDuplicates: true
-        })
-        .select()
+      const allHashes = txWithHashes.map(t => t.hash)
+      const existingHashes = new Set<string>()
 
-      if (insertError) {
-        throw new Error(`Failed to save CC transactions: ${insertError.message}`)
+      // Check in batches of 100 to avoid URL length limits
+      for (let i = 0; i < allHashes.length; i += 100) {
+        const batch = allHashes.slice(i, i + 100)
+        let query = supabase
+          .from('transactions')
+          .select('hash')
+          .eq('user_id', user.id)
+          .in('hash', batch)
+
+        if (currentTeam?.id) {
+          query = query.eq('team_id', currentTeam.id)
+        } else {
+          query = query.is('team_id', null)
+        }
+
+        const { data: existing } = await query
+        if (existing) {
+          existing.forEach(row => { if (row.hash) existingHashes.add(row.hash) })
+        }
       }
 
-      const saved = insertedData?.length || 0
-      const duplicates = txWithHashes.length - saved
-      setSavedCount(saved)
+      setProgress(70)
+
+      // Filter out duplicates
+      const newInserts = inserts.filter((_, idx) => !existingHashes.has(txWithHashes[idx].hash))
+      const duplicates = inserts.length - newInserts.length
       setDuplicateCount(duplicates)
+
+      let saved = 0
+      if (newInserts.length > 0) {
+        const { error: insertError, data: insertedData } = await supabase
+          .from('transactions')
+          .insert(newInserts)
+          .select()
+
+        if (insertError) {
+          throw new Error(`Failed to save CC transactions: ${insertError.message}`)
+        }
+        saved = insertedData?.length || 0
+      }
+
+      setSavedCount(saved)
       setProgress(80)
 
       // Step 5: Run matching if enabled (80-100%)

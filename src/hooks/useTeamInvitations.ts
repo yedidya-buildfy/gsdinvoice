@@ -173,16 +173,29 @@ export function useRevokeInvitation() {
 }
 
 /**
- * Hook to resend an invitation (creates new token)
+ * Hook to resend an invitation (creates new token and sends email)
  */
 export function useResendInvitation() {
   const queryClient = useQueryClient()
   const { currentTeam } = useTeam()
+  const { user } = useAuth()
 
   return useMutation({
     mutationFn: async (invitationId: string) => {
-      if (!currentTeam) {
+      if (!currentTeam || !user) {
         throw new Error('No team selected')
+      }
+
+      // First, get the invitation to know the email and role
+      const { data: invitation, error: fetchError } = await supabase
+        .from('team_invitations')
+        .select('email, role')
+        .eq('id', invitationId)
+        .eq('team_id', currentTeam.id)
+        .single()
+
+      if (fetchError || !invitation) {
+        throw new Error('Invitation not found')
       }
 
       const token = generateToken()
@@ -201,6 +214,32 @@ export function useResendInvitation() {
       if (error) {
         throw new Error(error.message)
       }
+
+      // Send the email with the new token
+      const inviteUrl = `${window.location.origin}/invite/${token}`
+      let emailSent = false
+
+      try {
+        const { error: emailError } = await supabase.functions.invoke('send-team-invite', {
+          body: {
+            email: invitation.email,
+            teamName: currentTeam.name,
+            inviterName: user.user_metadata?.full_name || user.email || 'A team member',
+            role: invitation.role,
+            inviteUrl,
+          },
+        })
+
+        if (emailError) {
+          console.warn('Failed to resend invitation email:', emailError)
+        } else {
+          emailSent = true
+        }
+      } catch (emailError) {
+        console.warn('Failed to resend invitation email:', emailError)
+      }
+
+      return { emailSent }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team-invitations', currentTeam?.id] })

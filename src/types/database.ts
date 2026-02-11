@@ -306,6 +306,7 @@ export type Database = {
       }
       invoices: {
         Row: {
+          approved_at: string | null
           confidence_score: number | null
           created_at: string | null
           currency: string | null
@@ -314,6 +315,7 @@ export type Database = {
           id: string
           invoice_date: string | null
           invoice_number: string | null
+          is_approved: boolean
           is_income: boolean | null
           status: string | null
           subtotal_agorot: number | null
@@ -324,6 +326,7 @@ export type Database = {
           vendor_name: string | null
         }
         Insert: {
+          approved_at?: string | null
           confidence_score?: number | null
           created_at?: string | null
           currency?: string | null
@@ -332,6 +335,7 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          is_approved?: boolean
           is_income?: boolean | null
           status?: string | null
           subtotal_agorot?: number | null
@@ -342,6 +346,7 @@ export type Database = {
           vendor_name?: string | null
         }
         Update: {
+          approved_at?: string | null
           confidence_score?: number | null
           created_at?: string | null
           currency?: string | null
@@ -350,6 +355,7 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          is_approved?: boolean
           is_income?: boolean | null
           status?: string | null
           subtotal_agorot?: number | null
@@ -425,6 +431,7 @@ export type Database = {
           created_at: string | null
           currency: string | null
           date_format: string | null
+          email: string | null
           email_bank_sync_alerts: boolean | null
           email_new_invoice: boolean | null
           email_payment_received: boolean | null
@@ -443,6 +450,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           date_format?: string | null
+          email?: string | null
           email_bank_sync_alerts?: boolean | null
           email_new_invoice?: boolean | null
           email_payment_received?: boolean | null
@@ -461,6 +469,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           date_format?: string | null
+          email?: string | null
           email_bank_sync_alerts?: boolean | null
           email_new_invoice?: boolean | null
           email_payment_received?: boolean | null
@@ -879,6 +888,13 @@ export type Database = {
         Returns: string
       }
       generate_team_slug: { Args: { team_name: string }; Returns: string }
+      get_team_member_emails: {
+        Args: { p_team_id: string }
+        Returns: {
+          email: string
+          user_id: string
+        }[]
+      }
       get_user_team_role: { Args: { check_team_id: string }; Returns: string }
       is_active_team_member: {
         Args: { check_team_id: string }

@@ -12,6 +12,10 @@ import { TransactionLinkModal } from '@/components/money-movements/TransactionLi
 import { TransactionLineItemsDrawer } from '@/components/money-movements/TransactionLineItemsDrawer'
 import { Pagination } from '@/components/ui/Pagination'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useColumnVisibility } from '@/hooks/useColumnVisibility'
+import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
+import { TRANSACTION_COLUMNS } from '@/types/columnVisibility'
+import type { TransactionColumnKey } from '@/types/columnVisibility'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { parseMerchantName } from '@/lib/utils/merchantParser'
@@ -26,6 +30,13 @@ export function BankTab({ onRefetch }: BankTabProps) {
   const { transactions, isLoading, refetch } = useTransactions()
   const { isUpdating, updateBatch, updateAllByMerchant, saveMerchantPreferencesBatch } = useUpdateTransactionVat()
   const { tablePageSize } = useSettingsStore()
+  const { visibility, toggle, reset } = useColumnVisibility('transaction')
+
+  // BankTab shows the Invoice column (line item linking is always available)
+  const activeTransactionColumns = useMemo(() => {
+    const active = new Set<TransactionColumnKey>(['date', 'amount', 'vat', 'vatPercent', 'vatAmount', 'reference', 'invoice'])
+    return active
+  }, [])
 
   const [filters, setFilters] = useState<TransactionFilterState>({
     search: '',
@@ -293,7 +304,15 @@ export function BankTab({ onRefetch }: BankTabProps) {
 
       {/* Filters */}
       {bankTransactions.length > 0 && (
-        <TransactionFilters filters={filters} onChange={handleFiltersChange} />
+        <TransactionFilters filters={filters} onChange={handleFiltersChange}>
+          <ColumnVisibilityDropdown
+            columns={TRANSACTION_COLUMNS}
+            visibility={visibility}
+            onToggle={toggle}
+            onReset={reset}
+            activeConditionalColumns={activeTransactionColumns}
+          />
+        </TransactionFilters>
       )}
 
       {/* Table */}

@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { ChevronUpIcon, ChevronDownIcon, CheckCircleIcon, ClockIcon, CheckIcon, XMarkIcon, LinkIcon, InformationCircleIcon } from '@heroicons/react/24/outline'
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
@@ -13,8 +12,6 @@ import { useVendorAliases } from '@/hooks/useVendorAliases'
 import { useVendorResolverSettings } from '@/hooks/useVendorResolverSettings'
 import { TransactionMatchBadge } from '@/components/money-movements/TransactionMatchBadge'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
-import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
-import { CREDIT_CARD_COLUMNS } from '@/types/columnVisibility'
 import type { CreditCardColumnKey } from '@/types/columnVisibility'
 
 
@@ -193,20 +190,10 @@ export function CreditCardTable({
   // Vendor resolution settings and aliases
   const { enableInCreditCardTable } = useVendorResolverSettings()
   const { aliases } = useVendorAliases()
-  const { visibility, isVisible, toggle, reset } = useColumnVisibility('creditCard')
+  const { isVisible } = useColumnVisibility('creditCard')
 
   // Check if we should show line item link column (only when handler is provided)
   const showLineItemLinkColumn = !!onLineItemLinkClick
-
-  // Build set of active conditional columns
-  const activeConditionalColumns = useMemo(() => {
-    const active = new Set<CreditCardColumnKey>([
-      'date', 'amount', 'currency', 'vat', 'vatPercent', 'vatAmount',
-      'billing', 'status', 'card', 'link',
-    ])
-    if (showLineItemLinkColumn) active.add('invoice')
-    return active
-  }, [showLineItemLinkColumn])
   const allSelected = transactions.length > 0 && selectedIds.size === transactions.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < transactions.length
 
@@ -233,15 +220,6 @@ export function CreditCardTable({
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-text-muted/20">
-        <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
-          <ColumnVisibilityDropdown
-            columns={CREDIT_CARD_COLUMNS}
-            visibility={visibility}
-            onToggle={toggle}
-            onReset={reset}
-            activeConditionalColumns={activeConditionalColumns}
-          />
-        </div>
         <table className="w-full">
           <thead className="bg-surface/50">
             <tr>
@@ -277,15 +255,6 @@ export function CreditCardTable({
 
   return (
     <div className="overflow-hidden rounded-lg border border-text-muted/20">
-      <div className="flex items-center justify-end px-3 py-2 border-b border-text-muted/10">
-        <ColumnVisibilityDropdown
-          columns={CREDIT_CARD_COLUMNS}
-          visibility={visibility}
-          onToggle={toggle}
-          onReset={reset}
-          activeConditionalColumns={activeConditionalColumns}
-        />
-      </div>
       <table className="w-full">
         <thead className="bg-surface/50">
           <tr>

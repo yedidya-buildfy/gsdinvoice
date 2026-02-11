@@ -36,6 +36,7 @@ export type DocumentColumnKey =
   | 'confidence'
   | 'bankLink'
   | 'aiStatus'
+  | 'approval'
 
 export interface ColumnDef<K extends string> {
   key: K
@@ -77,8 +78,9 @@ export const DOCUMENT_COLUMNS: ColumnDef<DocumentColumnKey>[] = [
   { key: 'added', label: 'Added' },
   { key: 'items', label: 'Items' },
   { key: 'confidence', label: 'Confidence' },
-  { key: 'bankLink', label: 'Bank Link' },
+  { key: 'bankLink', label: 'Link to Transaction' },
   { key: 'aiStatus', label: 'AI Status' },
+  { key: 'approval', label: 'Approved' },
 ]
 
 export type ColumnVisibilityState = {

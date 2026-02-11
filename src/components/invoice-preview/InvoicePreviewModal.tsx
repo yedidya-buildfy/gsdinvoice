@@ -43,6 +43,8 @@ function createEmptyInvoice(documentId: string): Invoice {
     confidence_score: null,
     status: 'pending',
     is_income: null,
+    is_approved: false,
+    approved_at: null,
     team_id: null,
     created_at: new Date().toISOString(),
   }

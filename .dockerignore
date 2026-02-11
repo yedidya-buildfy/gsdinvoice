@@ -6,5 +6,8 @@ dist
 !.env.example
 *.md
 .planning
+.claude
+.vscode
+.idea
 samples
 supabase

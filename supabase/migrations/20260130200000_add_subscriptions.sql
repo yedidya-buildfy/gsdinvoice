@@ -65,21 +65,26 @@ ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usage_records ENABLE ROW LEVEL SECURITY;
 
 -- Plan limits are readable by everyone
+DROP POLICY IF EXISTS "Plan limits are viewable by everyone" ON plan_limits;
 CREATE POLICY "Plan limits are viewable by everyone" ON plan_limits
   FOR SELECT USING (true);
 
 -- Users can only see their own subscription
+DROP POLICY IF EXISTS "Users can view own subscription" ON subscriptions;
 CREATE POLICY "Users can view own subscription" ON subscriptions
   FOR SELECT USING (auth.uid() = user_id);
 
 -- Users can only see their own usage
+DROP POLICY IF EXISTS "Users can view own usage" ON usage_records;
 CREATE POLICY "Users can view own usage" ON usage_records
   FOR SELECT USING (auth.uid() = user_id);
 
 -- Service role can manage all subscriptions (for webhooks)
+DROP POLICY IF EXISTS "Service role can manage subscriptions" ON subscriptions;
 CREATE POLICY "Service role can manage subscriptions" ON subscriptions
   FOR ALL USING (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "Service role can manage usage" ON usage_records;
 CREATE POLICY "Service role can manage usage" ON usage_records
   FOR ALL USING (auth.role() = 'service_role');
 
