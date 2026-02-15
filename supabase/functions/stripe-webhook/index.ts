@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
             session.subscription as string
           )
 
-          await supabase.from('subscriptions').upsert({
+          const { error: checkoutUpsertError } = await supabase.from('subscriptions').upsert({
             user_id: userId,
             stripe_customer_id: session.customer as string,
             stripe_subscription_id: subscription.id,
@@ -60,6 +60,10 @@ Deno.serve(async (req) => {
               : null,
             updated_at: new Date().toISOString(),
           })
+          if (checkoutUpsertError) {
+            console.error('Failed to upsert subscription on checkout:', checkoutUpsertError)
+            throw new Error(`Database error: ${checkoutUpsertError.message}`)
+          }
 
           console.log(`Subscription created for user ${userId}: ${planTier}`)
         }
@@ -75,7 +79,7 @@ Deno.serve(async (req) => {
         const planTier = PRICE_TO_PLAN[priceId] || subscription.metadata?.planTier || 'pro'
 
         if (userId) {
-          await supabase
+          const { error: subUpdateError } = await supabase
             .from('subscriptions')
             .update({
               plan_tier: planTier,
@@ -89,11 +93,15 @@ Deno.serve(async (req) => {
               updated_at: new Date().toISOString(),
             })
             .eq('stripe_subscription_id', subscription.id)
+          if (subUpdateError) {
+            console.error('Failed to update subscription:', subUpdateError)
+            throw new Error(`Database error: ${subUpdateError.message}`)
+          }
 
           console.log(`Subscription updated for user ${userId}: ${planTier}, status: ${subscription.status}`)
         } else {
           // Try to find by stripe_subscription_id
-          await supabase
+          const { error: subFallbackUpdateError } = await supabase
             .from('subscriptions')
             .update({
               plan_tier: planTier,
@@ -107,6 +115,10 @@ Deno.serve(async (req) => {
               updated_at: new Date().toISOString(),
             })
             .eq('stripe_subscription_id', subscription.id)
+          if (subFallbackUpdateError) {
+            console.error('Failed to update subscription by stripe_subscription_id:', subFallbackUpdateError)
+            throw new Error(`Database error: ${subFallbackUpdateError.message}`)
+          }
         }
         break
       }
@@ -115,7 +127,7 @@ Deno.serve(async (req) => {
         const subscription = event.data.object as Stripe.Subscription
 
         // Downgrade to free plan
-        await supabase
+        const { error: cancelUpdateError } = await supabase
           .from('subscriptions')
           .update({
             plan_tier: 'free',
@@ -125,6 +137,10 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq('stripe_subscription_id', subscription.id)
+        if (cancelUpdateError) {
+          console.error('Failed to cancel subscription:', cancelUpdateError)
+          throw new Error(`Database error: ${cancelUpdateError.message}`)
+        }
 
         console.log(`Subscription canceled: ${subscription.id}`)
         break
@@ -135,15 +151,19 @@ Deno.serve(async (req) => {
 
         if (invoice.subscription) {
           // Reset usage for new billing period
-          const { data: sub } = await supabase
+          const { data: sub, error: subSelectError } = await supabase
             .from('subscriptions')
             .select('user_id, current_period_start, current_period_end')
             .eq('stripe_subscription_id', invoice.subscription)
             .single()
+          if (subSelectError) {
+            console.error('Failed to fetch subscription for usage reset:', subSelectError)
+            throw new Error(`Database error: ${subSelectError.message}`)
+          }
 
           if (sub) {
             // Create new usage record for the new period
-            await supabase.from('usage_records').upsert({
+            const { error: usageUpsertError } = await supabase.from('usage_records').upsert({
               user_id: sub.user_id,
               period_start: sub.current_period_start,
               period_end: sub.current_period_end,
@@ -151,6 +171,10 @@ Deno.serve(async (req) => {
               team_members_count: 0,
               bank_connections_count: 0,
             })
+            if (usageUpsertError) {
+              console.error('Failed to upsert usage record:', usageUpsertError)
+              throw new Error(`Database error: ${usageUpsertError.message}`)
+            }
           }
         }
         break
@@ -160,13 +184,17 @@ Deno.serve(async (req) => {
         const invoice = event.data.object as Stripe.Invoice
 
         if (invoice.subscription) {
-          await supabase
+          const { error: pastDueUpdateError } = await supabase
             .from('subscriptions')
             .update({
               status: 'past_due',
               updated_at: new Date().toISOString(),
             })
             .eq('stripe_subscription_id', invoice.subscription)
+          if (pastDueUpdateError) {
+            console.error('Failed to mark subscription as past_due:', pastDueUpdateError)
+            throw new Error(`Database error: ${pastDueUpdateError.message}`)
+          }
 
           console.log(`Payment failed for subscription: ${invoice.subscription}`)
         }

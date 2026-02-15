@@ -272,9 +272,11 @@ export async function parseBankStatement(
   // Check for critical missing mappings
   if (!mapping.date) {
     console.error('[Bank Parser] CRITICAL: No date column mapped! Headers were:', headers);
+    return [];  // Don't process without date column
   }
   if (!mapping.amount) {
     console.error('[Bank Parser] CRITICAL: No amount column mapped! Headers were:', headers);
+    return [];  // Don't process without amount column
   }
   if (!mapping.description) {
     console.warn('[Bank Parser] Warning: No description column mapped');

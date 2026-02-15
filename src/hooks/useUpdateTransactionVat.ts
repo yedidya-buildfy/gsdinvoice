@@ -252,7 +252,7 @@ export function useUpdateTransactionVat() {
             updated_at: new Date().toISOString(),
           },
           {
-            onConflict: 'user_id,merchant_name',
+            onConflict: 'user_id,team_id,merchant_name',
           }
         )
 
@@ -292,7 +292,7 @@ export function useUpdateTransactionVat() {
       const { error } = await supabase
         .from('merchant_vat_preferences')
         .upsert(records, {
-          onConflict: 'user_id,merchant_name',
+          onConflict: 'user_id,team_id,merchant_name',
         })
 
       if (error) throw error
