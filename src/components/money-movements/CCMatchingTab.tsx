@@ -21,6 +21,7 @@ import { useCreditCards, useCreditCardTransactions, type TransactionWithCard } f
 import { CreditCardTable, type CCSortColumn } from '@/components/creditcard/CreditCardTable'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTeam } from '@/contexts/TeamContext'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { runCCBankMatching } from '@/lib/services/ccBankMatcher'
 import { formatCurrency } from '@/lib/currency'
@@ -374,6 +375,7 @@ interface CCMatchingTabProps {
 export function CCMatchingTab({ onOpenLinkModal, onRefetch }: CCMatchingTabProps) {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { currentTeam } = useTeam()
   const { ccBankDateRangeDays, ccBankAmountTolerance } = useSettingsStore()
   const { matchResults, isLoading, refetch } = useCCBankMatchResults()
   const { summary } = useCCBankMatchSummary()
@@ -514,7 +516,7 @@ export function CCMatchingTab({ onOpenLinkModal, onRefetch }: CCMatchingTabProps
       await runCCBankMatching(user.id, {
         dateToleranceDays: ccBankDateRangeDays,
         amountTolerancePercent: ccBankAmountTolerance,
-      })
+      }, currentTeam?.id)
       refetch()
       refetchCC()
       onRefetch?.()

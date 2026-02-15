@@ -6,8 +6,8 @@ import {
   ChevronUpIcon,
   ChevronDownIcon,
   LinkIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline'
-import { CheckCircleIcon } from '@heroicons/react/24/solid'
 import type { DocumentWithUrl } from '@/hooks/useDocuments'
 import type { InvoiceWithFile } from '@/hooks/useInvoices'
 import { formatCurrency } from '@/lib/currency'
@@ -633,7 +633,9 @@ export function DocumentTable({
                         {approvingIds.has(invoice.id) ? (
                           <div className="h-5 w-5 border-2 border-text-muted/30 border-t-primary rounded-full animate-spin" />
                         ) : invoice.is_approved ? (
-                          <CheckCircleIcon className="h-5 w-5 text-green-400" />
+                          <div className="h-5 w-5 rounded border-2 border-green-400 bg-green-400/20 flex items-center justify-center">
+                            <CheckIcon className="h-3.5 w-3.5 text-green-400" />
+                          </div>
                         ) : (
                           <div className="h-5 w-5 rounded border-2 border-text-muted/40 hover:border-green-400 transition-colors" />
                         )}

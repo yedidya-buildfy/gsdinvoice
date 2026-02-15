@@ -32,6 +32,7 @@ export interface TransactionWithCard extends Transaction {
  * Options for finding matchable transactions
  */
 export interface GetMatchableTransactionsOptions {
+  teamId?: string | null              // filter by team
   dateRangeDays?: number              // default: 7
   amountTolerancePercent?: number     // default: 10
   transactionTypes?: TransactionType[] // default: ['bank_regular', 'cc_purchase']
@@ -43,6 +44,7 @@ export interface GetMatchableTransactionsOptions {
  * Options for finding matchable line items
  */
 export interface GetMatchableLineItemsOptions {
+  teamId?: string | null              // filter by team
   dateRangeDays?: number              // default: 7
   amountTolerancePercent?: number     // default: 10
   invoiceId?: string                  // filter by specific invoice

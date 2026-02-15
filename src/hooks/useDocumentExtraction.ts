@@ -168,7 +168,8 @@ export function useExtractDocument() {
         const duplicateCheck = await checkLineItemDuplicates(
           userId,
           extracted.vendor?.name || null,
-          lineItemsForCheck
+          lineItemsForCheck,
+          currentTeam?.id
         )
 
         if (duplicateCheck.duplicateCount > 0) {
@@ -508,7 +509,8 @@ export function useExtractMultipleDocuments() {
           const duplicateCheck = await checkLineItemDuplicates(
             userId,
             extracted.vendor?.name || null,
-            lineItemsForCheck
+            lineItemsForCheck,
+            currentTeam?.id
           )
 
           if (duplicateCheck.duplicateCount > 0) {

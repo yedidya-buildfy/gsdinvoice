@@ -123,7 +123,8 @@ export function useUpdateTransactionVat() {
   const updateAllByMerchant = async (
     userId: string,
     merchantName: string,
-    { hasVat, vatPercentage }: VatUpdateData
+    { hasVat, vatPercentage }: VatUpdateData,
+    teamId?: string | null
   ) => {
     setIsUpdating(true)
     try {
@@ -142,11 +143,16 @@ export function useUpdateTransactionVat() {
       let hasMore = true
 
       while (hasMore) {
-        const { data, error: fetchError } = await supabase
+        let txQuery = supabase
           .from('transactions')
           .select('id, amount_agorot, description, is_income, credit_card_id, transaction_type')
           .eq('user_id', userId)
-          .range(offset, offset + PAGE_SIZE - 1)
+
+        if (teamId) {
+          txQuery = txQuery.eq('team_id', teamId)
+        }
+
+        const { data, error: fetchError } = await txQuery.range(offset, offset + PAGE_SIZE - 1)
 
         if (fetchError) throw fetchError
 
@@ -227,7 +233,8 @@ export function useUpdateTransactionVat() {
   const saveMerchantPreference = async (
     userId: string,
     merchantName: string,
-    { hasVat, vatPercentage }: VatUpdateData
+    { hasVat, vatPercentage }: VatUpdateData,
+    teamId?: string | null
   ) => {
     setIsUpdating(true)
     try {
@@ -238,6 +245,7 @@ export function useUpdateTransactionVat() {
         .upsert(
           {
             user_id: userId,
+            team_id: teamId || null,
             merchant_name: normalizedName,
             has_vat: hasVat,
             vat_percentage: vatPercentage,
@@ -264,7 +272,8 @@ export function useUpdateTransactionVat() {
   const saveMerchantPreferencesBatch = async (
     userId: string,
     merchantNames: string[],
-    { hasVat, vatPercentage }: VatUpdateData
+    { hasVat, vatPercentage }: VatUpdateData,
+    teamId?: string | null
   ) => {
     if (merchantNames.length === 0) return { success: true }
 
@@ -273,6 +282,7 @@ export function useUpdateTransactionVat() {
       const now = new Date().toISOString()
       const records = merchantNames.map((name) => ({
         user_id: userId,
+        team_id: teamId || null,
         merchant_name: normalizeMerchantName(name),
         has_vat: hasVat,
         vat_percentage: vatPercentage,

@@ -142,6 +142,7 @@ export type Database = {
           normalized_merchant: string | null
           notes: string | null
           source_file_id: string | null
+          team_id: string | null
           transaction_date: string
           transaction_type: string | null
           user_id: string
@@ -164,6 +165,7 @@ export type Database = {
           normalized_merchant?: string | null
           notes?: string | null
           source_file_id?: string | null
+          team_id?: string | null
           transaction_date: string
           transaction_type?: string | null
           user_id: string
@@ -186,6 +188,7 @@ export type Database = {
           normalized_merchant?: string | null
           notes?: string | null
           source_file_id?: string | null
+          team_id?: string | null
           transaction_date?: string
           transaction_type?: string | null
           user_id?: string
@@ -210,6 +213,13 @@ export type Database = {
             columns: ["source_file_id"]
             isOneToOne: false
             referencedRelation: "files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_card_transactions_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
             referencedColumns: ["id"]
           },
         ]
@@ -406,6 +416,7 @@ export type Database = {
       }
       invoices: {
         Row: {
+          approved_at: string | null
           confidence_score: number | null
           created_at: string | null
           currency: string | null
@@ -414,6 +425,7 @@ export type Database = {
           id: string
           invoice_date: string | null
           invoice_number: string | null
+          is_approved: boolean
           is_income: boolean | null
           status: string | null
           subtotal_agorot: number | null
@@ -424,6 +436,7 @@ export type Database = {
           vendor_name: string | null
         }
         Insert: {
+          approved_at?: string | null
           confidence_score?: number | null
           created_at?: string | null
           currency?: string | null
@@ -432,6 +445,7 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          is_approved?: boolean
           is_income?: boolean | null
           status?: string | null
           subtotal_agorot?: number | null
@@ -442,6 +456,7 @@ export type Database = {
           vendor_name?: string | null
         }
         Update: {
+          approved_at?: string | null
           confidence_score?: number | null
           created_at?: string | null
           currency?: string | null
@@ -450,6 +465,7 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          is_approved?: boolean
           is_income?: boolean | null
           status?: string | null
           subtotal_agorot?: number | null

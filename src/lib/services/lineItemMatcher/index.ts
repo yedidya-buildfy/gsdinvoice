@@ -156,6 +156,7 @@ export async function getMatchableTransactions(
   options: GetMatchableTransactionsOptions = {}
 ): Promise<TransactionWithCard[]> {
   const {
+    teamId,
     dateRangeDays = 7,
     amountTolerancePercent = 10,
     transactionTypes = [TRANSACTION_TYPE.BANK_REGULAR, TRANSACTION_TYPE.CC_PURCHASE],
@@ -195,6 +196,11 @@ export async function getMatchableTransactions(
     .lte('amount_agorot', -amountFrom) // Most transactions are negative
     .order('date', { ascending: false })
 
+  // Team scoping
+  if (teamId) {
+    query = query.eq('team_id', teamId)
+  }
+
   // Add credit card filter if specified
   if (creditCardId) {
     query = query.eq('credit_card_id', creditCardId)
@@ -225,6 +231,11 @@ export async function getMatchableTransactions(
     .gte('amount_agorot', amountFrom)
     .lte('amount_agorot', amountTo)
     .order('date', { ascending: false })
+
+  // Team scoping
+  if (teamId) {
+    incomeQuery = incomeQuery.eq('team_id', teamId)
+  }
 
   if (creditCardId) {
     incomeQuery = incomeQuery.eq('credit_card_id', creditCardId)
@@ -271,6 +282,7 @@ export async function getMatchableLineItems(
   options: GetMatchableLineItemsOptions = {}
 ): Promise<LineItemWithInvoice[]> {
   const {
+    teamId,
     dateRangeDays = 7,
     amountTolerancePercent = 10,
     invoiceId,
@@ -298,9 +310,14 @@ export async function getMatchableLineItems(
     .from('invoice_rows')
     .select(`
       *,
-      invoices!invoice_id(id, vendor_name, invoice_number, invoice_date)
+      invoices!invoice_id(id, vendor_name, invoice_number, invoice_date, team_id)
     `)
     .is('transaction_id', null)  // Only unmatched items
+
+  // Team scoping via parent invoice
+  if (teamId) {
+    query = query.eq('invoices.team_id', teamId)
+  }
 
   // Add invoice filter if specified
   if (invoiceId) {

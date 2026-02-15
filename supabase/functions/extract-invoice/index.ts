@@ -1167,7 +1167,7 @@ Deno.serve(async (req) => {
       })
       .eq("id", fileId)
       .in("status", ["pending", "failed"])
-      .select("user_id, retry_count")
+      .select("user_id, retry_count, team_id")
       .single();
 
     // Check for query error first (before checking fileRecord)
@@ -1209,8 +1209,10 @@ Deno.serve(async (req) => {
     }
 
     const userId = fileRecord.user_id;
+    const teamId = fileRecord.team_id;
     const currentRetryCount = (fileRecord.retry_count || 0) + 1;
     console.log('[MAIN] User ID:', userId);
+    console.log('[MAIN] Team ID:', teamId);
     console.log('[MAIN] Retry count:', currentRetryCount);
 
     // Update retry count
@@ -1354,6 +1356,7 @@ Deno.serve(async (req) => {
       .from("invoices")
       .insert({
         user_id: userId,
+        team_id: teamId,
         file_id: fileId,
         vendor_name: extracted.vendor?.name,
         invoice_number: extracted.document?.number,

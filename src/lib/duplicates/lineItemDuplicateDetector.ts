@@ -29,7 +29,8 @@ import type {
 export async function checkLineItemDuplicates(
   userId: string,
   _vendorName: string | null, // kept for API compatibility, not used
-  lineItems: LineItemForCheck[]
+  lineItems: LineItemForCheck[],
+  teamId?: string | null
 ): Promise<LineItemDuplicateCheckResult> {
   if (lineItems.length === 0) {
     return {
@@ -67,7 +68,7 @@ export async function checkLineItemDuplicates(
     .filter((item) => item.reference_id)
     .map((item) => item.reference_id!)
 
-  const { data: existingItems, error } = await supabase
+  let dupQuery = supabase
     .from('invoice_rows')
     .select(`
       id,
@@ -77,10 +78,16 @@ export async function checkLineItemDuplicates(
       total_agorot,
       currency,
       description,
-      invoices!inner (user_id)
+      invoices!inner (user_id, team_id)
     `)
     .eq('invoices.user_id', userId)
     .in('reference_id', referenceIds)
+
+  if (teamId) {
+    dupQuery = dupQuery.eq('invoices.team_id', teamId)
+  }
+
+  const { data: existingItems, error } = await dupQuery
 
   if (error) {
     console.error('[DuplicateDetector] Query error:', error)

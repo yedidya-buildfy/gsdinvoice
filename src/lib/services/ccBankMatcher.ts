@@ -195,7 +195,8 @@ function findBestBankMatch(
  */
 export async function runCCBankMatching(
   userId: string,
-  settings: MatchingSettings
+  settings: MatchingSettings,
+  teamId?: string | null
 ): Promise<MatchingResult> {
   const result: MatchingResult = {
     matchedGroups: 0,
@@ -206,12 +207,18 @@ export async function runCCBankMatching(
 
   try {
     // 1. Fetch unmatched CC purchase transactions with credit card info
-    const { data: unmatchedCC, error: ccError } = await supabase
+    let ccQuery = supabase
       .from('transactions')
       .select('id, user_id, date, value_date, description, amount_agorot, credit_card_id, parent_bank_charge_id, match_status, match_confidence, credit_cards!credit_card_id(card_last_four)')
       .eq('user_id', userId)
       .eq('transaction_type', 'cc_purchase')
       .eq('match_status', 'unmatched')
+
+    if (teamId) {
+      ccQuery = ccQuery.eq('team_id', teamId)
+    }
+
+    const { data: unmatchedCC, error: ccError } = await ccQuery
 
     if (ccError) {
       result.errors.push(`Failed to fetch CC transactions: ${ccError.message}`)
@@ -232,11 +239,17 @@ export async function runCCBankMatching(
     const ccGroups = groupCCTransactions(ccTransactions)
 
     // 3. Fetch bank CC charges (using transaction_type = 'bank_cc_charge')
-    const { data: bankCharges, error: bankError } = await supabase
+    let bankQuery = supabase
       .from('transactions')
       .select('*')
       .eq('user_id', userId)
       .eq('transaction_type', 'bank_cc_charge')
+
+    if (teamId) {
+      bankQuery = bankQuery.eq('team_id', teamId)
+    }
+
+    const { data: bankCharges, error: bankError } = await bankQuery
 
     if (bankError) {
       result.errors.push(`Failed to fetch bank charges: ${bankError.message}`)
@@ -264,6 +277,7 @@ export async function runCCBankMatching(
       // Prepare match result record
       matchResults.push({
         user_id: userId,
+        team_id: teamId || null,
         bank_transaction_id: match.bankTx.id,
         card_last_four: group.cardLastFour,
         charge_date: group.chargeDate,
@@ -322,11 +336,17 @@ export async function runCCBankMatching(
       const bankTxIds = matchResults.map(r => r.bank_transaction_id)
 
       // Delete existing match results for these bank transactions
-      await supabase
+      let deleteQuery = supabase
         .from('cc_bank_match_results')
         .delete()
         .eq('user_id', userId)
         .in('bank_transaction_id', bankTxIds)
+
+      if (teamId) {
+        deleteQuery = deleteQuery.eq('team_id', teamId)
+      }
+
+      await deleteQuery
 
       // Insert new match results
       const { error: insertError } = await supabase

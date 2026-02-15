@@ -224,7 +224,7 @@ export function useCreditCardUpload(): UseCreditCardUploadReturn {
         const matchingResult = await runCCBankMatching(user.id, {
           dateToleranceDays: ccBankDateRangeDays,
           amountTolerancePercent: ccBankAmountTolerance,
-        })
+        }, currentTeam?.id)
 
         setMatchedCount(matchingResult.matchedCCTransactions)
 
