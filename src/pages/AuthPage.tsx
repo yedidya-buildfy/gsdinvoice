@@ -1,6 +1,6 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate, useLocation } from 'react-router'
-import { EnvelopeIcon, LockClosedIcon, EyeIcon, EyeSlashIcon, UserIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
+import { EnvelopeIcon, LockClosedIcon, EyeIcon, EyeSlashIcon, UserIcon } from '@heroicons/react/24/outline'
 import { useAuth } from '@/contexts/AuthContext'
 
 export function AuthPage() {
@@ -155,9 +155,7 @@ export function AuthPage() {
           }`}>
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center justify-center">
-              <div className="bg-primary/20 p-3 rounded-xl border border-primary/30">
-                <DocumentTextIcon className="h-10 w-10 text-primary stroke-[1.5]" />
-              </div>
+              <img src="/logo120.png" alt="VATManager" className="h-16 w-16" />
               <h1 className="mt-4 text-2xl font-bold text-text tracking-tight">
                 VAT<span className="text-primary">Manager</span>
               </h1>
