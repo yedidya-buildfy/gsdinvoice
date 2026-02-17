@@ -40,6 +40,7 @@ function FormField({
   label,
   value,
   onChange,
+  onBlur,
   type = 'text',
   placeholder,
   prefix,
@@ -48,6 +49,7 @@ function FormField({
   label: string
   value: string
   onChange: (value: string) => void
+  onBlur?: () => void
   type?: 'text' | 'number' | 'date'
   placeholder?: string
   prefix?: string
@@ -68,6 +70,7 @@ function FormField({
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder={placeholder}
           dir="auto"
           className={`w-full px-3 py-2 bg-background border border-text-muted/20 rounded-lg text-text text-sm focus:outline-none focus:border-primary transition-colors ${
@@ -138,6 +141,34 @@ export function ExtractedDataPanel({
     return lineItems.length
   }, [lineItems])
 
+  // Calculate suggested VAT from total at 18% rate
+  const suggestedVat = useMemo(() => {
+    const total = parseFloat(invoiceData.total_amount)
+    if (!total || total <= 0) return ''
+    const vat = total * 18 / 118
+    return vat.toFixed(2)
+  }, [invoiceData.total_amount])
+
+  // Handle VAT field change - also update subtotal
+  const handleVatChange = useCallback((value: string) => {
+    setInvoiceField('vat_amount', value)
+    const total = parseFloat(invoiceData.total_amount)
+    const vat = parseFloat(value)
+    if (total && !isNaN(total) && !isNaN(vat)) {
+      setInvoiceField('subtotal', (total - vat).toFixed(2))
+    }
+  }, [setInvoiceField, invoiceData.total_amount])
+
+  // Handle VAT field blur - auto-fill with suggested value if empty
+  const handleVatBlur = useCallback(() => {
+    if (!invoiceData.vat_amount && suggestedVat) {
+      const total = parseFloat(invoiceData.total_amount)
+      const vat = parseFloat(suggestedVat)
+      setInvoiceField('vat_amount', suggestedVat)
+      setInvoiceField('subtotal', (total - vat).toFixed(2))
+    }
+  }, [invoiceData.vat_amount, invoiceData.total_amount, suggestedVat, setInvoiceField])
+
   const handleMatchesApplied = useCallback(() => {
     // Invalidate invoice rows query to refresh line items
     if (invoiceId) {
@@ -193,9 +224,11 @@ export function ExtractedDataPanel({
           <FormField
             label="VAT Amount"
             value={invoiceData.vat_amount}
-            onChange={(value) => setInvoiceField('vat_amount', value)}
+            onChange={handleVatChange}
+            onBlur={handleVatBlur}
             type="number"
             prefix={getCurrencySymbol(invoiceData.currency)}
+            placeholder={suggestedVat || undefined}
           />
           <FormField
             label="Total Amount"
