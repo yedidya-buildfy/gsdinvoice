@@ -30,7 +30,7 @@ import { Modal } from '@/components/ui/base/modal/modal'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { formatCurrency, formatTransactionAmount, formatLineItemAmount } from '@/lib/currency'
 import { formatDisplayDate } from '@/lib/utils/dateFormatter'
-import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
+import { calculateVatFromTotal, getEffectiveAmount } from '@/lib/utils/vatCalculator'
 import { supabase } from '@/lib/supabase'
 import {
   linkLineItemToTransaction,
@@ -1029,7 +1029,7 @@ export function InvoiceBankLinkModal({
   const handleVatApplyToSelected = async (hasVat: boolean, vatPercentage: number) => {
     if (!vatTransaction) return
     await updateBatch(
-      [{ id: vatTransaction.id, amount_agorot: vatTransaction.amount_agorot }],
+      [{ id: vatTransaction.id, amount_agorot: vatTransaction.amount_agorot, foreign_amount_cents: vatTransaction.foreign_amount_cents }],
       { hasVat, vatPercentage }
     )
     setShowVatModal(false)
@@ -1065,7 +1065,7 @@ export function InvoiceBankLinkModal({
     await Promise.all([
       saveMerchantPreferencesBatch(user.id, [merchantName], { hasVat, vatPercentage }),
       updateBatch(
-        [{ id: vatTransaction.id, amount_agorot: vatTransaction.amount_agorot }],
+        [{ id: vatTransaction.id, amount_agorot: vatTransaction.amount_agorot, foreign_amount_cents: vatTransaction.foreign_amount_cents }],
         { hasVat, vatPercentage }
       ),
     ])
@@ -1487,7 +1487,7 @@ export function InvoiceBankLinkModal({
                             const txHasVat = tx.has_vat ?? false
                             const txVatPercentage = tx.vat_percentage ?? 18
                             const txVatAmount = txHasVat
-                              ? calculateVatFromTotal(Math.abs(tx.amount_agorot), txVatPercentage)
+                              ? (tx.vat_amount_agorot ?? calculateVatFromTotal(getEffectiveAmount(tx), txVatPercentage))
                               : null
                             const txCurrency = tx.foreign_currency || 'ILS'
 
@@ -1609,7 +1609,7 @@ export function InvoiceBankLinkModal({
                         const txHasVat = tx?.has_vat ?? false
                         const txVatPercentage = tx?.vat_percentage ?? 18
                         const txVatAmount = tx && txHasVat
-                          ? calculateVatFromTotal(Math.abs(tx.amount_agorot), txVatPercentage)
+                          ? (tx.vat_amount_agorot ?? calculateVatFromTotal(getEffectiveAmount(tx), txVatPercentage))
                           : null
                         const txCurrency = tx?.foreign_currency || 'ILS'
 

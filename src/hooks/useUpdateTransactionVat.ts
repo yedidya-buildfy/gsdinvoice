@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
+import { calculateVatFromTotal, getEffectiveAmount } from '@/lib/utils/vatCalculator'
 import { normalizeMerchantName, isSameMerchant } from '@/lib/utils/merchantParser'
 
 interface VatUpdateData {
@@ -32,12 +32,14 @@ export function useUpdateTransactionVat() {
   const updateSingle = async (
     transactionId: string,
     amountAgorot: number,
-    { hasVat, vatPercentage }: VatUpdateData
+    { hasVat, vatPercentage }: VatUpdateData,
+    foreignAmountCents?: number | null
   ) => {
     setIsUpdating(true)
     try {
+      const effectiveAmount = getEffectiveAmount({ amount_agorot: amountAgorot, foreign_amount_cents: foreignAmountCents })
       const vatAmountAgorot = hasVat
-        ? calculateVatFromTotal(amountAgorot, vatPercentage)
+        ? calculateVatFromTotal(effectiveAmount, vatPercentage)
         : null
 
       const { error } = await supabase
@@ -64,7 +66,7 @@ export function useUpdateTransactionVat() {
    * Optimized to avoid N+1 queries
    */
   const updateBatch = async (
-    transactions: Array<{ id: string; amount_agorot: number }>,
+    transactions: Array<{ id: string; amount_agorot: number; foreign_amount_cents?: number | null }>,
     { hasVat, vatPercentage }: VatUpdateData
   ) => {
     if (transactions.length === 0) return { success: true, count: 0 }
@@ -90,7 +92,8 @@ export function useUpdateTransactionVat() {
       const byVatAmount = new Map<number, string[]>()
 
       for (const tx of transactions) {
-        const vatAmountAgorot = calculateVatFromTotal(tx.amount_agorot, vatPercentage)
+        const effectiveAmount = getEffectiveAmount(tx)
+        const vatAmountAgorot = calculateVatFromTotal(effectiveAmount, vatPercentage)
         const existing = byVatAmount.get(vatAmountAgorot) || []
         existing.push(tx.id)
         byVatAmount.set(vatAmountAgorot, existing)
@@ -133,6 +136,7 @@ export function useUpdateTransactionVat() {
       const allTransactions: Array<{
         id: string
         amount_agorot: number
+        foreign_amount_cents: number | null
         description: string
         is_income: boolean
         credit_card_id: string | null
@@ -145,7 +149,7 @@ export function useUpdateTransactionVat() {
       while (hasMore) {
         let txQuery = supabase
           .from('transactions')
-          .select('id, amount_agorot, description, is_income, credit_card_id, transaction_type')
+          .select('id, amount_agorot, foreign_amount_cents, description, is_income, credit_card_id, transaction_type')
           .eq('user_id', userId)
 
         if (teamId) {
@@ -202,7 +206,8 @@ export function useUpdateTransactionVat() {
       const byVatAmount = new Map<number, string[]>()
 
       for (const tx of matchingTransactions) {
-        const vatAmountAgorot = calculateVatFromTotal(tx.amount_agorot, vatPercentage)
+        const effectiveAmount = getEffectiveAmount(tx)
+        const vatAmountAgorot = calculateVatFromTotal(effectiveAmount, vatPercentage)
         const existing = byVatAmount.get(vatAmountAgorot) || []
         existing.push(tx.id)
         byVatAmount.set(vatAmountAgorot, existing)

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState } from 'react'
 import type { TransactionWithCard } from '@/hooks/useCreditCards'
 import type { Transaction } from '@/types/database'
-import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
+import { calculateVatFromTotal, getEffectiveAmount } from '@/lib/utils/vatCalculator'
 import { formatShekel, formatTransactionAmount } from '@/lib/currency'
 import { formatDisplayDate } from '@/lib/utils/dateFormatter'
 import { parseDescriptionParts } from '@/lib/utils/merchantParser'
@@ -413,7 +413,7 @@ export function CreditCardTable({
             const hasVat = tx.has_vat ?? false
             const vatPercentage = tx.vat_percentage ?? 18
             const vatAmount = hasVat
-              ? calculateVatFromTotal(tx.amount_agorot, vatPercentage)
+              ? (tx.vat_amount_agorot ?? calculateVatFromTotal(getEffectiveAmount(tx), vatPercentage))
               : null
 
             // Parse description into merchant name and reference

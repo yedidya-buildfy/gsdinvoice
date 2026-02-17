@@ -186,7 +186,7 @@ export function BankTab({ onRefetch }: BankTabProps) {
 
   const handleApplyToSelected = async (hasVat: boolean, vatPercentage: number) => {
     await updateBatch(
-      selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot })),
+      selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot, foreign_amount_cents: tx.foreign_amount_cents })),
       { hasVat, vatPercentage }
     )
     setShowVatModal(false)
@@ -236,7 +236,7 @@ export function BankTab({ onRefetch }: BankTabProps) {
     await Promise.all([
       saveMerchantPreferencesBatch(user.id, uniqueMerchants, { hasVat, vatPercentage }),
       updateBatch(
-        selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot })),
+        selectedTransactions.map((tx) => ({ id: tx.id, amount_agorot: tx.amount_agorot, foreign_amount_cents: tx.foreign_amount_cents })),
         { hasVat, vatPercentage }
       ),
     ])

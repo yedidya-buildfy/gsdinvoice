@@ -14,6 +14,17 @@ export function calculateVatFromTotal(
 }
 
 /**
+ * Get the effective amount for VAT calculation.
+ * For foreign currency transactions, amount_agorot may be 0 - use foreign_amount_cents instead.
+ */
+export function getEffectiveAmount(tx: { amount_agorot: number; foreign_amount_cents?: number | null }): number {
+  if (tx.foreign_amount_cents != null && tx.foreign_amount_cents !== 0) {
+    return tx.foreign_amount_cents
+  }
+  return tx.amount_agorot
+}
+
+/**
  * Calculate the net amount (before VAT) from a VAT-inclusive total
  */
 export function calculateNetFromTotal(

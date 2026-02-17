@@ -2,7 +2,7 @@ import { ChevronUpIcon, ChevronDownIcon, CheckIcon, XMarkIcon } from '@heroicons
 import type { Transaction } from '@/types/database'
 import { formatShekel, formatTransactionAmount } from '@/lib/currency'
 import { formatDisplayDate } from '@/lib/utils/dateFormatter'
-import { calculateVatFromTotal } from '@/lib/utils/vatCalculator'
+import { calculateVatFromTotal, getEffectiveAmount } from '@/lib/utils/vatCalculator'
 import { parseDescriptionParts } from '@/lib/utils/merchantParser'
 import { getVendorDisplayInfo } from '@/lib/utils/vendorResolver'
 import { useVendorAliases } from '@/hooks/useVendorAliases'
@@ -273,7 +273,7 @@ export function TransactionTable({
             const hasVat = tx.has_vat ?? false
             const vatPercentage = tx.vat_percentage ?? 18
             const vatAmount = hasVat && !tx.is_income
-              ? calculateVatFromTotal(tx.amount_agorot, vatPercentage)
+              ? (tx.vat_amount_agorot ?? calculateVatFromTotal(getEffectiveAmount(tx), vatPercentage))
               : null
 
             // Parse description into merchant name and reference
