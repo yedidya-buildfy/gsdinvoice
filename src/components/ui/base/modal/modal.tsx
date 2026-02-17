@@ -33,7 +33,7 @@ function ModalOverlay({ children, isDismissable = true, ...props }: ModalOverlay
       <AriaModal
         className={(state) =>
           cx(
-            'w-full',
+            'w-full max-w-fit',
             state.isEntering && 'duration-200 ease-out animate-in zoom-in-95',
             state.isExiting && 'duration-150 ease-in animate-out zoom-out-95'
           )

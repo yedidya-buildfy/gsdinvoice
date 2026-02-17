@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { TrashIcon, SparklesIcon, BoltIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, SparklesIcon, BoltIcon, ExclamationTriangleIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { FileUploader } from '@/components/upload/FileUploader'
 import {
   DocumentTable,
@@ -18,6 +18,10 @@ import {
 import { InvoicePreviewModal } from '@/components/invoice-preview/InvoicePreviewModal'
 import { InvoiceBankLinkModal } from '@/components/invoices/InvoiceBankLinkModal'
 import { LineItemDuplicateModal } from '@/components/duplicates/LineItemDuplicateModal'
+import { ExportModal } from '@/components/documents/ExportModal'
+import { useExport } from '@/hooks/useExport'
+import { downloadFilesAsZip, mergeFilesIntoPDF, downloadFileIndividually } from '@/lib/export/documentExporter'
+import type { DocumentExportFormat } from '@/lib/export/types'
 import { Pagination } from '@/components/ui/Pagination'
 import { useDocuments, getDocumentsWithUrls } from '@/hooks/useDocuments'
 import {
@@ -44,8 +48,10 @@ export function InvoicesPage() {
   const { autoExtractOnUpload, autoMatchEnabled, tablePageSize } = useSettingsStore()
   const { visibility, toggle, reset } = useColumnVisibility('document')
   const approvalMutation = useUpdateInvoiceApproval()
+  const { progress: exportProgress, isExporting, runExport, markExported, cancel: cancelExport, reset: resetExport } = useExport()
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showExportModal, setShowExportModal] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [duplicateQueue, setDuplicateQueue] = useState<LineItemDuplicateInfo[]>([])
@@ -446,6 +452,43 @@ export function InvoicesPage() {
     handleLineItemDuplicateModalAction('skip')
   }
 
+  const handleOpenExportModal = () => {
+    resetExport()
+    setShowExportModal(true)
+  }
+
+  const handleExport = async (format: DocumentExportFormat) => {
+    const docsToExport = selectedIds.size > 0
+      ? documentsWithInvoices.filter((doc) => selectedIds.has(doc.id))
+      : filteredDocuments
+    if (docsToExport.length === 0) return
+
+    const exportableFiles = docsToExport.map((doc) => ({
+      id: doc.id,
+      original_name: doc.original_name,
+      storage_path: doc.storage_path,
+      file_type: doc.file_type,
+    }))
+
+    if (format === 'individual') {
+      for (const file of exportableFiles) {
+        await downloadFileIndividually(file)
+      }
+      await markExported('files', exportableFiles.map((f) => f.id))
+      setShowExportModal(false)
+      return
+    }
+
+    await runExport(async (onProgress, signal) => {
+      if (format === 'zip') {
+        await downloadFilesAsZip(exportableFiles, onProgress, signal)
+      } else {
+        await mergeFilesIntoPDF(exportableFiles, onProgress, signal)
+      }
+      await markExported('files', exportableFiles.map((f) => f.id))
+    })
+  }
+
   const pendingCount = documents
     ? documents.filter((doc) => selectedIds.has(doc.id) && doc.status === 'pending').length
     : 0
@@ -489,42 +532,55 @@ export function InvoicesPage() {
             )}
           </div>
 
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            {/* Export button - always visible when docs exist */}
+            {filteredCount > 0 && (
               <button
                 type="button"
-                onClick={handleExtract}
-                disabled={extractMultiple.isPending || pendingCount === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleOpenExportModal}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors"
               >
-                <SparklesIcon className="w-4 h-4" />
-                {extractMultiple.isPending ? 'Extracting...' : `Extract (${pendingCount})`}
+                <ArrowDownTrayIcon className="w-4 h-4" />
+                {selectedIds.size > 0 ? `Export (${selectedIds.size})` : 'Export'}
               </button>
-
-              {/* Auto Match button - only show if enabled and has processed docs */}
-              {autoMatchEnabled && (
+            )}
+            {selectedIds.size > 0 && (
+              <>
                 <button
                   type="button"
-                  onClick={handleAutoMatch}
-                  disabled={autoMatch.isPending || processedCount === 0}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleExtract}
+                  disabled={extractMultiple.isPending || pendingCount === 0}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <BoltIcon className="w-4 h-4" />
-                  {autoMatch.isPending ? 'Matching...' : `Auto Match (${processedCount})`}
+                  <SparklesIcon className="w-4 h-4" />
+                  {extractMultiple.isPending ? 'Extracting...' : `Extract (${pendingCount})`}
                 </button>
-              )}
 
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <TrashIcon className="w-4 h-4" />
-                {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
-              </button>
-            </div>
-          )}
+                {/* Auto Match button - only show if enabled and has processed docs */}
+                {autoMatchEnabled && (
+                  <button
+                    type="button"
+                    onClick={handleAutoMatch}
+                    disabled={autoMatch.isPending || processedCount === 0}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <BoltIcon className="w-4 h-4" />
+                    {autoMatch.isPending ? 'Matching...' : `Auto Match (${processedCount})`}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                  {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Auto-match result toast */}
@@ -646,6 +702,23 @@ export function InvoicesPage() {
           onLinkChange={handleBankLinkChange}
         />
       )}
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        itemCount={selectedIds.size > 0 ? selectedIds.size : filteredCount}
+        allPdfs={(() => {
+          const docsForExport = selectedIds.size > 0
+            ? documentsWithInvoices.filter((doc) => selectedIds.has(doc.id))
+            : filteredDocuments
+          return docsForExport.length > 0 && docsForExport.every((doc) => doc.file_type === 'pdf')
+        })()}
+        onExport={handleExport}
+        progress={exportProgress}
+        isExporting={isExporting}
+        onCancel={cancelExport}
+      />
     </div>
   )
 }

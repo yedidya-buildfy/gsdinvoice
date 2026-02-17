@@ -165,6 +165,7 @@ export type Database = {
         Row: {
           created_at: string | null
           error_message: string | null
+          exported_at: string | null
           extracted_data: Json | null
           file_hash: string | null
           file_size: number | null
@@ -181,6 +182,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           error_message?: string | null
+          exported_at?: string | null
           extracted_data?: Json | null
           file_hash?: string | null
           file_size?: number | null
@@ -197,6 +199,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           error_message?: string | null
+          exported_at?: string | null
           extracted_data?: Json | null
           file_hash?: string | null
           file_size?: number | null
@@ -311,6 +314,7 @@ export type Database = {
           created_at: string | null
           currency: string | null
           due_date: string | null
+          exported_at: string | null
           file_id: string | null
           id: string
           invoice_date: string | null
@@ -331,6 +335,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           due_date?: string | null
+          exported_at?: string | null
           file_id?: string | null
           id?: string
           invoice_date?: string | null
@@ -351,6 +356,7 @@ export type Database = {
           created_at?: string | null
           currency?: string | null
           due_date?: string | null
+          exported_at?: string | null
           file_id?: string | null
           id?: string
           invoice_date?: string | null
@@ -642,6 +648,7 @@ export type Database = {
           credit_card_id: string | null
           date: string
           description: string
+          exported_at: string | null
           foreign_amount_cents: number | null
           foreign_currency: string | null
           has_vat: boolean | null
@@ -671,6 +678,7 @@ export type Database = {
           credit_card_id?: string | null
           date: string
           description: string
+          exported_at?: string | null
           foreign_amount_cents?: number | null
           foreign_currency?: string | null
           has_vat?: boolean | null
@@ -700,6 +708,7 @@ export type Database = {
           credit_card_id?: string | null
           date?: string
           description?: string
+          exported_at?: string | null
           foreign_amount_cents?: number | null
           foreign_currency?: string | null
           has_vat?: boolean | null

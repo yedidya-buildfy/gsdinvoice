@@ -45,6 +45,7 @@ function createEmptyInvoice(documentId: string): Invoice {
     is_income: null,
     is_approved: false,
     approved_at: null,
+    exported_at: null,
     team_id: null,
     created_at: new Date().toISOString(),
   }

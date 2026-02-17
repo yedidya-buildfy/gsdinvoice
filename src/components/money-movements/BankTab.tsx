@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { TrashIcon, ReceiptPercentIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, ReceiptPercentIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { TRANSACTION_TYPE } from '@/constants'
 import { useTransactions } from '@/hooks/useTransactions'
 import { useUpdateTransactionVat } from '@/hooks/useUpdateTransactionVat'
@@ -17,6 +17,8 @@ import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdo
 import { TRANSACTION_COLUMNS } from '@/types/columnVisibility'
 import type { TransactionColumnKey } from '@/types/columnVisibility'
 import { supabase } from '@/lib/supabase'
+import { exportTransactionsToCSV } from '@/lib/export/csvExporter'
+import { useExport } from '@/hooks/useExport'
 import { useAuth } from '@/contexts/AuthContext'
 import { parseMerchantName } from '@/lib/utils/merchantParser'
 import type { Transaction } from '@/types/database'
@@ -31,6 +33,8 @@ export function BankTab({ onRefetch }: BankTabProps) {
   const { isUpdating, updateBatch, updateAllByMerchant, saveMerchantPreferencesBatch } = useUpdateTransactionVat()
   const { tablePageSize } = useSettingsStore()
   const { visibility, toggle, reset } = useColumnVisibility('transaction')
+  const { markExported } = useExport()
+  const [isExporting, setIsExporting] = useState(false)
 
   // BankTab shows the Invoice column (line item linking is always available)
   const activeTransactionColumns = useMemo(() => {
@@ -243,6 +247,21 @@ export function BankTab({ onRefetch }: BankTabProps) {
     onRefetch?.()
   }
 
+  const handleExport = async () => {
+    const toExport = selectedIds.size > 0
+      ? sortedTransactions.filter((tx) => selectedIds.has(tx.id))
+      : filteredTransactions
+    if (toExport.length === 0) return
+
+    setIsExporting(true)
+    try {
+      exportTransactionsToCSV(toExport, 'bank_transactions')
+      await markExported('transactions', toExport.map((tx) => tx.id))
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const handleUploadComplete = () => {
     console.log('[BankTab] Upload complete, calling refetch')
     refetch()
@@ -275,30 +294,48 @@ export function BankTab({ onRefetch }: BankTabProps) {
         <BankUploader onUploadComplete={handleUploadComplete} />
       </div>
 
-      {/* Action buttons */}
-      {selectedIds.size > 0 && (
-        <div className="flex items-center justify-end gap-2">
-          {selectedTransactions.length > 0 && (
-            <button
-              type="button"
-              onClick={handleOpenVatModal}
-              disabled={isUpdating}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ReceiptPercentIcon className="w-4 h-4" />
-              {isUpdating ? 'Updating...' : `Set VAT (${selectedTransactions.length})`}
-            </button>
-          )}
-
+      {/* Export + Selection actions */}
+      {filteredTransactions.length > 0 && (
+        <div className="flex items-center justify-between">
           <button
             type="button"
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <TrashIcon className="w-4 h-4" />
-            {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
+            <ArrowDownTrayIcon className="w-4 h-4" />
+            {isExporting
+              ? 'Exporting...'
+              : selectedIds.size > 0
+                ? `Export CSV (${selectedIds.size})`
+                : 'Export CSV'}
           </button>
+
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              {selectedTransactions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleOpenVatModal}
+                  disabled={isUpdating}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ReceiptPercentIcon className="w-4 h-4" />
+                  {isUpdating ? 'Updating...' : `Set VAT (${selectedTransactions.length})`}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <TrashIcon className="w-4 h-4" />
+                {isDeleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
