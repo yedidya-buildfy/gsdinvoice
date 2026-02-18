@@ -84,32 +84,44 @@ async function parseSpreadsheet(url: string, fileType?: string): Promise<SheetDa
   })
 }
 
+interface LoadState {
+  sheets: SheetData[]
+  activeSheet: number
+  isLoading: boolean
+  error: string | null
+}
+
 export function SpreadsheetViewer({ url, fileType }: SpreadsheetViewerProps) {
-  const [sheets, setSheets] = useState<SheetData[]>([])
-  const [activeSheet, setActiveSheet] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [fileName, setFileName] = useState<string>('')
+  const [state, setState] = useState<LoadState>({
+    sheets: [],
+    activeSheet: 0,
+    isLoading: true,
+    error: null,
+  })
+  const { sheets, activeSheet, isLoading, error } = state
+  const setActiveSheet = (index: number) => setState(prev => ({ ...prev, activeSheet: index }))
+
+  // Derive filename from URL (pure computation, no state needed)
+  const fileName = useMemo(() => {
+    const urlParts = url.split('/')
+    const name = urlParts[urlParts.length - 1]?.split('?')[0] || 'Spreadsheet'
+    return decodeURIComponent(name)
+  }, [url])
 
   useEffect(() => {
     async function loadSpreadsheet() {
-      setIsLoading(true)
-      setError(null)
+      setState(prev => ({ ...prev, isLoading: true, error: null }))
 
       try {
-        // Extract filename from URL
-        const urlParts = url.split('/')
-        const name = urlParts[urlParts.length - 1]?.split('?')[0] || 'Spreadsheet'
-        setFileName(decodeURIComponent(name))
-
         const parsedSheets = await parseSpreadsheet(url, fileType)
-        setSheets(parsedSheets)
-        setActiveSheet(0)
+        setState({ sheets: parsedSheets, activeSheet: 0, isLoading: false, error: null })
       } catch (err) {
         console.error('[SpreadsheetViewer] Error:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load spreadsheet')
-      } finally {
-        setIsLoading(false)
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: err instanceof Error ? err.message : 'Failed to load spreadsheet',
+        }))
       }
     }
 

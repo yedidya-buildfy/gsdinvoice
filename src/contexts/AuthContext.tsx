@@ -19,9 +19,14 @@ interface AuthProviderProps {
   children: ReactNode
 }
 
+interface AuthState {
+  session: Session | null
+  loading: boolean
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [authState, setAuthState] = useState<AuthState>({ session: null, loading: true })
+  const { session, loading } = authState
 
   useEffect(() => {
     let mounted = true
@@ -32,8 +37,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return
 
-      setSession(session)
-      setLoading(false)
+      setAuthState({ session, loading: false })
 
       // Identify user with PostHog on sign in
       if (session?.user) {
@@ -57,8 +61,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return
 
-      setSession(session)
-      setLoading(false)
+      setAuthState({ session, loading: false })
 
       // Identify user with PostHog if already logged in
       if (session?.user) {

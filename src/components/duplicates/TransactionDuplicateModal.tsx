@@ -28,12 +28,10 @@ export function TransactionDuplicateModal({
 }: TransactionDuplicateModalProps) {
   const [selectedIndex, setSelectedIndex] = useState(0)
 
-  // Reset selection when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedIndex(0)
-    }
-  }, [isOpen])
+  const handleClose = () => {
+    setSelectedIndex(0)
+    onClose()
+  }
 
   // Execute action based on selected index
   const executeSelectedAction = useCallback(() => {
@@ -72,14 +70,14 @@ export function TransactionDuplicateModal({
           break
         case 'Escape':
           e.preventDefault()
-          onClose()
+          handleClose()
           break
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isLoading, executeSelectedAction, onClose])
+  }, [isOpen, isLoading, executeSelectedAction, handleClose])
 
   // Format date for display
   const formatDate = (dateStr: string) => {
@@ -96,13 +94,13 @@ export function TransactionDuplicateModal({
   const { duplicateCount, newCount, matches } = duplicateResult
 
   return (
-    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <Modal.Content>
         <div className="flex items-start justify-between mb-4">
           <Modal.Title>Duplicate Transactions Detected</Modal.Title>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-text-muted hover:text-text transition-colors"
           >
             <XMarkIcon className="w-5 h-5" />

@@ -62,13 +62,11 @@ export function LineItemDuplicateModal({
 
   const tabs: TabType[] = ['all', 'duplicates', 'new']
 
-  // Reset state when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedIndex(0)
-      setActiveTab('all')
-    }
-  }, [isOpen])
+  const handleClose = () => {
+    setSelectedIndex(0)
+    setActiveTab('all')
+    onClose()
+  }
 
   const newItemsCount = totalItems - duplicateCount
 
@@ -164,14 +162,14 @@ export function LineItemDuplicateModal({
           break
         case 'Escape':
           e.preventDefault()
-          onClose()
+          handleClose()
           break
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isLoading, executeSelectedAction, navigateTab, onClose])
+  }, [isOpen, isLoading, executeSelectedAction, navigateTab, handleClose])
 
   const tabLabels: Record<TabType, string> = {
     all: `All (${totalItems})`,
@@ -180,13 +178,13 @@ export function LineItemDuplicateModal({
   }
 
   return (
-    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <Modal.Content className="max-w-5xl w-[95vw]">
         <div className="flex items-start justify-between mb-4">
           <Modal.Title>Duplicate Line Items Found</Modal.Title>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-text-muted hover:text-text transition-colors"
           >
             <XMarkIcon className="w-5 h-5" />

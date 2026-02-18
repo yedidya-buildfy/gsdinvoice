@@ -172,15 +172,11 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
   const [attachSelectedCardIds, setAttachSelectedCardIds] = useState<string[]>([])
   const [attachError, setAttachError] = useState<string | null>(null)
 
-  // Clear selection when connected filters change
-  useEffect(() => {
-    setSelectedIds(new Set())
-  }, [connectedSelectedCardIds, connectedFromDate, connectedToDate, connectedDateField, connectedSearch])
+  // Helper: clear connected selection when filters change
+  const clearConnectedSelection = () => setSelectedIds(new Set())
 
-  // Clear selection when attach filters change
-  useEffect(() => {
-    setAttachSelectedIds(new Set())
-  }, [attachSelectedCardIds, attachFromDate, attachToDate, attachDateField, attachConnectionStatus, attachSearch])
+  // Helper: clear attach selection when filters change
+  const clearAttachSelection = () => setAttachSelectedIds(new Set())
 
   // Fetch bank transaction when modal opens (details mode)
   useEffect(() => {
@@ -770,6 +766,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                     onChange={(start, end) => {
                       setConnectedFromDate(start)
                       setConnectedToDate(end)
+                      clearConnectedSelection()
                     }}
                   />
 
@@ -778,7 +775,10 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                     <CardMultiSelect
                       cards={creditCards}
                       value={connectedSelectedCardIds}
-                      onChange={setConnectedSelectedCardIds}
+                      onChange={(ids) => {
+                        setConnectedSelectedCardIds(ids)
+                        clearConnectedSelection()
+                      }}
                     />
                   )}
 
@@ -788,7 +788,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                     <div className="flex rounded-lg border border-text-muted/20 overflow-hidden">
                       <button
                         type="button"
-                        onClick={() => setConnectedDateField('transaction_date')}
+                        onClick={() => { setConnectedDateField('transaction_date'); clearConnectedSelection() }}
                         className={`px-3 py-1.5 text-xs transition-colors ${
                           connectedDateField === 'transaction_date'
                             ? 'bg-primary/20 text-primary'
@@ -799,7 +799,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                       </button>
                       <button
                         type="button"
-                        onClick={() => setConnectedDateField('charge_date')}
+                        onClick={() => { setConnectedDateField('charge_date'); clearConnectedSelection() }}
                         className={`px-3 py-1.5 text-xs transition-colors border-s border-text-muted/20 ${
                           connectedDateField === 'charge_date'
                             ? 'bg-primary/20 text-primary'
@@ -818,7 +818,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                       <input
                         type="text"
                         value={connectedSearch}
-                        onChange={(e) => setConnectedSearch(e.target.value)}
+                        onChange={(e) => { setConnectedSearch(e.target.value); clearConnectedSelection() }}
                         placeholder="Search merchant..."
                         className="w-full ps-9 pe-3 py-1.5 text-sm bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
                       />
@@ -930,6 +930,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                       onChange={(start, end) => {
                         setAttachFromDate(start)
                         setAttachToDate(end)
+                        clearAttachSelection()
                       }}
                     />
 
@@ -938,7 +939,10 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                       <CardMultiSelect
                         cards={creditCards}
                         value={attachSelectedCardIds}
-                        onChange={setAttachSelectedCardIds}
+                        onChange={(ids) => {
+                          setAttachSelectedCardIds(ids)
+                          clearAttachSelection()
+                        }}
                       />
                     )}
 
@@ -948,7 +952,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                       <div className="flex rounded-lg border border-text-muted/20 overflow-hidden">
                         <button
                           type="button"
-                          onClick={() => setAttachDateField('transaction_date')}
+                          onClick={() => { setAttachDateField('transaction_date'); clearAttachSelection() }}
                           className={`px-3 py-1.5 text-xs transition-colors ${
                             attachDateField === 'transaction_date'
                               ? 'bg-primary/20 text-primary'
@@ -959,7 +963,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                         </button>
                         <button
                           type="button"
-                          onClick={() => setAttachDateField('charge_date')}
+                          onClick={() => { setAttachDateField('charge_date'); clearAttachSelection() }}
                           className={`px-3 py-1.5 text-xs transition-colors border-s border-text-muted/20 ${
                             attachDateField === 'charge_date'
                               ? 'bg-primary/20 text-primary'
@@ -977,7 +981,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                       <div className="flex rounded-lg border border-text-muted/20 overflow-hidden">
                         <button
                           type="button"
-                          onClick={() => setAttachConnectionStatus('all')}
+                          onClick={() => { setAttachConnectionStatus('all'); clearAttachSelection() }}
                           className={`px-3 py-1.5 text-xs transition-colors ${
                             attachConnectionStatus === 'all'
                               ? 'bg-primary/20 text-primary'
@@ -988,7 +992,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                         </button>
                         <button
                           type="button"
-                          onClick={() => setAttachConnectionStatus('not_connected')}
+                          onClick={() => { setAttachConnectionStatus('not_connected'); clearAttachSelection() }}
                           className={`px-3 py-1.5 text-xs transition-colors border-s border-text-muted/20 ${
                             attachConnectionStatus === 'not_connected'
                               ? 'bg-primary/20 text-primary'
@@ -999,7 +1003,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                         </button>
                         <button
                           type="button"
-                          onClick={() => setAttachConnectionStatus('connected')}
+                          onClick={() => { setAttachConnectionStatus('connected'); clearAttachSelection() }}
                           className={`px-3 py-1.5 text-xs transition-colors border-s border-text-muted/20 ${
                             attachConnectionStatus === 'connected'
                               ? 'bg-primary/20 text-primary'
@@ -1018,7 +1022,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                         <input
                           type="text"
                           value={attachSearch}
-                          onChange={(e) => setAttachSearch(e.target.value)}
+                          onChange={(e) => { setAttachSearch(e.target.value); clearAttachSelection() }}
                           placeholder="Search merchant..."
                           className="w-full ps-9 pe-3 py-1.5 text-sm bg-surface border border-text-muted/20 rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary/50"
                         />

@@ -29,12 +29,10 @@ export function FileDuplicateModal({
 }: FileDuplicateModalProps) {
   const [selectedIndex, setSelectedIndex] = useState(0)
 
-  // Reset selection when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedIndex(0)
-    }
-  }, [isOpen])
+  const handleClose = () => {
+    setSelectedIndex(0)
+    onClose()
+  }
 
   // Get the first match for replacement option
   const primaryMatch = matches[0]
@@ -76,24 +74,24 @@ export function FileDuplicateModal({
           break
         case 'Escape':
           e.preventDefault()
-          onClose()
+          handleClose()
           break
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isLoading, executeSelectedAction, onClose])
+  }, [isOpen, isLoading, executeSelectedAction, handleClose])
 
-  
+
   return (
-    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <Modal.Content>
         <div className="flex items-start justify-between mb-4">
           <Modal.Title>Duplicate File Detected</Modal.Title>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-text-muted hover:text-text transition-colors"
           >
             <XMarkIcon className="w-5 h-5" />

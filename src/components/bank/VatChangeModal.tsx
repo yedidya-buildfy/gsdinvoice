@@ -73,12 +73,10 @@ export function VatChangeModal({
     ? uniqueMerchants.join(', ')
     : `${uniqueMerchants.slice(0, 2).join(', ')} +${uniqueMerchants.length - 2} more`
 
-  // Reset selection when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedIndex(0)
-    }
-  }, [isOpen])
+  const handleClose = () => {
+    setSelectedIndex(0)
+    onClose()
+  }
 
   // Execute action based on selected index
   const executeSelectedAction = useCallback(() => {
@@ -126,13 +124,13 @@ export function VatChangeModal({
   }, [isOpen, isLoading, executeSelectedAction])
 
   return (
-    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Modal.Overlay isOpen={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <Modal.Content>
         <div className="flex items-start justify-between mb-4">
           <Modal.Title>Set VAT for {selectedCount} transactions</Modal.Title>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-text-muted hover:text-text transition-colors"
           >
             <XMarkIcon className="w-5 h-5" />

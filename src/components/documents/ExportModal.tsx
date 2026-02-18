@@ -57,22 +57,10 @@ export function ExportModal({
   onCancel,
 }: ExportModalProps) {
   const [format, setFormat] = useState<DocumentExportFormat>('zip')
-  const [selectedIndex, setSelectedIndex] = useState(0)
 
-  // Auto-switch to 'zip' if merged-pdf becomes disabled
-  useEffect(() => {
-    if (!allPdfs && format === 'merged-pdf') {
-      setFormat('zip')
-      setSelectedIndex(0)
-    }
-  }, [allPdfs, format])
-
-  // Reset selection when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedIndex(format === 'zip' ? 0 : format === 'merged-pdf' ? 1 : 2)
-    }
-  }, [isOpen, format])
+  // Derive effective format: auto-correct if merged-pdf is disabled
+  const effectiveFormat = (!allPdfs && format === 'merged-pdf') ? 'zip' : format
+  const selectedIndex = FORMAT_OPTIONS.findIndex(opt => opt.value === effectiveFormat)
 
   // Helper to check if an option is disabled
   const isOptionDisabled = useCallback((optionValue: DocumentExportFormat) => {
@@ -100,7 +88,6 @@ export function ExportModal({
           while (isOptionDisabled(FORMAT_OPTIONS[nextIndex].value) && nextIndex !== selectedIndex) {
             nextIndex = (nextIndex + 1) % FORMAT_OPTIONS.length
           }
-          setSelectedIndex(nextIndex)
           setFormat(FORMAT_OPTIONS[nextIndex].value)
           break
         }
@@ -111,7 +98,6 @@ export function ExportModal({
           while (isOptionDisabled(FORMAT_OPTIONS[prevIndex].value) && prevIndex !== selectedIndex) {
             prevIndex = (prevIndex - 1 + FORMAT_OPTIONS.length) % FORMAT_OPTIONS.length
           }
-          setSelectedIndex(prevIndex)
           setFormat(FORMAT_OPTIONS[prevIndex].value)
           break
         }
@@ -148,9 +134,9 @@ export function ExportModal({
 
         {/* Format selection */}
         <div className="space-y-2 mb-6">
-          {FORMAT_OPTIONS.map((opt, index) => {
+          {FORMAT_OPTIONS.map((opt) => {
             const disabled = isOptionDisabled(opt.value)
-            const selected = format === opt.value
+            const selected = effectiveFormat === opt.value
             return (
               <label
                 key={opt.value}
@@ -171,7 +157,6 @@ export function ExportModal({
                   onChange={() => {
                     if (!disabled) {
                       setFormat(opt.value)
-                      setSelectedIndex(index)
                     }
                   }}
                   className="sr-only"
@@ -240,7 +225,7 @@ export function ExportModal({
               </button>
               <button
                 type="button"
-                onClick={() => onExport(format)}
+                onClick={() => onExport(effectiveFormat)}
                 disabled={itemCount === 0}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
               >
