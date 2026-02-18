@@ -16,7 +16,7 @@ import { scoreMatch, ELIGIBLE_TRANSACTION_TYPES, type ScoringContext } from '@/l
 import { linkLineItemToTransaction } from '@/lib/services/lineItemMatcher'
 import type { Transaction, InvoiceRow, Invoice, VendorAlias } from '@/types/database'
 
-export interface AutoMatchRequest {
+interface AutoMatchRequest {
   invoiceId: string
 }
 
@@ -257,7 +257,7 @@ export async function processAutoMatch(
         result.matched++
         invResult.matched++
         matchedTransactionIds.add(bestMatch.transaction.id)
-        console.log('[AutoMatch] MATCHED:', lineItem.id, '→', bestMatch.transaction.id,
+        console.log('[AutoMatch] MATCHED:', lineItem.id, '->', bestMatch.transaction.id,
           'score:', bestMatch.score, '>=', threshold)
       } else {
         result.failed++

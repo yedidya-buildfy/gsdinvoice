@@ -7,7 +7,7 @@
 
 import { useSettingsStore, type VendorResolverSettings } from '@/stores/settingsStore'
 
-export interface UseVendorResolverSettingsReturn {
+interface UseVendorResolverSettingsReturn {
   /** Current vendor resolver settings */
   settings: VendorResolverSettings
   /** Check if vendor resolution is enabled for credit card tables */

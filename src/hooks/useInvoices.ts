@@ -7,7 +7,7 @@ import type { Invoice } from '@/types/database'
 /**
  * Options for filtering invoices
  */
-export interface UseInvoicesOptions {
+interface UseInvoicesOptions {
   /** Filter by invoice status (pending, approved, matched, partial) */
   status?: string
   /** Filter by source file ID */
@@ -17,7 +17,7 @@ export interface UseInvoicesOptions {
 /**
  * Bank link status for an invoice based on its line items
  */
-export type BankLinkStatus = 'yes' | 'partly' | 'no'
+type BankLinkStatus = 'yes' | 'partly' | 'no'
 
 /**
  * Invoice with optional file relationship and line items count for display

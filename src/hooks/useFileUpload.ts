@@ -7,14 +7,7 @@ import { checkFileDuplicate } from '@/lib/duplicates'
 import type { FileInsert } from '@/types/database'
 import type { FileDuplicateMatch, DuplicateAction } from '@/lib/duplicates/types'
 
-export interface UploadingFile {
-  file: File
-  progress: number
-  status: 'pending' | 'uploading' | 'success' | 'error'
-  error?: string
-}
-
-export interface FileDuplicateResult {
+interface FileDuplicateResult {
   file: File
   matches: FileDuplicateMatch[]
   fileHash: string
