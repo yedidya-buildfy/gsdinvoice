@@ -1,7 +1,5 @@
-export { TeamSwitcher } from './TeamSwitcher'
 export { CreateTeamModal } from './CreateTeamModal'
 export { InviteMemberModal } from './InviteMemberModal'
-export { RoleBadge } from './RoleBadge'
 export { TeamMemberList } from './TeamMemberList'
 export { PendingInvitationsList } from './PendingInvitationsList'
 export { BusinessCard } from './BusinessCard'

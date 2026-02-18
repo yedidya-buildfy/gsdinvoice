@@ -48,7 +48,6 @@ export {
   autoMatchInvoice,
   applyAutoMatch,
   applyAutoMatchesForInvoice,
-  getUserAutoMatchSettings,
 } from './autoMatcher'
 export type {
   AutoMatchStatus,

@@ -11,7 +11,7 @@ import type {
 /**
  * Return type for the useVendorAliases hook
  */
-export interface UseVendorAliasesReturn {
+interface UseVendorAliasesReturn {
   /** List of vendor aliases for the current user/team */
   aliases: VendorAlias[]
   /** Loading state for the initial fetch */
@@ -256,18 +256,3 @@ export function useVendorAliases(): UseVendorAliasesReturn {
   }
 }
 
-/**
- * Hook to check if user has any vendor aliases
- * Useful for determining if defaults should be seeded
- */
-export function useHasVendorAliases(): {
-  hasAliases: boolean
-  isLoading: boolean
-} {
-  const { aliases, isLoading } = useVendorAliases()
-
-  return {
-    hasAliases: aliases.length > 0,
-    isLoading,
-  }
-}

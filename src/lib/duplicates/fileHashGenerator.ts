@@ -23,10 +23,3 @@ export function generateFileHash(file: File): string {
   return utf8ToBase64(hashInput)
 }
 
-/**
- * Generate a hash from raw file metadata
- */
-export function generateFileHashFromMetadata(name: string, size: number): string {
-  const hashInput = `file|${name}|${size}`
-  return utf8ToBase64(hashInput)
-}

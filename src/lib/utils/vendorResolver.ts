@@ -245,26 +245,6 @@ export function getVendorDisplayInfo(
 }
 
 /**
- * Finds all aliases that match a given description.
- * Useful for debugging or showing all applicable aliases to users.
- *
- * @param description - The transaction description to check
- * @param aliases - Array of vendor aliases to check against
- * @returns Array of matching aliases, sorted by priority (highest first)
- */
-export function findMatchingAliases(
-  description: string,
-  aliases: VendorAlias[]
-): VendorAlias[] {
-  if (!description || !aliases || aliases.length === 0) {
-    return []
-  }
-
-  const sortedAliases = sortAliasesByPriority(aliases)
-  return sortedAliases.filter((alias) => matchesAliasPattern(description, alias))
-}
-
-/**
  * Gets VAT default settings for a transaction based on vendor aliases.
  * Returns the VAT settings from the highest-priority matching alias that has VAT defaults set.
  *

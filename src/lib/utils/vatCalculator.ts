@@ -24,15 +24,3 @@ export function getEffectiveAmount(tx: { amount_agorot: number; foreign_amount_c
   return tx.amount_agorot
 }
 
-/**
- * Calculate the net amount (before VAT) from a VAT-inclusive total
- */
-export function calculateNetFromTotal(
-  totalAgorot: number,
-  vatPercentage: number
-): number {
-  if (!vatPercentage || vatPercentage <= 0) return totalAgorot
-  // Net = Total / (1 + rate/100) = Total * 100 / (100 + rate)
-  const netAmount = Math.abs(totalAgorot) * (100 / (100 + vatPercentage))
-  return Math.round(netAmount)
-}

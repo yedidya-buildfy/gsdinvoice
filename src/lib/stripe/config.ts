@@ -90,19 +90,3 @@ export const STRIPE_CONFIG = {
 export type PlanId = keyof typeof STRIPE_CONFIG.plans
 export type BillingInterval = 'monthly' | 'yearly'
 
-export function formatPrice(amountInCents: number, currency = 'usd'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency.toUpperCase(),
-    minimumFractionDigits: 0,
-  }).format(amountInCents / 100)
-}
-
-export function getPlanByPriceId(priceId: string): PlanId | null {
-  for (const [planId, plan] of Object.entries(STRIPE_CONFIG.plans)) {
-    if (plan.prices.monthly?.id === priceId || plan.prices.yearly?.id === priceId) {
-      return planId as PlanId
-    }
-  }
-  return null
-}

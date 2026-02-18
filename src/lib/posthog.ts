@@ -39,9 +39,4 @@ export function captureEvent(eventName: string, properties?: Record<string, unkn
   posthog.capture(eventName, properties)
 }
 
-export function isFeatureEnabled(flagKey: string): boolean {
-  if (!POSTHOG_KEY) return false
-  return posthog.isFeatureEnabled(flagKey) ?? false
-}
-
 export { posthog }

@@ -26,38 +26,3 @@ export function generateUniqueHash(baseHash: string): string {
   return `${baseHash}_dup_${suffix}`
 }
 
-/**
- * Generate a transaction hash from its key fields
- * @param date - Transaction date
- * @param description - Transaction description
- * @param amountAgorot - Amount in agorot
- * @param reference - Optional reference number
- * @returns Base64 encoded hash string
- */
-export function generateTransactionHash(
-  date: string,
-  description: string,
-  amountAgorot: number,
-  reference?: string | null
-): string {
-  return utf8ToBase64(`${date}|${description.trim()}|${amountAgorot}|${reference || ''}`)
-}
-
-/**
- * Generate a credit card transaction hash from its key fields
- * @param date - Transaction date
- * @param merchantName - Merchant name
- * @param amountAgorot - Amount in agorot
- * @param cardLastFour - Last 4 digits of card
- * @param billingDate - Optional billing/charge date
- * @returns Base64 encoded hash string
- */
-export function generateCCTransactionHash(
-  date: string,
-  merchantName: string,
-  amountAgorot: number,
-  cardLastFour: string,
-  billingDate?: string | null
-): string {
-  return utf8ToBase64(`cctx|${date}|${merchantName.trim()}|${amountAgorot}|${cardLastFour}|${billingDate || ''}`)
-}

@@ -202,31 +202,3 @@ export function useUpdateSubscription() {
   })
 }
 
-export function useCanUploadInvoice() {
-  const { data: subscription } = useSubscription()
-  const { data: usage } = useCurrentUsage()
-  const { data: limits } = usePlanLimits(subscription?.plan_tier)
-
-  const planLimits = limits as PlanLimits | null
-
-  if (!planLimits) {
-    return { canUpload: true, remaining: null, limit: null }
-  }
-
-  const limit = planLimits.max_invoices_per_month
-  const used = usage?.invoices_processed ?? 0
-
-  // null means unlimited
-  if (limit === null) {
-    return { canUpload: true, remaining: null, limit: null }
-  }
-
-  const remaining = Math.max(0, limit - used)
-
-  return {
-    canUpload: remaining > 0,
-    remaining,
-    limit,
-    used,
-  }
-}

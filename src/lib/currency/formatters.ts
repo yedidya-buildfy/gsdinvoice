@@ -5,7 +5,6 @@
  * These handle the specific currency logic for each entity type.
  */
 
-import type { CurrencyCode } from './types';
 import { DEFAULT_CURRENCY, isCurrencyCode } from './types';
 import { formatCurrency, type FormatCurrencyOptions } from './format';
 
@@ -87,26 +86,6 @@ export function formatTransactionAmount(
 }
 
 /**
- * Get the effective currency of a transaction
- */
-export function getTransactionCurrency(tx: TransactionAmountData): CurrencyCode {
-  if (tx.foreign_currency && isCurrencyCode(tx.foreign_currency)) {
-    return tx.foreign_currency;
-  }
-  return DEFAULT_CURRENCY;
-}
-
-/**
- * Get the effective amount in minor units
- */
-export function getTransactionMinorUnits(tx: TransactionAmountData): number {
-  if (tx.foreign_amount_cents != null && tx.foreign_currency) {
-    return Math.abs(tx.foreign_amount_cents);
-  }
-  return Math.abs(tx.amount_agorot);
-}
-
-/**
  * Format a line item amount for display
  *
  * Uses the line item's currency field, defaulting to ILS
@@ -129,30 +108,6 @@ export function formatLineItemAmount(
 ): string {
   const amount = Math.abs(item.total_agorot ?? 0);
   const currency = isCurrencyCode(item.currency) ? item.currency : DEFAULT_CURRENCY;
-  return formatCurrency(amount, currency, options);
-}
-
-/**
- * Format an invoice total amount
- */
-export function formatInvoiceAmount(
-  invoice: InvoiceAmountData,
-  options: FormatCurrencyOptions = {}
-): string {
-  const amount = Math.abs(invoice.total_amount_agorot ?? 0);
-  const currency = isCurrencyCode(invoice.currency) ? invoice.currency : DEFAULT_CURRENCY;
-  return formatCurrency(amount, currency, options);
-}
-
-/**
- * Format an invoice VAT amount
- */
-export function formatInvoiceVat(
-  invoice: InvoiceAmountData,
-  options: FormatCurrencyOptions = {}
-): string {
-  const amount = Math.abs(invoice.vat_amount_agorot ?? 0);
-  const currency = isCurrencyCode(invoice.currency) ? invoice.currency : DEFAULT_CURRENCY;
   return formatCurrency(amount, currency, options);
 }
 

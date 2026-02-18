@@ -13,7 +13,7 @@ import { getLocaleForCurrency } from './locale';
 /**
  * Get decimal digits for a currency (e.g., 2 for USD, 0 for JPY)
  */
-export function getCurrencyDigits(currencyCode: CurrencyCode): number {
+function getCurrencyDigits(currencyCode: CurrencyCode): number {
   const record = getCurrencyRecord(currencyCode);
   return record?.digits ?? 2;
 }
@@ -122,51 +122,3 @@ export function formatCurrency(
   return new Intl.NumberFormat(locale, formatOptions).format(majorUnits);
 }
 
-/**
- * Parse a formatted currency string back to minor units
- *
- * @param formattedValue - Formatted currency string
- * @param currencyCode - ISO 4217 currency code
- * @returns Amount in minor units
- *
- * @example
- * parseCurrency('$123.45', 'USD') // => 12345
- * parseCurrency('₪1,234.56', 'ILS') // => 123456
- */
-export function parseCurrency(
-  formattedValue: string,
-  currencyCode: CurrencyCode = DEFAULT_CURRENCY
-): number {
-  // Remove everything except digits, decimal point, and minus sign
-  // Handle both . and , as potential decimal separators
-  let cleaned = formattedValue.replace(/[^\d.,-]/g, '');
-
-  // Handle European format where , is decimal separator
-  // If we have both . and ,, the last one is likely the decimal separator
-  const lastComma = cleaned.lastIndexOf(',');
-  const lastDot = cleaned.lastIndexOf('.');
-
-  if (lastComma > lastDot && lastComma > 0) {
-    // European format: 1.234,56
-    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-  } else {
-    // US format: 1,234.56
-    cleaned = cleaned.replace(/,/g, '');
-  }
-
-  const parsed = parseFloat(cleaned);
-  if (!Number.isFinite(parsed)) return 0;
-
-  return toMinorUnits(parsed, currencyCode);
-}
-
-/**
- * Format a number as currency without the symbol
- * Useful for input fields where symbol is shown separately
- */
-export function formatCurrencyValue(
-  minorUnits: number,
-  currencyCode: CurrencyCode = DEFAULT_CURRENCY
-): string {
-  return formatCurrency(minorUnits, currencyCode, { showSymbol: false });
-}

@@ -5,7 +5,7 @@ import { useTeam } from '@/contexts/TeamContext'
 import type { CCBankMatchResult, Transaction } from '@/types/database'
 
 // CC transaction shape for display (from transactions table with transaction_type = 'cc_purchase')
-export interface CCTransaction {
+interface CCTransaction {
   id: string
   transaction_date: string  // date
   charge_date: string | null  // value_date
@@ -404,30 +404,8 @@ export function useCCTransactions(filters: CCTransactionFilters): UseCCTransacti
   }
 }
 
-// Legacy alias for backwards compatibility
-interface UnmatchedCCFilters {
-  fromDate?: string
-  toDate?: string
-  cardLastFour?: string
-}
-
-interface UseUnmatchedCCTransactionsReturn {
-  transactions: CCTransactionDisplay[]
-  isLoading: boolean
-  error: Error | null
-  refetch: () => Promise<unknown>
-}
-
-export function useUnmatchedCCTransactions(filters: UnmatchedCCFilters): UseUnmatchedCCTransactionsReturn {
-  return useCCTransactions({
-    ...filters,
-    connectionStatus: 'not_connected',
-    dateField: 'transaction_date',
-  })
-}
-
 // Hook to fetch bank CC charge transactions with connection status
-export interface BankCCChargeDisplay {
+interface BankCCChargeDisplay {
   id: string
   date: string
   description: string

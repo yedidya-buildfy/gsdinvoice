@@ -11,7 +11,7 @@
  * - Support for up to 3 years of historical rates
  */
 
-import { fetchRatesForDate, fetchLatestRates } from './boiClient'
+import { fetchRatesForDate } from './boiClient'
 import type { CachedExchangeRate, StoredExchangeRateCache, ConversionDetails } from './types'
 
 // =============================================================================
@@ -96,18 +96,6 @@ function isCacheValid(cached: CachedExchangeRate, requestedDate: string): boolea
   return now - cached.fetchedAt < ttl
 }
 
-/**
- * Clear the exchange rate cache (for testing/debugging)
- */
-function clearExchangeRateCache(): void {
-  memoryCache.clear()
-  try {
-    localStorage.removeItem(STORAGE_KEY)
-  } catch (error) {
-    // Ignore localStorage errors
-  }
-}
-
 // =============================================================================
 // Date Utilities
 // =============================================================================
@@ -149,93 +137,6 @@ function getPreviousBusinessDay(date: string): string {
 // =============================================================================
 // Main API
 // =============================================================================
-
-/**
- * Get exchange rate for a specific currency and date
- *
- * @param currencyCode - ISO 4217 currency code (e.g., "USD", "EUR")
- * @param date - Date in YYYY-MM-DD format
- * @returns Rate (ILS per 1 unit of currency), or null if unavailable
- */
-async function getExchangeRate(
-  currencyCode: string,
-  date: string
-): Promise<{ rate: number; rateDate: string } | null> {
-  const currency = currencyCode.toUpperCase()
-
-  console.log(`[exchangeRates] getExchangeRate called for ${currency} on ${date}`)
-
-  // ILS to ILS is always 1:1
-  if (currency === 'ILS') {
-    return { rate: 1, rateDate: date }
-  }
-
-  // Check date is within allowed range
-  if (!isDateWithinRange(date)) {
-    console.warn(`[exchangeRates] Date ${date} is beyond ${MAX_HISTORICAL_YEARS} year limit`)
-    return null
-  }
-
-  // Check memory cache first
-  const key = cacheKey(currency, date)
-  const cached = memoryCache.get(key)
-  if (cached && isCacheValid(cached, date)) {
-    console.log(`[exchangeRates] Cache hit for ${currency}:${date}`)
-    // Adjust rate for unit (e.g., if unit=100, rate is per 100 units)
-    const adjustedRate = cached.rate / (cached.unit || 1)
-    return { rate: adjustedRate, rateDate: cached.rateDate }
-  }
-
-  // Fetch from API
-  try {
-    console.log(`[exchangeRates] Fetching from API for date ${date}`)
-    const rates = await fetchRatesForDate(date)
-    console.log(`[exchangeRates] API returned ${rates.length} rates`)
-
-    if (rates.length === 0) {
-      // No rates for this date (weekend/holiday) - try previous business day
-      const prevDate = getPreviousBusinessDay(date)
-      console.log(`[exchangeRates] No rates for ${date}, trying ${prevDate}`)
-      return getExchangeRate(currency, prevDate)
-    }
-
-    // Cache all rates from this response
-    const now = Date.now()
-    for (const rate of rates) {
-      const rateKey = cacheKey(rate.currencyCode, date)
-      memoryCache.set(rateKey, {
-        rate: rate.rate,
-        unit: rate.unit,
-        fetchedAt: now,
-        rateDate: rate.date,
-      })
-    }
-    saveStorageCache()
-
-    // Find the requested currency
-    const targetRate = rates.find(r => r.currencyCode.toUpperCase() === currency)
-    if (!targetRate) {
-      console.warn(`[exchangeRates] Currency ${currency} not found in BOI rates. Available: ${rates.map(r => r.currencyCode).join(', ')}`)
-      return null
-    }
-
-    // Adjust rate for unit
-    const adjustedRate = targetRate.rate / (targetRate.unit || 1)
-    console.log(`[exchangeRates] Got rate for ${currency}: ${adjustedRate}`)
-    return { rate: adjustedRate, rateDate: targetRate.date }
-  } catch (error) {
-    console.error('[exchangeRates] Failed to fetch rate:', error)
-
-    // Return cached value even if expired (better than nothing)
-    if (cached) {
-      console.warn('[exchangeRates] Using expired cached rate as fallback')
-      const adjustedRate = cached.rate / (cached.unit || 1)
-      return { rate: adjustedRate, rateDate: cached.rateDate }
-    }
-
-    return null
-  }
-}
 
 /**
  * Batch fetch exchange rates for multiple currencies on a specific date
@@ -313,32 +214,6 @@ export async function getExchangeRatesForDate(
   } catch (error) {
     console.error('[exchangeRates] Failed to batch fetch rates:', error)
     // Return what we have from cache
-  }
-
-  return result
-}
-
-/**
- * Get latest exchange rates (for displaying current rates)
- *
- * @returns Map of currency code to rate info
- */
-async function getLatestExchangeRates(): Promise<Map<string, { rate: number; rateDate: string }>> {
-  const result = new Map<string, { rate: number; rateDate: string }>()
-  result.set('ILS', { rate: 1, rateDate: new Date().toISOString().split('T')[0] })
-
-  try {
-    const rates = await fetchLatestRates()
-
-    for (const rate of rates) {
-      const adjustedRate = rate.rate / (rate.unit || 1)
-      result.set(rate.currencyCode.toUpperCase(), {
-        rate: adjustedRate,
-        rateDate: rate.date,
-      })
-    }
-  } catch (error) {
-    console.error('[exchangeRates] Failed to fetch latest rates:', error)
   }
 
   return result

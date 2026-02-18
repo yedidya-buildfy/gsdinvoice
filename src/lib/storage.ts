@@ -100,32 +100,3 @@ export function getFileUrl(path: string): string {
   return data.publicUrl
 }
 
-/**
- * Delete a file from storage
- */
-export async function deleteFile(
-  path: string
-): Promise<{ error: Error | null }> {
-  try {
-    const { error } = await supabase.storage.from(BUCKET_NAME).remove([path])
-
-    if (error) {
-      return { error: new Error(error.message) }
-    }
-
-    return { error: null }
-  } catch (err) {
-    return {
-      error: err instanceof Error ? err : new Error('Delete failed'),
-    }
-  }
-}
-
-/**
- * Format file size for display
- */
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}

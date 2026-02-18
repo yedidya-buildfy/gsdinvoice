@@ -23,15 +23,6 @@ export function getAllCurrencyCodes(): CurrencyCode[] {
   return codes() as CurrencyCode[];
 }
 
-// Cache for performance (codes don't change at runtime)
-let _allCodesCache: CurrencyCode[] | null = null;
-export function getAllCurrencyCodescached(): CurrencyCode[] {
-  if (!_allCodesCache) {
-    _allCodesCache = getAllCurrencyCodes();
-  }
-  return _allCodesCache;
-}
-
 /**
  * Frequently used currencies - shown first in dropdowns
  * Ordered by relevance to Israeli business context
@@ -68,13 +59,6 @@ export function isCurrencyCode(value: unknown): value is CurrencyCode {
  */
 export function toCurrencyCode(value: unknown, fallback: CurrencyCode = DEFAULT_CURRENCY): CurrencyCode {
   return isCurrencyCode(value) ? value : fallback;
-}
-
-/**
- * Get currency info or null if invalid
- */
-export function getCurrencyInfo(code: string): CurrencyCodeRecord | undefined {
-  return getCurrencyRecord(code);
 }
 
 /**

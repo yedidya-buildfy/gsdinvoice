@@ -158,7 +158,7 @@ export function parseMerchantName(description: string): string {
  * Extract the first word/business name from a description
  * This is typically the actual merchant identifier
  */
-export function extractFirstWord(description: string): string {
+function extractFirstWord(description: string): string {
   const trimmed = description.trim()
 
   // Split by common separators: space, dash, asterisk, underscore
@@ -179,7 +179,7 @@ export function extractFirstWord(description: string): string {
  * Returns a simplified version that can match across variations
  * Uses first-word extraction as the primary key for better matching
  */
-export function getMerchantBaseKey(description: string): string {
+function getMerchantBaseKey(description: string): string {
   const parsed = parseMerchantName(description)
 
   // Normalize: lowercase, remove special chars, single spaces

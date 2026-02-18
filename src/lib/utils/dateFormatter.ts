@@ -36,22 +36,3 @@ export function formatDisplayDateFull(dateStr: string | null | undefined, locale
   }
 }
 
-/**
- * Get timestamp for sorting (returns 0 for null/undefined)
- */
-export function getDateTimestamp(dateStr: string | null | undefined): number {
-  if (!dateStr) return 0
-  const time = new Date(dateStr).getTime()
-  return isNaN(time) ? 0 : time
-}
-
-/**
- * Calculate days between two dates
- */
-export function getDateDiffInDays(date1: string | null | undefined, date2: string | null | undefined): number {
-  if (!date1 || !date2) return 0
-  const d1 = new Date(date1).getTime()
-  const d2 = new Date(date2).getTime()
-  if (isNaN(d1) || isNaN(d2)) return 0
-  return Math.abs(d1 - d2) / (1000 * 60 * 60 * 24)
-}

@@ -1,2 +1,1 @@
-export { MagicBento, type MagicBentoProps, type BentoCardData } from './MagicBento';
-export { default } from './MagicBento';
+export { MagicBento, type BentoCardData } from './MagicBento';

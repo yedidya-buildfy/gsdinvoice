@@ -10,7 +10,7 @@ const ROLE_HIERARCHY: TeamRole[] = ['viewer', 'member', 'admin', 'owner']
 /**
  * Check if a role has at least the specified level
  */
-export function hasRoleLevel(userRole: TeamRole, requiredRole: TeamRole): boolean {
+function hasRoleLevel(userRole: TeamRole, requiredRole: TeamRole): boolean {
   const userLevel = ROLE_HIERARCHY.indexOf(userRole)
   const requiredLevel = ROLE_HIERARCHY.indexOf(requiredRole)
   return userLevel >= requiredLevel
@@ -21,20 +21,6 @@ export function hasRoleLevel(userRole: TeamRole, requiredRole: TeamRole): boolea
  */
 export function canManageTeam(role: TeamRole): boolean {
   return hasRoleLevel(role, 'admin')
-}
-
-/**
- * Can create, edit, and delete data (invoices, transactions, etc.)
- */
-export function canEditData(role: TeamRole): boolean {
-  return hasRoleLevel(role, 'member')
-}
-
-/**
- * Can view data (everyone can view)
- */
-export function canViewData(role: TeamRole): boolean {
-  return hasRoleLevel(role, 'viewer')
 }
 
 /**
@@ -77,13 +63,6 @@ export function canDeleteTeam(role: TeamRole): boolean {
 }
 
 /**
- * Can transfer team ownership (owner only)
- */
-export function canTransferOwnership(role: TeamRole): boolean {
-  return role === 'owner'
-}
-
-/**
  * Get role display label
  */
 export function getRoleLabel(role: TeamRole): string {
@@ -116,11 +95,3 @@ export function getInvitableRoles(): Exclude<TeamRole, 'owner'>[] {
   return ['admin', 'member', 'viewer']
 }
 
-/**
- * Check if user can assign a specific role
- */
-export function canAssignRole(userRole: TeamRole, targetRole: TeamRole): boolean {
-  if (userRole === 'owner') return true
-  if (targetRole === 'owner') return false
-  return hasRoleLevel(userRole, 'admin') && hasRoleLevel(userRole, targetRole)
-}
