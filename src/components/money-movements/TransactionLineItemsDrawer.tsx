@@ -50,16 +50,16 @@ export function TransactionLineItemsDrawer({
 
   // Fetch linked items when drawer opens
   useEffect(() => {
-    if (!isOpen || !transaction) {
-      setLineItems([])
-      setSummary(null)
-      return
-    }
+    if (!isOpen || !transaction) return
+
+    let cancelled = false
 
     async function fetchData() {
       if (!transaction) return
       setIsLoading(true)
       setError(null)
+      setLineItems([])
+      setSummary(null)
 
       try {
         const [items, summaryData] = await Promise.all([
@@ -67,16 +67,24 @@ export function TransactionLineItemsDrawer({
           getTransactionLinkSummary(transaction.id),
         ])
 
-        setLineItems(items)
-        setSummary(summaryData)
+        if (!cancelled) {
+          setLineItems(items)
+          setSummary(summaryData)
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch linked items')
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to fetch linked items')
+        }
       } finally {
-        setIsLoading(false)
+        if (!cancelled) {
+          setIsLoading(false)
+        }
       }
     }
 
     fetchData()
+
+    return () => { cancelled = true }
   }, [isOpen, transaction])
 
   // Handle unlink
