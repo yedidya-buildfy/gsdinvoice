@@ -5,8 +5,8 @@ import type { ColumnVisibilityState, TransactionColumnKey, CreditCardColumnKey, 
 export type DuplicateAction = 'skip' | 'replace' | 'add'
 export type MatchingTrigger = 'manual' | 'on_upload' | 'after_all_uploads'
 export type TablePageSize = 25 | 50 | 100 | 200 | 999
-export type LinkingAmountTolerance = number // 51-100 minimum match score filter (100 = exact match only)
-export type LinkingCurrencyFilter = 'all' | 'ILS' | 'USD' | 'EUR'
+type LinkingAmountTolerance = number // 51-100 minimum match score filter (100 = exact match only)
+type LinkingCurrencyFilter = 'all' | 'ILS' | 'USD' | 'EUR'
 
 /**
  * Vendor resolver settings - controls where vendor alias resolution is applied

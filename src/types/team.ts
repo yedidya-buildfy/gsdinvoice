@@ -12,13 +12,6 @@ export interface Team {
   updated_at: string | null
 }
 
-export interface TeamInsert {
-  name: string
-  slug?: string
-  owner_id?: string
-  avatar_url?: string | null
-}
-
 export interface TeamUpdate {
   name?: string
   avatar_url?: string | null
@@ -33,18 +26,6 @@ export interface TeamMember {
   invited_by: string | null
   joined_at: string | null
   removed_at: string | null
-}
-
-export interface TeamMemberInsert {
-  team_id: string
-  user_id: string
-  role?: TeamRole
-  invited_by?: string | null
-}
-
-export interface TeamMemberUpdate {
-  role?: TeamRole
-  removed_at?: string | null
 }
 
 // Team member with user profile info (joined query result)
@@ -70,30 +51,6 @@ export interface TeamInvitation {
   invited_by: string | null
   expires_at: string
   status: InvitationStatus
-  created_at: string
-}
-
-export interface TeamInvitationInsert {
-  team_id: string
-  email: string
-  role?: Exclude<TeamRole, 'owner'>
-  token?: string
-  invited_by?: string | null
-  expires_at?: string
-}
-
-export interface TeamInvitationUpdate {
-  status?: InvitationStatus
-}
-
-// Team audit log types
-export interface TeamAuditLog {
-  id: string
-  team_id: string
-  user_id: string | null
-  action: string
-  target_user_id: string | null
-  metadata: Record<string, unknown>
   created_at: string
 }
 

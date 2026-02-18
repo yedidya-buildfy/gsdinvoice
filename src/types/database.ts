@@ -1097,9 +1097,6 @@ export type Currency = CurrencyCode
 export type DateFormat = 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
 export type NumberFormat = 'comma_dot' | 'space_comma' | 'dot_comma'
 
-// Transaction type enum for the simplified CC schema
-export type TransactionType = 'bank_regular' | 'bank_cc_charge' | 'cc_purchase'
-
 // Vendor alias types
 export type VendorAlias = Database['public']['Tables']['vendor_aliases']['Row']
 export type VendorAliasInsert = Database['public']['Tables']['vendor_aliases']['Insert']
