@@ -15,7 +15,7 @@ import { formatCurrency, type FormatCurrencyOptions } from './format';
 /**
  * Transaction amount data (matches database schema)
  */
-export interface TransactionAmountData {
+interface TransactionAmountData {
   amount_agorot: number;
   foreign_amount_cents?: number | null;
   foreign_currency?: string | null;
@@ -24,17 +24,8 @@ export interface TransactionAmountData {
 /**
  * Line item amount data (matches database schema)
  */
-export interface LineItemAmountData {
+interface LineItemAmountData {
   total_agorot?: number | null;
-  currency?: string | null;
-}
-
-/**
- * Invoice amount data (matches database schema)
- */
-export interface InvoiceAmountData {
-  total_amount_agorot?: number | null;
-  vat_amount_agorot?: number | null;
   currency?: string | null;
 }
 

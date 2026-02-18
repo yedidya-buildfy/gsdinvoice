@@ -50,11 +50,8 @@ export {
   applyAutoMatchesForInvoice,
 } from './autoMatcher'
 export type {
-  AutoMatchStatus,
-  AutoMatchMethod,
   LineItemMatchResult,
   AutoMatchInvoiceResult,
-  AutoMatchOptions,
 } from './autoMatcher'
 
 // =============================================================================

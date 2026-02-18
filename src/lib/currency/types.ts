@@ -10,7 +10,7 @@ import type { CurrencyCode as LibCurrencyCode, CurrencyCodeRecord as LibCurrency
 
 // Re-export the library types as our canonical types
 export type CurrencyCode = LibCurrencyCode;
-export type CurrencyCodeRecord = LibCurrencyCodeRecord;
+type CurrencyCodeRecord = LibCurrencyCodeRecord;
 
 // Export the lookup function with proper typing
 export function getCurrencyRecord(currencyCode: string): CurrencyCodeRecord | undefined {

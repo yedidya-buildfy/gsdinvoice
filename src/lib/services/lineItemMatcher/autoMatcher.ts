@@ -24,8 +24,8 @@ import { getExchangeRatesForDate } from '../exchangeRates'
 // Types
 // =============================================================================
 
-export type AutoMatchStatus = 'auto_matched' | 'candidate' | 'no_match'
-export type AutoMatchMethod = 'manual' | 'auto_approved' | 'auto_matched' | 'candidate'
+type AutoMatchStatus = 'auto_matched' | 'candidate' | 'no_match'
+type AutoMatchMethod = 'manual' | 'auto_approved' | 'auto_matched' | 'candidate'
 
 /**
  * Result of matching a single line item
@@ -64,7 +64,7 @@ export interface AutoMatchInvoiceResult {
 /**
  * Options for auto-matching
  */
-export interface AutoMatchOptions {
+interface AutoMatchOptions {
   /** Minimum score to auto-approve match (default: 85) */
   autoApproveThreshold?: number
   /** Minimum score to consider as candidate (default: 50) */

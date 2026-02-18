@@ -76,7 +76,7 @@ export function isValidMinorUnits(value: unknown): value is number {
 /**
  * Validate a currency amount object
  */
-export interface CurrencyAmountInput {
+interface CurrencyAmountInput {
   amount: number;
   currency: string;
 }

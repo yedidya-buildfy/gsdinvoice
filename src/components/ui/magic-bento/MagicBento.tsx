@@ -465,7 +465,7 @@ const useMobileDetection = () => {
   return isMobile;
 };
 
-export interface MagicBentoProps {
+interface MagicBentoProps {
   cards: BentoCardData[];
   textAutoHide?: boolean;
   enableStars?: boolean;

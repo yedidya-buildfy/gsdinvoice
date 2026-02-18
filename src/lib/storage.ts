@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase'
 
 export const BUCKET_NAME = 'documents'
 
-export type FileType = 'pdf' | 'png' | 'jpg' | 'jpeg' | 'webp' | 'xlsx' | 'csv' | 'unknown'
+type FileType = 'pdf' | 'png' | 'jpg' | 'jpeg' | 'webp' | 'xlsx' | 'csv' | 'unknown'
 
 // Image types for display logic
 const IMAGE_TYPES = ['png', 'jpg', 'jpeg', 'webp'] as const

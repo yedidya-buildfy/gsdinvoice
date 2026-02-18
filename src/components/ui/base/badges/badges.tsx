@@ -87,7 +87,7 @@ const withPillTypes = {
     },
 };
 
-export type BadgeColor<T extends BadgeTypes> = BadgeTypeToColorMap<typeof withPillTypes>[T];
+type BadgeColor<T extends BadgeTypes> = BadgeTypeToColorMap<typeof withPillTypes>[T];
 
 interface BadgeProps<T extends BadgeTypes> {
     type?: T;

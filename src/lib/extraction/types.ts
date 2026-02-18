@@ -15,7 +15,7 @@ export interface ExtractionRequest {
 /**
  * Response from the extract-invoice Edge Function
  */
-export interface ExtractionResult {
+interface ExtractionResult {
   success: boolean
   invoice_id?: string
   confidence?: number
@@ -25,7 +25,7 @@ export interface ExtractionResult {
 /**
  * Vendor information extracted from document
  */
-export interface ExtractedVendor {
+interface ExtractedVendor {
   name: string | null
   vat_id?: string | null
 }
@@ -33,7 +33,7 @@ export interface ExtractedVendor {
 /**
  * Document metadata
  */
-export interface ExtractedDocument {
+interface ExtractedDocument {
   type: 'billing_summary' | 'invoice' | 'receipt' | 'credit_note' | 'not_invoice'
   number?: string | null
   date?: string | null
@@ -59,7 +59,7 @@ export interface ExtractedLineItem {
 /**
  * Totals extracted from document
  */
-export interface ExtractedTotals {
+interface ExtractedTotals {
   subtotal?: number | null
   vat_rate?: number | null
   vat_amount?: number | null
@@ -77,27 +77,6 @@ export interface InvoiceExtraction {
   line_items: ExtractedLineItem[]
   totals: ExtractedTotals
   confidence?: number // Calculated from double-read comparison, not from AI
-}
-
-/**
- * Legacy format for backwards compatibility
- * TODO: Remove after migration
- */
-export interface LegacyInvoiceExtraction {
-  vendor_name: string | null
-  invoice_number: string | null
-  invoice_date: string | null
-  subtotal: number | null
-  vat_amount: number | null
-  total_amount: number | null
-  currency: string
-  confidence: number
-  line_items: Array<{
-    description: string | null
-    quantity: number | null
-    unit_price: number | null
-    total: number | null
-  }>
 }
 
 /**

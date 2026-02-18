@@ -12,7 +12,7 @@ import { parseMerchantName } from './merchantParser'
 /**
  * Result of vendor display info lookup
  */
-export interface VendorDisplayInfo {
+interface VendorDisplayInfo {
   /** The display name to show (canonical name or parsed merchant name) */
   displayName: string
   /** Whether the name was resolved via an alias (true) or fallback (false) */
@@ -24,7 +24,7 @@ export interface VendorDisplayInfo {
 /**
  * VAT default settings from a vendor alias
  */
-export interface VendorVatDefault {
+interface VendorVatDefault {
   /** Whether VAT is enabled by default (null = no default) */
   hasVat: boolean | null
   /** Default VAT percentage (null = use system default) */

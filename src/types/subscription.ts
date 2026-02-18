@@ -1,6 +1,6 @@
-export type PlanTier = 'free' | 'pro' | 'business'
+type PlanTier = 'free' | 'pro' | 'business'
 
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete'
+type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete'
 
 export interface Subscription {
   id: string
@@ -42,6 +42,3 @@ export interface UsageRecord {
   updated_at: string
 }
 
-export interface SubscriptionWithLimits extends Subscription {
-  plan_limits: PlanLimits
-}
