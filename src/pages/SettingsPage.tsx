@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useSearchParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
@@ -169,8 +169,6 @@ function ProfileTab() {
   const [emailWeeklySummary, setEmailWeeklySummary] = useState(false)
   const [emailBankSyncAlerts, setEmailBankSyncAlerts] = useState(true)
 
-  // Track if form has unsaved changes
-  const [hasChanges, setHasChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -194,10 +192,9 @@ function ProfileTab() {
     }
   }, [profile])
 
-  // Track changes
-  const checkChanges = useCallback(() => {
+  // Derive whether form has unsaved changes
+  const hasChanges = useMemo(() => {
     if (!profile) {
-      // If no profile exists, any filled field is a change
       return !!(fullName || companyName || companyAddress || taxId ||
         currency !== 'ILS' || dateFormat !== 'DD/MM/YYYY' || numberFormat !== 'comma_dot' ||
         !emailNewInvoice || !emailPaymentReceived || emailWeeklySummary || !emailBankSyncAlerts)
@@ -216,10 +213,6 @@ function ProfileTab() {
       emailBankSyncAlerts !== profile.email_bank_sync_alerts
     )
   }, [profile, fullName, companyName, companyAddress, taxId, currency, dateFormat, numberFormat, emailNewInvoice, emailPaymentReceived, emailWeeklySummary, emailBankSyncAlerts])
-
-  useEffect(() => {
-    setHasChanges(checkChanges())
-  }, [checkChanges])
 
   // Handle save
   const handleSave = async () => {
@@ -241,7 +234,6 @@ function ProfileTab() {
         email_bank_sync_alerts: emailBankSyncAlerts,
       })
       setSaveMessage({ type: 'success', text: 'Profile saved successfully' })
-      setHasChanges(false)
       setTimeout(() => setSaveMessage(null), 3000)
     } catch (err) {
       setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save profile' })
@@ -702,7 +694,6 @@ function TeamTab() {
   const [showCreateBusinessModal, setShowCreateBusinessModal] = useState(false)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [hasNameChanges, setHasNameChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -735,10 +726,8 @@ function TeamTab() {
     }
   }, [currentTeam])
 
-  // Track name changes
-  useEffect(() => {
-    setHasNameChanges(teamName !== currentTeam?.name)
-  }, [teamName, currentTeam?.name])
+  // Derive whether name has changed
+  const hasNameChanges = teamName !== currentTeam?.name
 
   const handleSaveTeamName = async () => {
     if (!currentTeam || !hasNameChanges) return
@@ -749,7 +738,6 @@ function TeamTab() {
     try {
       await updateTeam.mutateAsync({ name: teamName.trim() })
       setSaveMessage({ type: 'success', text: 'Business name updated' })
-      setHasNameChanges(false)
       setTimeout(() => setSaveMessage(null), 3000)
     } catch (err) {
       setSaveMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update business' })
@@ -1067,15 +1055,17 @@ function BillingTab() {
   const [searchParams] = useSearchParams()
 
   const [billingInterval, setBillingInterval] = useState<'monthly' | 'yearly'>('monthly')
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+  const [showSuccessMessage, setShowSuccessMessage] = useState(
+    () => searchParams.get('success') === 'true'
+  )
 
-  // Check for success/canceled from Stripe redirect
+  // Auto-dismiss Stripe redirect success message on mount
   useEffect(() => {
-    if (searchParams.get('success') === 'true') {
-      setShowSuccessMessage(true)
-      setTimeout(() => setShowSuccessMessage(false), 5000)
+    if (showSuccessMessage) {
+      const timer = setTimeout(() => setShowSuccessMessage(false), 5000)
+      return () => clearTimeout(timer)
     }
-  }, [searchParams])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentPlan = subscription?.plan_tier || 'free'
   const limits = planLimits as PlanLimits | null
