@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { ArrowPathIcon, LinkIcon, TrashIcon, ReceiptPercentIcon, XMarkIcon, CreditCardIcon, MagnifyingGlassIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { exportTransactionsToCSV } from '@/lib/export/csvExporter'
 import { useExport } from '@/hooks/useExport'
@@ -392,10 +392,13 @@ export function CCPurchasesTab({ onBankChargeClick, onLinkCCTransaction, onRefet
     })
   }, [filteredTransactions, sortColumn, sortDirection])
 
-  // Reset to page 1 when filters, sort, or page size change
-  useEffect(() => {
+  // Reset to page 1 when filters, sort, or page size change (adjusting state during render)
+  const filterKey = `${JSON.stringify(filters)}|${selectedBillingPeriods.join(',')}|${selectedCardIds.join(',')}|${sortColumn}|${sortDirection}|${tablePageSize}`
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey)
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
     setCurrentPage(1)
-  }, [filters, selectedBillingPeriods, selectedCardIds, sortColumn, sortDirection, tablePageSize])
+  }
 
   // Calculate pagination
   const totalPages = Math.ceil(sortedTransactions.length / tablePageSize)

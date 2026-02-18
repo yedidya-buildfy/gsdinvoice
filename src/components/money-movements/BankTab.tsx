@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { TrashIcon, ReceiptPercentIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { TRANSACTION_TYPE } from '@/constants'
 import { useTransactions } from '@/hooks/useTransactions'
@@ -115,10 +115,13 @@ export function BankTab({ onRefetch }: BankTabProps) {
     })
   }, [filteredTransactions, sortColumn, sortDirection])
 
-  // Reset to page 1 when filters, sort, or page size change
-  useEffect(() => {
+  // Reset to page 1 when filters, sort, or page size change (adjusting state during render)
+  const filterKey = `${JSON.stringify(filters)}|${sortColumn}|${sortDirection}|${tablePageSize}`
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey)
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
     setCurrentPage(1)
-  }, [filters, sortColumn, sortDirection, tablePageSize])
+  }
 
   // Calculate pagination
   const totalPages = Math.ceil(sortedTransactions.length / tablePageSize)
