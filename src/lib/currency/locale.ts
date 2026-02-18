@@ -73,24 +73,3 @@ const CURRENCY_LOCALES: Partial<Record<CurrencyCode, string>> = {
 export function getLocaleForCurrency(code: CurrencyCode): string {
   return CURRENCY_LOCALES[code] ?? 'en-US';
 }
-
-/**
- * Get user's preferred locale from browser
- */
-export function getUserLocale(): string {
-  if (typeof navigator !== 'undefined') {
-    return navigator.language || 'en-US';
-  }
-  return 'en-US';
-}
-
-/**
- * Get the best locale considering both currency and user preference
- * Useful for showing amounts in user's preferred format
- */
-export function getDisplayLocale(code: CurrencyCode, preferUserLocale = false): string {
-  if (preferUserLocale) {
-    return getUserLocale();
-  }
-  return getLocaleForCurrency(code);
-}

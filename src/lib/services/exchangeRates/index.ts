@@ -99,7 +99,7 @@ function isCacheValid(cached: CachedExchangeRate, requestedDate: string): boolea
 /**
  * Clear the exchange rate cache (for testing/debugging)
  */
-export function clearExchangeRateCache(): void {
+function clearExchangeRateCache(): void {
   memoryCache.clear()
   try {
     localStorage.removeItem(STORAGE_KEY)
@@ -157,7 +157,7 @@ function getPreviousBusinessDay(date: string): string {
  * @param date - Date in YYYY-MM-DD format
  * @returns Rate (ILS per 1 unit of currency), or null if unavailable
  */
-export async function getExchangeRate(
+async function getExchangeRate(
   currencyCode: string,
   date: string
 ): Promise<{ rate: number; rateDate: string } | null> {
@@ -323,7 +323,7 @@ export async function getExchangeRatesForDate(
  *
  * @returns Map of currency code to rate info
  */
-export async function getLatestExchangeRates(): Promise<Map<string, { rate: number; rateDate: string }>> {
+async function getLatestExchangeRates(): Promise<Map<string, { rate: number; rateDate: string }>> {
   const result = new Map<string, { rate: number; rateDate: string }>()
   result.set('ILS', { rate: 1, rateDate: new Date().toISOString().split('T')[0] })
 
@@ -397,7 +397,5 @@ export function createConversionDetails(
 // =============================================================================
 
 export type {
-  ExchangeRate,
-  CachedExchangeRate,
   ConversionDetails,
 } from './types'

@@ -37,19 +37,6 @@ export interface StoredExchangeRateCache {
 }
 
 /**
- * BOI API response structure
- */
-export interface BOIApiResponse {
-  exchangeRates: Array<{
-    key: string  // Currency code
-    currentExchangeRate: number
-    currentChange: number
-    unit: number
-    lastUpdate: string  // ISO datetime
-  }>
-}
-
-/**
  * Conversion details for display in UI
  */
 export interface ConversionDetails {

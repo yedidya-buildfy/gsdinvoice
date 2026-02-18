@@ -64,10 +64,3 @@ export function getCurrencySymbol(code: CurrencyCode | string | null | undefined
   const validCode = toCurrencyCode(code, DEFAULT_CURRENCY);
   return CURRENCY_SYMBOLS[validCode] ?? validCode;
 }
-
-/**
- * Check if a currency has an explicit symbol defined
- */
-export function hasExplicitSymbol(code: CurrencyCode): boolean {
-  return code in CURRENCY_SYMBOLS;
-}

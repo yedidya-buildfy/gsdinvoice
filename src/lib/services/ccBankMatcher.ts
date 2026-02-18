@@ -32,12 +32,12 @@ interface CCPurchaseTransaction {
   credit_card?: { card_last_four: string } | null
 }
 
-export interface MatchingSettings {
+interface MatchingSettings {
   dateToleranceDays: number
   amountTolerancePercent: number
 }
 
-export interface MatchingResult {
+interface MatchingResult {
   matchedGroups: number
   matchedCCTransactions: number
   totalDiscrepancyAgorot: number

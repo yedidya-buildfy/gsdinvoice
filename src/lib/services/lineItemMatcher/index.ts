@@ -28,24 +28,14 @@ export * from './types'
 // Re-export scorer
 export {
   scoreMatch,
-  scoreReference,
-  scoreAmount,
-  scoreDate,
-  scoreCurrency,
-  scoreVendor,
   SCORING_WEIGHTS,
-  MAX_RAW_SCORE,
-  MAX_RAW_SCORE_NO_REF,
   ELIGIBLE_TRANSACTION_TYPES,
-  VAT_RATES,
 } from './scorer'
 export type {
   MatchScore,
   ScoreBreakdown,
-  ScorePenalties,
   ScoringContext,
   ExtractedInvoiceData,
-  VendorMatchResult,
 } from './scorer'
 
 // Re-export exchange rate types for convenience

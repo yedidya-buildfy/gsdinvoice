@@ -34,7 +34,7 @@ export interface ScoreBreakdown {
 /**
  * Penalties applied to the score
  */
-export interface ScorePenalties {
+interface ScorePenalties {
   vendorMismatch: number  // Always 0 (penalties removed)
 }
 
@@ -101,7 +101,7 @@ export interface ExtractedInvoiceData {
 /**
  * Result of vendor matching
  */
-export interface VendorMatchResult {
+interface VendorMatchResult {
   points: number        // 0-25
   penalty: number       // Always 0 (penalties removed)
   method: 'user_alias' | 'fuzzy' | 'none'
@@ -135,7 +135,7 @@ export const MAX_RAW_SCORE =
 export const MAX_RAW_SCORE_NO_REF = MAX_RAW_SCORE - SCORING_WEIGHTS.REFERENCE
 
 /** Common words to filter out from vendor name matching */
-export const EXCLUDED_VENDOR_WORDS = new Set([
+const EXCLUDED_VENDOR_WORDS = new Set([
   // Company suffixes (English)
   'inc', 'ltd', 'llc', 'corp', 'corporation', 'company', 'co',
   'gmbh', 'ag', 'sa', 'pty', 'usa', 'us', 'inc.', 'ltd.',

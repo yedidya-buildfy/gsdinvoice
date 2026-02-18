@@ -4,9 +4,7 @@
 
 import type { Transaction, InvoiceRow, Invoice } from '@/types/database'
 
-export type TransactionType = 'bank_regular' | 'bank_cc_charge' | 'cc_purchase'
-
-export type MatchStatus = 'unmatched' | 'matched' | 'partial' | 'manual'
+type TransactionType = 'bank_regular' | 'bank_cc_charge' | 'cc_purchase'
 
 export type MatchMethod = 'manual' | 'rule_reference' | 'rule_amount_date' | 'rule_fuzzy' | 'ai_assisted'
 
@@ -58,18 +56,6 @@ export interface GetMatchableLineItemsOptions {
 export interface LinkResult {
   success: boolean
   error?: string
-}
-
-/**
- * Match candidate with scoring info
- */
-export interface MatchCandidate<T> {
-  item: T
-  confidence: number
-  amountDifference: number
-  dateDifferenceDays: number
-  matchReasons: string[]
-  warnings: string[]
 }
 
 /**

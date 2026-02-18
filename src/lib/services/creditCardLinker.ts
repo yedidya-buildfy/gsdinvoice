@@ -40,57 +40,7 @@ export function detectCreditCardCharge(description: string): string | null {
   return matches && matches.length > 0 ? matches[matches.length - 1] : null;
 }
 
-interface AmountMatch {
-  matches: boolean;
-  difference: number;
-  percentDiff: number;
-}
-
-/**
- * Check if two amounts match within tolerance
- * @param amount1Agorot First amount in agorot
- * @param amount2Agorot Second amount in agorot
- * @param tolerancePercent Tolerance percentage (default 2%)
- */
-function _amountsMatch(
-  amount1Agorot: number,
-  amount2Agorot: number,
-  tolerancePercent: number = 2
-): AmountMatch {
-  const diff = Math.abs(amount1Agorot - amount2Agorot);
-  const larger = Math.max(Math.abs(amount1Agorot), Math.abs(amount2Agorot));
-  const percentDiff = larger > 0 ? (diff / larger) * 100 : 0;
-
-  return {
-    matches: percentDiff <= tolerancePercent,
-    difference: diff,
-    percentDiff,
-  };
-}
-// Export to prevent unused warning - kept for future use in advanced CC-to-bank matching
-export { _amountsMatch as amountsMatch };
-
-/**
- * Check if two dates are within window
- * @param date1 ISO date string YYYY-MM-DD
- * @param date2 ISO date string YYYY-MM-DD
- * @param windowDays Date window in days (default 2)
- */
-function _isWithinDateWindow(
-  date1: string,
-  date2: string,
-  windowDays: number = 2
-): boolean {
-  const d1 = new Date(date1);
-  const d2 = new Date(date2);
-  const diffMs = Math.abs(d1.getTime() - d2.getTime());
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
-  return diffDays <= windowDays;
-}
-// Export to prevent unused warning - kept for future use in advanced CC-to-bank matching
-export { _isWithinDateWindow as isWithinDateWindow };
-
-export interface LinkingResult {
+interface LinkingResult {
   linked: number;
   unlinked: number;
   errors: string[];
