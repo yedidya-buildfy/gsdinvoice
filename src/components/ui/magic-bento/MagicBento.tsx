@@ -579,5 +579,3 @@ export function MagicBento({
     </>
   );
 }
-
-export default MagicBento;
