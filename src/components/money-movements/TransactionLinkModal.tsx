@@ -118,28 +118,27 @@ export function TransactionLinkModal({
   const [amountTolerance, setAmountTolerance] = useState(20)
   const [currencyFilter, setCurrencyFilter] = useState<string>('')
 
-  // Initialize filters when modal opens with transaction data
-  useEffect(() => {
-    if (isOpen && transaction) {
-      // Pre-populate date range based on transaction date (±14 days)
+  // Reset filters when modal opens with a new transaction (adjusting state during render)
+  const transactionKey = isOpen && transaction ? transaction.id : null
+  const [prevTransactionKey, setPrevTransactionKey] = useState<string | null>(null)
+  if (transactionKey !== prevTransactionKey) {
+    setPrevTransactionKey(transactionKey)
+    if (transactionKey && transaction) {
       const { from, to } = calculateDateRange(transaction.date, 14, 14)
       setFromDate(from)
       setToDate(to)
-
-      // Reset other filters
       setSearchQuery('')
       setVendorFilter('')
       setCurrencyFilter('')
       setAmountTolerance(20)
     }
-  }, [isOpen, transaction?.id]) // Only reset when modal opens with new transaction
+  }
 
   // Fetch line items when modal opens or filters change
   useEffect(() => {
-    if (!isOpen || !transaction) {
-      setLineItems([])
-      return
-    }
+    if (!isOpen || !transaction) return
+
+    let cancelled = false
 
     async function fetchLineItems() {
       if (!transaction) return
@@ -155,6 +154,8 @@ export function TransactionLinkModal({
           vendorName: vendorFilter || undefined,
           searchQuery: searchQuery || undefined,
         })
+
+        if (cancelled) return
 
         // Apply date filters from date picker
         // Use transaction_date, or invoice_date as fallback
@@ -178,13 +179,19 @@ export function TransactionLinkModal({
 
         setLineItems(filtered)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch line items')
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to fetch line items')
+        }
       } finally {
-        setIsLoading(false)
+        if (!cancelled) {
+          setIsLoading(false)
+        }
       }
     }
 
     fetchLineItems()
+
+    return () => { cancelled = true }
   }, [isOpen, transaction, fromDate, toDate, searchQuery, vendorFilter, amountTolerance, currencyFilter])
 
   // Score line items using new scoring algorithm
