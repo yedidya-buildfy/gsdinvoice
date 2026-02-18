@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { TrashIcon, SparklesIcon, BoltIcon, ExclamationTriangleIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { FileUploader } from '@/components/upload/FileUploader'
@@ -220,17 +220,13 @@ export function InvoicesPage() {
     })
   }, [filteredDocuments, sortColumn, sortDirection])
 
-  // Reset to page 1 when filters, sort, or page size change
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [filters, sortColumn, sortDirection, tablePageSize])
-
-  // Calculate pagination
-  const totalPages = Math.ceil(sortedDocuments.length / tablePageSize)
+  // Calculate pagination — clamp currentPage so it's always valid
+  const totalPages = Math.max(1, Math.ceil(sortedDocuments.length / tablePageSize))
+  const safePage = Math.min(currentPage, totalPages)
   const paginatedDocuments = useMemo(() => {
-    const start = (currentPage - 1) * tablePageSize
+    const start = (safePage - 1) * tablePageSize
     return sortedDocuments.slice(start, start + tablePageSize)
-  }, [sortedDocuments, currentPage, tablePageSize])
+  }, [sortedDocuments, safePage, tablePageSize])
 
   const selectedDocument = useMemo(() => {
     if (!selectedDocumentId) return null
@@ -240,10 +236,11 @@ export function InvoicesPage() {
   const totalCount = documents?.length ?? 0
   const filteredCount = filteredDocuments.length
 
-  // Clear selection when filters change
+  // Clear selection and reset page when filters change
   const handleFilterChange = useCallback((newFilters: InvoiceFilterState) => {
     setFilters(newFilters)
     setSelectedIds(new Set())
+    setCurrentPage(1)
   }, [])
 
   // Handle sort column click
@@ -255,6 +252,7 @@ export function InvoicesPage() {
         setSortColumn(column)
         setSortDirection('desc')
       }
+      setCurrentPage(1)
     },
     [sortColumn]
   )
@@ -641,7 +639,7 @@ export function InvoicesPage() {
         {/* Pagination */}
         {!isLoading && filteredCount > 0 && (
           <Pagination
-            currentPage={currentPage}
+            currentPage={safePage}
             totalPages={totalPages}
             totalItems={sortedDocuments.length}
             pageSize={tablePageSize}
