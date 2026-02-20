@@ -43,14 +43,16 @@ import { useUpdateTeam, useLeaveTeam, useDeleteTeam } from '@/hooks/useTeamManag
 import { canManageTeam, canInviteMembers, canDeleteTeam } from '@/lib/permissions'
 import { cx } from '@/utils/cx'
 import type { Currency, DateFormat, NumberFormat } from '@/types/database'
+import { EmailConnectionsSection } from '@/components/email/EmailConnectionsSection'
 
-type SettingsTabId = 'profile' | 'team' | 'rules' | 'credit-cards' | 'billing'
+type SettingsTabId = 'profile' | 'team' | 'rules' | 'credit-cards' | 'email' | 'billing'
 
 const settingsTabs: { id: SettingsTabId; label: string }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'team', label: 'Business' },
   { id: 'rules', label: 'Rules' },
   { id: 'credit-cards', label: 'Credit Cards' },
+  { id: 'email', label: 'Email' },
   { id: 'billing', label: 'Billing & Plans' },
 ]
 
@@ -2048,7 +2050,7 @@ export function SettingsPage() {
   const [searchParams] = useSearchParams()
   const tabParam = searchParams.get('tab') as SettingsTabId | null
   const sectionParam = searchParams.get('section')
-  const validTabs: SettingsTabId[] = ['profile', 'team', 'rules', 'credit-cards', 'billing']
+  const validTabs: SettingsTabId[] = ['profile', 'team', 'rules', 'credit-cards', 'email', 'billing']
 
   const [selectedTab, setSelectedTab] = useState<SettingsTabId>(
     tabParam && validTabs.includes(tabParam) ? tabParam : 'rules'
@@ -2095,12 +2097,10 @@ export function SettingsPage() {
     }
   }, [sectionParam, selectedTab])
 
-  // Sync tab with URL param
-  useEffect(() => {
-    if (tabParam && validTabs.includes(tabParam) && tabParam !== selectedTab) {
-      setSelectedTab(tabParam)
-    }
-  }, [tabParam])
+  // Sync tab with URL param (render-time adjustment)
+  if (tabParam && validTabs.includes(tabParam) && tabParam !== selectedTab) {
+    setSelectedTab(tabParam)
+  }
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -2139,6 +2139,7 @@ export function SettingsPage() {
         {selectedTab === 'team' && <TeamTab />}
         {selectedTab === 'rules' && <RulesTab ccLinkingRef={ccLinkingRef} />}
         {selectedTab === 'credit-cards' && <CreditCardsTab />}
+        {selectedTab === 'email' && <EmailConnectionsSection />}
         {selectedTab === 'billing' && <BillingTab />}
       </div>
     </div>

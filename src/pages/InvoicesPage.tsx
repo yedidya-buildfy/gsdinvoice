@@ -37,6 +37,7 @@ import { supabase } from '@/lib/supabase'
 import type { ExtractionRequest, LineItemDuplicateInfo } from '@/lib/extraction/types'
 import type { DuplicateAction } from '@/lib/duplicates/types'
 import { isImageType } from '@/lib/storage'
+import { EmailReviewQueue } from '@/components/email/EmailReviewQueue'
 
 export function InvoicesPage() {
   const queryClient = useQueryClient()
@@ -139,6 +140,12 @@ export function InvoicesPage() {
         const isApproved = doc.invoice?.is_approved ?? false
         if (filters.approvalStatus === 'approved' && !isApproved) return false
         if (filters.approvalStatus === 'not_approved' && isApproved) return false
+      }
+
+      // Source filter
+      if (filters.source !== 'all') {
+        const docSource = doc.source ?? 'upload'
+        if (docSource !== filters.source) return false
       }
 
       return true
@@ -516,6 +523,19 @@ export function InvoicesPage() {
         <div className="bg-surface rounded-lg p-6">
           <FileUploader onUploadComplete={handleUploadComplete} />
         </div>
+      </section>
+
+      {/* Email Review Queue */}
+      <section className="mb-8">
+      <EmailReviewQueue
+        documents={documentsWithInvoices}
+        onApprove={(invoiceId) => handleApprovalToggle(invoiceId, true)}
+        onView={(documentId) => setSelectedDocumentId(documentId)}
+        onBulkApprove={(invoiceIds) => {
+          invoiceIds.forEach((id) => handleApprovalToggle(id, true))
+        }}
+        approvingIds={approvingIds}
+      />
       </section>
 
       {/* Documents Section */}

@@ -1098,7 +1098,9 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-  if (!supabaseUrl || !supabaseKey) {
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+  if (!supabaseUrl || !supabaseKey || !supabaseAnonKey) {
     console.error("[MAIN] Missing Supabase env vars");
     return new Response(
       JSON.stringify({ success: false, error: "Server configuration error" }),
@@ -1108,6 +1110,34 @@ Deno.serve(async (req) => {
       }
     );
   }
+
+  // Verify JWT authentication
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing authorization" }),
+      {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: { user: authUser }, error: authError } = await authClient.auth.getUser();
+  if (authError || !authUser) {
+    console.error("[MAIN] Authentication failed:", authError?.message);
+    return new Response(
+      JSON.stringify({ success: false, error: "Unauthorized" }),
+      {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  }
+  console.log("[MAIN] Authenticated user:", authUser.id);
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 

@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon, XMarkIcon, FunnelIcon, LinkIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { MagnifyingGlassIcon, XMarkIcon, FunnelIcon, LinkIcon, CheckCircleIcon, ArrowUpTrayIcon, EnvelopeIcon } from '@heroicons/react/24/outline'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import type { InvoiceFilterState } from './invoiceFilterTypes'
 
@@ -248,6 +248,62 @@ function ApprovalStatusSelect({
   )
 }
 
+const SOURCE_OPTIONS: { value: InvoiceFilterState['source']; label: string; Icon?: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [
+  { value: 'all', label: 'All Sources' },
+  { value: 'upload', label: 'Upload', Icon: ArrowUpTrayIcon },
+  { value: 'email', label: 'Email', Icon: EnvelopeIcon },
+]
+
+function SourceSelect({
+  value,
+  onChange,
+}: {
+  value: InvoiceFilterState['source']
+  onChange: (value: InvoiceFilterState['source']) => void
+}) {
+  const selected = SOURCE_OPTIONS.find((opt) => opt.value === value)
+  const isFiltered = value !== 'all'
+
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-text-muted/20 rounded-lg text-text hover:border-text-muted/40 transition-colors text-sm"
+      >
+        {selected?.Icon && <selected.Icon className="w-4 h-4 text-text-muted" />}
+        <span>{selected?.label ?? 'All Sources'}</span>
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange('all')
+            }}
+            className="p-0.5 rounded hover:bg-background/50"
+          >
+            <XMarkIcon className="w-3.5 h-3.5 text-text-muted hover:text-text" />
+          </button>
+        )}
+      </button>
+      <div className="absolute top-full start-0 mt-1 z-50 hidden group-hover:block bg-surface border border-text-muted/20 rounded-lg shadow-lg min-w-[140px]">
+        {SOURCE_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`w-full flex items-center gap-2 px-3 py-2 hover:bg-background/50 text-start text-sm transition-colors first:rounded-t-lg last:rounded-b-lg ${
+              value === option.value ? 'text-primary font-medium' : 'text-text'
+            }`}
+          >
+            {value === option.value && <span className="text-primary">&#10003;</span>}
+            <span className={value === option.value ? '' : 'ps-5'}>{option.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function InvoiceFilters({ filters, onChange, children }: InvoiceFiltersProps) {
   const handleDateChange = (startDate: string, endDate: string) => {
     onChange({ ...filters, dateFrom: startDate, dateTo: endDate })
@@ -284,6 +340,12 @@ export function InvoiceFilters({ filters, onChange, children }: InvoiceFiltersPr
       <ApprovalStatusSelect
         value={filters.approvalStatus}
         onChange={(approvalStatus) => onChange({ ...filters, approvalStatus })}
+      />
+
+      {/* Source select */}
+      <SourceSelect
+        value={filters.source}
+        onChange={(source) => onChange({ ...filters, source })}
       />
 
       {/* Search */}

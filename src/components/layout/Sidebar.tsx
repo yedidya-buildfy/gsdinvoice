@@ -14,6 +14,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { useProfile } from '@/hooks/useProfile'
 import { TeamSwitcher } from '@/components/team/TeamSwitcher'
+import { useUnreviewedEmailReceiptCount } from '@/hooks/useEmailConnections'
 
 interface NavChild {
   to: string
@@ -52,6 +53,7 @@ export function Sidebar() {
   const [isHovered, setIsHovered] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['Money Movements'])
 
+  const { data: unreviewedCount } = useUnreviewedEmailReceiptCount()
   const displayName = profile?.full_name || user?.email || ''
 
   const handleSignOut = async () => {
@@ -169,7 +171,7 @@ export function Sidebar() {
                   end={item.to === '/'}
                   title={!isExpanded ? item.label : undefined}
                   className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
+                    `relative flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
                       isActive
                         ? 'bg-primary/10 text-primary'
                         : 'text-text-muted hover:bg-background hover:text-text'
@@ -178,7 +180,19 @@ export function Sidebar() {
                 >
                   <item.icon className="h-5 w-5 shrink-0" />
                   {isExpanded && (
-                    <span className="truncate">{item.label}</span>
+                    <>
+                      <span className="truncate">{item.label}</span>
+                      {item.label === 'Invoices & Receipts' && unreviewedCount != null && unreviewedCount > 0 && (
+                        <span className="ml-auto text-xs px-1.5 py-0.5 rounded-full bg-primary text-white min-w-[20px] text-center">
+                          {unreviewedCount > 99 ? '99+' : unreviewedCount}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {!isExpanded && item.label === 'Invoices & Receipts' && unreviewedCount != null && unreviewedCount > 0 && (
+                    <span className="absolute -top-1 -end-1 w-4 h-4 rounded-full bg-primary text-white text-[10px] flex items-center justify-center">
+                      {unreviewedCount > 9 ? '9+' : unreviewedCount}
+                    </span>
                   )}
                 </NavLink>
               )}

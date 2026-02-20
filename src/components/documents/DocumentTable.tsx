@@ -7,6 +7,8 @@ import {
   ChevronDownIcon,
   LinkIcon,
   CheckIcon,
+  ArrowUpTrayIcon,
+  EnvelopeIcon,
 } from '@heroicons/react/24/outline'
 import type { DocumentWithUrl } from '@/hooks/useDocuments'
 import type { InvoiceWithFile } from '@/hooks/useInvoices'
@@ -304,6 +306,11 @@ function SkeletonRow({ isVisible }: { isVisible: (col: DocumentColumnKey) => boo
           <div className="h-5 w-5 bg-surface rounded inline-block" />
         </td>
       )}
+      {isVisible('source') && (
+        <td className="px-4 py-3 text-center">
+          <div className="h-5 w-5 bg-surface rounded inline-block" />
+        </td>
+      )}
     </tr>
   )
 }
@@ -366,6 +373,7 @@ export function DocumentTable({
               {isVisible('bankLink') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-36">Link to Transaction</th>}
               {isVisible('aiStatus') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-36">AI Status</th>}
               {isVisible('approval') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Approved</th>}
+              {isVisible('source') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">Source</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-text-muted/10">
@@ -520,6 +528,11 @@ export function DocumentTable({
                 className="w-14"
               />
             )}
+            {isVisible('source') && (
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">
+                Source
+              </th>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y divide-text-muted/10">
@@ -642,6 +655,15 @@ export function DocumentTable({
                       </button>
                     ) : (
                       <span className="text-text-muted">-</span>
+                    )}
+                  </td>
+                )}
+                {isVisible('source') && (
+                  <td className="px-4 py-3 text-center">
+                    {doc.source === 'email' ? (
+                      <EnvelopeIcon className="h-4 w-4 text-primary mx-auto" title="Email" />
+                    ) : (
+                      <ArrowUpTrayIcon className="h-4 w-4 text-text-muted mx-auto" title="Upload" />
                     )}
                   </td>
                 )}

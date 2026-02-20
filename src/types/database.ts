@@ -123,6 +123,71 @@ export type Database = {
           },
         ]
       }
+      email_connections: {
+        Row: {
+          id: string
+          team_id: string
+          user_id: string
+          provider: string
+          email_address: string
+          access_token: string
+          refresh_token: string
+          token_expires_at: string
+          scopes: string[]
+          last_history_id: string | null
+          last_sync_at: string | null
+          status: string
+          sync_state: Json
+          sender_rules: Json
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          team_id: string
+          user_id: string
+          provider?: string
+          email_address: string
+          access_token: string
+          refresh_token: string
+          token_expires_at: string
+          scopes: string[]
+          last_history_id?: string | null
+          last_sync_at?: string | null
+          status?: string
+          sync_state?: Json
+          sender_rules?: Json
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          team_id?: string
+          user_id?: string
+          provider?: string
+          email_address?: string
+          access_token?: string
+          refresh_token?: string
+          token_expires_at?: string
+          scopes?: string[]
+          last_history_id?: string | null
+          last_sync_at?: string | null
+          status?: string
+          sync_state?: Json
+          sender_rules?: Json
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_connections_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_cards: {
         Row: {
           card_last_four: string
@@ -164,6 +229,7 @@ export type Database = {
       files: {
         Row: {
           created_at: string | null
+          email_message_id: string | null
           error_message: string | null
           exported_at: string | null
           extracted_data: Json | null
@@ -173,6 +239,7 @@ export type Database = {
           id: string
           original_name: string
           processed_at: string | null
+          source: string
           source_type: string
           status: string | null
           storage_path: string
@@ -181,6 +248,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          email_message_id?: string | null
           error_message?: string | null
           exported_at?: string | null
           extracted_data?: Json | null
@@ -190,6 +258,7 @@ export type Database = {
           id?: string
           original_name: string
           processed_at?: string | null
+          source?: string
           source_type: string
           status?: string | null
           storage_path: string
@@ -198,6 +267,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          email_message_id?: string | null
           error_message?: string | null
           exported_at?: string | null
           extracted_data?: Json | null
@@ -207,6 +277,7 @@ export type Database = {
           id?: string
           original_name?: string
           processed_at?: string | null
+          source?: string
           source_type?: string
           status?: string | null
           storage_path?: string
@@ -1101,3 +1172,8 @@ export type NumberFormat = 'comma_dot' | 'space_comma' | 'dot_comma'
 export type VendorAlias = Database['public']['Tables']['vendor_aliases']['Row']
 export type VendorAliasInsert = Database['public']['Tables']['vendor_aliases']['Insert']
 export type VendorAliasUpdate = Database['public']['Tables']['vendor_aliases']['Update']
+
+// Email connection types
+export type EmailConnection = Database['public']['Tables']['email_connections']['Row']
+export type EmailConnectionInsert = Database['public']['Tables']['email_connections']['Insert']
+export type EmailConnectionUpdate = Database['public']['Tables']['email_connections']['Update']

@@ -1,3 +1,5 @@
+verify_jwt = false
+
 [limits]
 timeout = 120  # 2 minutes for large documents
 

@@ -92,7 +92,7 @@ function defaultColumnVisibility(): ColumnVisibilityState {
   }
   const docCols: Record<DocumentColumnKey, boolean> = {
     approval: true, type: true, size: true, vendor: true, total: true, vatAmount: true,
-    added: true, items: true, confidence: true, bankLink: true, aiStatus: true,
+    added: true, items: true, confidence: true, bankLink: true, aiStatus: true, source: true,
   }
   return { transaction: txCols, creditCard: ccCols, document: docCols }
 }
