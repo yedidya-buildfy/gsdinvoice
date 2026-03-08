@@ -52,9 +52,9 @@ export function Sidebar() {
     >
       {/* Header */}
       <div className="flex h-16 items-center border-b border-text-muted/20 px-4 gap-3">
-        <img src="/logo120.png" alt="VATManager" className="h-8 w-8 shrink-0" />
+        <img src="/logo120.png" alt="BillSync" className="h-8 w-8 shrink-0" />
         {isExpanded && (
-          <span className="text-lg font-semibold text-text">VAT<span className="text-primary">Manager</span></span>
+          <span className="text-lg font-semibold text-text">Bill<span className="text-primary">Sync</span></span>
         )}
       </div>
 

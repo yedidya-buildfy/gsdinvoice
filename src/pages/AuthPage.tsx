@@ -155,9 +155,9 @@ export function AuthPage() {
           }`}>
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center justify-center">
-              <img src="/logo120.png" alt="VATManager" className="h-16 w-16" />
+              <img src="/logo120.png" alt="BillSync" className="h-16 w-16" />
               <h1 className="mt-4 text-2xl font-bold text-text tracking-tight">
-                VAT<span className="text-primary">Manager</span>
+                Bill<span className="text-primary">Sync</span>
               </h1>
             </div>
 

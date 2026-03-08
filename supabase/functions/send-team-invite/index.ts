@@ -112,7 +112,7 @@ function generateEmailHtml({
           <tr>
             <td style="text-align: center;">
               <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                Sent by VAT Manager
+                Sent by BillSync
               </p>
             </td>
           </tr>
@@ -146,7 +146,7 @@ This invitation will expire in 7 days.
 If you didn't expect this invitation, you can safely ignore this email.
 
 ---
-Sent by VAT Manager
+Sent by BillSync
 `
 }
 
@@ -252,7 +252,7 @@ Deno.serve(async (req) => {
     const envFromAddress = Deno.env.get('EMAIL_FROM_ADDRESS')
 
     // Default to Resend's test/sandbox address which works without domain verification
-    const DEFAULT_FROM = 'VAT Manager <onboarding@resend.dev>'
+    const DEFAULT_FROM = 'BillSync <onboarding@resend.dev>'
 
     // Use environment value only if it's set and not empty, otherwise use default
     const fromAddress = envFromAddress && envFromAddress.trim() !== ''

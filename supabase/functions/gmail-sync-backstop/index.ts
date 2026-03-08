@@ -407,7 +407,7 @@ async function downloadRemoteContent(url: string): Promise<DownloadedContent | n
       method: "GET",
       redirect: "manual",
       headers: {
-        "User-Agent": "VAT-Declaration-Manager/Email-Ingestion",
+        "User-Agent": "BillSync/Email-Ingestion",
         "Accept": "application/pdf,image/*,text/html",
       },
     });

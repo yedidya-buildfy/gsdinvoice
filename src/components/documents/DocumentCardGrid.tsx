@@ -19,7 +19,6 @@ import { ExtractionStatus } from './ExtractionStatus'
 import {
   BankLinkBadge,
   ConfidenceBadge,
-  formatFileSize,
   formatDate,
   getLineItemsCount,
   getExtractionStatus,

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-VAT Declaration Manager - A web application for managing Israeli VAT declarations. Upload bank movements, credit card statements, and invoices/receipts. Uses AI (Gemini 3 Flash) to extract data from documents and automatically match invoices to transactions.
+BillSync - A web application for managing Israeli VAT declarations. Upload bank movements, credit card statements, and invoices/receipts. Uses AI (Gemini 3 Flash) to extract data from documents and automatically match invoices to transactions.
 
 ## Commands
 
