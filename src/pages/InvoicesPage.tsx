@@ -1,12 +1,13 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { TrashIcon, SparklesIcon, BoltIcon, ExclamationTriangleIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
+import { TrashIcon, SparklesIcon, BoltIcon, ExclamationTriangleIcon, ArrowDownTrayIcon, TableCellsIcon, Squares2X2Icon } from '@heroicons/react/24/outline'
 import { FileUploader } from '@/components/upload/FileUploader'
 import {
   DocumentTable,
   type DocumentWithInvoice,
   type DocumentSortColumn,
 } from '@/components/documents/DocumentTable'
+import { DocumentCardGrid } from '@/components/documents/DocumentCardGrid'
 import { InvoiceFilters } from '@/components/documents/InvoiceFilters'
 import { useColumnVisibility } from '@/hooks/useColumnVisibility'
 import { ColumnVisibilityDropdown } from '@/components/ui/ColumnVisibilityDropdown'
@@ -46,8 +47,8 @@ export function InvoicesPage() {
   const extractSingle = useExtractDocument()
   const extractMultiple = useExtractMultipleDocuments()
   const autoMatch = useAutoMatch()
-  const { autoExtractOnUpload, autoMatchEnabled, tablePageSize } = useSettingsStore()
-  const { visibility, toggle, reset } = useColumnVisibility('document')
+  const { autoExtractOnUpload, autoMatchEnabled, tablePageSize, documentViewMode, setDocumentViewMode } = useSettingsStore()
+  const { visibility, isVisible, toggle, reset } = useColumnVisibility('document')
   const approvalMutation = useUpdateInvoiceApproval()
   const { progress: exportProgress, isExporting, runExport, markExported, cancel: cancelExport, reset: resetExport } = useExport()
 
@@ -581,6 +582,26 @@ export function InvoicesPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* View mode toggle */}
+            <div className="flex items-center border border-text-muted/20 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setDocumentViewMode('table')}
+                className={`p-2 transition-colors ${documentViewMode === 'table' ? 'bg-primary/20 text-primary' : 'text-text-muted hover:text-text'}`}
+                title="Table view"
+              >
+                <TableCellsIcon className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDocumentViewMode('cards')}
+                className={`p-2 transition-colors ${documentViewMode === 'cards' ? 'bg-primary/20 text-primary' : 'text-text-muted hover:text-text'}`}
+                title="Card view"
+              >
+                <Squares2X2Icon className="w-4 h-4" />
+              </button>
+            </div>
+
             {/* Export button - always visible when docs exist */}
             {filteredCount > 0 && (
               <button
@@ -671,20 +692,34 @@ export function InvoicesPage() {
           </div>
         )}
 
-        {/* Table */}
-        <DocumentTable
-          documents={paginatedDocuments}
-          isLoading={isLoading}
-          selectedIds={selectedIds}
-          onSelectionChange={setSelectedIds}
-          onRowClick={handleRowClick}
-          onBankLinkClick={handleBankLinkClick}
-          onApprovalToggle={handleApprovalToggle}
-          approvingIds={approvingIds}
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
-          onSort={handleSort}
-        />
+        {/* Table / Card view */}
+        {documentViewMode === 'table' ? (
+          <DocumentTable
+            documents={paginatedDocuments}
+            isLoading={isLoading}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            onRowClick={handleRowClick}
+            onBankLinkClick={handleBankLinkClick}
+            onApprovalToggle={handleApprovalToggle}
+            approvingIds={approvingIds}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+          />
+        ) : (
+          <DocumentCardGrid
+            documents={paginatedDocuments}
+            isLoading={isLoading}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            onRowClick={handleRowClick}
+            onBankLinkClick={handleBankLinkClick}
+            onApprovalToggle={handleApprovalToggle}
+            approvingIds={approvingIds}
+            isVisible={isVisible}
+          />
+        )}
 
         {/* Pagination */}
         {!isLoading && filteredCount > 0 && (

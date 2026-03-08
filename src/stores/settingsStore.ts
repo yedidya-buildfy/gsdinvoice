@@ -75,6 +75,10 @@ interface SettingsState {
     value: VendorResolverSettings[K]
   ) => void
 
+  // Document view mode
+  documentViewMode: 'table' | 'cards'
+  setDocumentViewMode: (mode: 'table' | 'cards') => void
+
   // Column visibility
   columnVisibility: ColumnVisibilityState
   setColumnVisibility: (table: keyof ColumnVisibilityState, column: string, visible: boolean) => void
@@ -164,6 +168,10 @@ export const useSettingsStore = create<SettingsState>()(
           },
         })),
 
+      // Document view mode
+      documentViewMode: 'table' as const,
+      setDocumentViewMode: (mode) => set({ documentViewMode: mode }),
+
       // Column visibility - default all to true
       columnVisibility: defaultColumnVisibility(),
       setColumnVisibility: (table, column, visible) =>
@@ -201,6 +209,7 @@ export const useSettingsStore = create<SettingsState>()(
         autoMatchEnabled: state.autoMatchEnabled,
         tablePageSize: state.tablePageSize,
         vendorResolver: state.vendorResolver,
+        documentViewMode: state.documentViewMode,
         columnVisibility: state.columnVisibility,
       }),
     }
