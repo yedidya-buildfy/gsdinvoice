@@ -53,7 +53,7 @@ export function AcceptInvitationPage() {
       await acceptInvitation.mutateAsync(token)
       setAccepted(true)
       // Redirect to dashboard after a short delay
-      setTimeout(() => navigate('/'), 2000)
+      setTimeout(() => navigate('/dashboard'), 2000)
     } catch (err) {
       setAcceptError(err instanceof Error ? err.message : 'Failed to accept invitation')
     }

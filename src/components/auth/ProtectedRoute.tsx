@@ -16,7 +16,7 @@ export function ProtectedRoute() {
 
   // Redirect to login if not authenticated
   if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />
+    return <Navigate to="/login" state={{ from: location.pathname === '/' ? { pathname: '/dashboard' } : location }} replace />
   }
 
   // Render child routes if authenticated

@@ -20,7 +20,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { to: '/', icon: HomeIcon, label: 'Dashboard' },
+  { to: '/dashboard', icon: HomeIcon, label: 'Dashboard' },
   { to: '/money-movements', icon: BanknotesIcon, label: 'Money Movements' },
   { to: '/invoices', icon: DocumentTextIcon, label: 'Invoices & Receipts' },
 ]

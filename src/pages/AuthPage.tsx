@@ -20,7 +20,7 @@ export function AuthPage() {
   const { signIn, signUp, signInWithOAuth, user, loading: authLoading } = useAuth()
   const [oauthLoading, setOauthLoading] = useState(false)
 
-  const from = location.state?.from?.pathname || '/'
+  const from = location.state?.from?.pathname || '/dashboard'
 
   // Redirect if already logged in
   useEffect(() => {
