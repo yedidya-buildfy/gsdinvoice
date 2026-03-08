@@ -25,7 +25,12 @@ export function useEmailConnections() {
       return data as EmailConnection[]
     },
     enabled: !!user?.id && !!currentTeam,
-    staleTime: 30 * 1000,
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const hasActiveSync = data?.some((c) => c.status === 'syncing')
+      return hasActiveSync ? 5_000 : false
+    },
   })
 }
 
@@ -117,6 +122,32 @@ export function useStartEmailSync() {
 }
 
 // ============================================================================
+// Mutation: resume a failed email sync
+// ============================================================================
+
+export function useResumeEmailSync() {
+  const queryClient = useQueryClient()
+  const { currentTeam } = useTeam()
+
+  return useMutation({
+    mutationFn: async (connectionId: string) => {
+      const response = await supabase.functions.invoke('gmail-sync', {
+        body: {
+          mode: 'resume',
+          connection_id: connectionId,
+        },
+      })
+
+      if (response.error) throw new Error(response.error.message)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['email-connections', currentTeam?.id] })
+    },
+  })
+}
+
+// ============================================================================
 // Mutation: update sender rules for a connection
 // ============================================================================
 
@@ -130,7 +161,11 @@ export function useUpdateSenderRules() {
       senderRules,
     }: {
       connectionId: string
-      senderRules: { domain: string; rule: 'always_trust' | 'always_ignore' }[]
+      senderRules: {
+        pattern: string
+        match_type: 'domain' | 'email'
+        action: 'always_trust' | 'always_ignore'
+      }[]
     }) => {
       const { error } = await supabase
         .from('email_connections')

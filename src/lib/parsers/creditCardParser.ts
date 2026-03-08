@@ -196,19 +196,22 @@ function normalizeCreditCardTransaction(
   }
 
   // Infer foreign currency from column header name
+  // Detect currency even when amount is null (e.g. pending transactions)
   let foreignCurrency: string | null = null;
-  if (foreignAmount !== null) {
-    // Check if column header mentions currency
-    const foreignColName = (mapping.foreignAmount || '').toLowerCase();
-    if (foreignColName.includes('דולר') || foreignColName.includes('usd') || foreignColName.includes('$')) {
-      foreignCurrency = 'USD';
-    } else if (foreignColName.includes('יורו') || foreignColName.includes('eur') || foreignColName.includes('€')) {
-      foreignCurrency = 'EUR';
-    } else if (foreignColName.includes('לירה') || foreignColName.includes('gbp') || foreignColName.includes('£')) {
-      foreignCurrency = 'GBP';
-    } else {
-      foreignCurrency = 'USD'; // Default assumption for foreign currency
-    }
+  const foreignColName = (mapping.foreignAmount || '').toLowerCase();
+  if (foreignColName.includes('דולר') || foreignColName.includes('usd') || foreignColName.includes('$')) {
+    foreignCurrency = 'USD';
+  } else if (foreignColName.includes('יורו') || foreignColName.includes('eur') || foreignColName.includes('€')) {
+    foreignCurrency = 'EUR';
+  } else if (foreignColName.includes('לירה') || foreignColName.includes('gbp') || foreignColName.includes('£')) {
+    foreignCurrency = 'GBP';
+  }
+
+  // For pending transactions with no ILS amount: if the foreign currency column exists
+  // but both amounts are null, this is likely a foreign currency transaction pending processing
+  const isPending = amountAgorot === 0 && foreignAmount === null && mapping.foreignAmount;
+  if (isPending && !foreignCurrency) {
+    foreignCurrency = 'USD'; // Default assumption for foreign currency
   }
 
   // Extract card last four

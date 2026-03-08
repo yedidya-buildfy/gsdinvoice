@@ -333,7 +333,7 @@ function MatchRow({
                     <td className="py-2 px-3 text-text-secondary whitespace-nowrap">
                       {ccTx.charge_date ? formatDisplayDate(ccTx.charge_date) : '-'}
                     </td>
-                    <td className="py-2 px-3 text-text" dir="auto">
+                    <td className="py-2 px-3 text-center text-text" dir="auto">
                       {ccTx.merchant_name}
                     </td>
                     <td className="py-2 px-3 text-end font-medium text-text whitespace-nowrap">

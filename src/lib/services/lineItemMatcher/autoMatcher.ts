@@ -16,6 +16,7 @@ import {
   type ScoringContext,
   type ExtractedInvoiceData,
 } from './scorer'
+import { getCrossLangVendorScore, hasLanguageMismatch } from './crossLangVendor'
 import { linkLineItemToTransaction } from './index'
 import type { MatchMethod, LinkResult } from './types'
 import { getExchangeRatesForDate } from '../exchangeRates'
@@ -137,6 +138,40 @@ async function fetchExtractedData(invoice: Invoice): Promise<ExtractedInvoiceDat
 
 // NOTE: Individual allocation check functions removed - using batchGetAllocationInfo instead
 // for better performance (eliminates N+1 queries)
+
+/**
+ * Enhance the top candidate's vendor score using cross-language AI matching.
+ * Only runs if the top candidate has vendor=0 and names are in different languages.
+ * Mutates the candidate's score in-place and re-sorts.
+ */
+async function enhanceTopCandidateCrossLang(
+  candidates: Array<{ transaction: Transaction; score: MatchScore; confidence: number; remainingAmount: number }>,
+  vendorName: string | null | undefined
+): Promise<void> {
+  if (!candidates.length || !vendorName) return
+
+  const top = candidates[0]
+  if (top.score.breakdown.vendor > 0) return
+
+  const txDesc = top.transaction.description || ''
+  if (!hasLanguageMismatch(vendorName, txDesc)) return
+
+  const aiPoints = await getCrossLangVendorScore(vendorName, txDesc)
+  if (aiPoints === null || aiPoints === 0) return
+
+  // Apply AI vendor score to top candidate
+  const pointsDelta = aiPoints - top.score.breakdown.vendor
+  top.score.breakdown.vendor = aiPoints
+  top.score.rawTotal += pointsDelta
+  const hasRef = top.score.breakdown.reference > 0
+  const maxScore = hasRef ? 100 : 90
+  top.score.total = Math.max(0, Math.min(100, Math.round((top.score.rawTotal / maxScore) * 100)))
+  top.score.matchReasons.push('Vendor match (cross-language AI)')
+  top.confidence = top.score.total
+
+  // Re-sort after score update
+  candidates.sort((a, b) => b.score.total - a.score.total)
+}
 
 // =============================================================================
 // Main Functions
@@ -268,6 +303,9 @@ export async function getMatchCandidates(
 
   // Sort by score (highest first)
   candidates.sort((a, b) => b.score.total - a.score.total)
+
+  // Enhance top candidate with cross-language vendor matching if needed
+  await enhanceTopCandidateCrossLang(candidates, invoice.vendor_name)
 
   // Limit to max candidates
   return candidates.slice(0, opts.maxCandidates)
@@ -674,6 +712,9 @@ async function getMatchCandidatesWithContext(
 
   // Sort by score (highest first)
   candidates.sort((a, b) => b.score.total - a.score.total)
+
+  // Enhance top candidate with cross-language vendor matching if needed
+  await enhanceTopCandidateCrossLang(candidates, invoice.vendor_name)
 
   // Limit to max candidates
   return candidates.slice(0, options.maxCandidates)

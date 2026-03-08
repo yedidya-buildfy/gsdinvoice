@@ -24,6 +24,7 @@ import {
   BuildingOfficeIcon,
   ReceiptPercentIcon,
   InformationCircleIcon,
+  Squares2X2Icon,
 } from '@heroicons/react/24/outline'
 import { createPortal } from 'react-dom'
 import { Modal } from '@/components/ui/base/modal/modal'
@@ -45,6 +46,7 @@ import {
   SCORING_WEIGHTS,
 } from '@/lib/services/lineItemMatcher'
 import { getExchangeRatesForDate } from '@/lib/services/exchangeRates'
+import { getCrossLangVendorScore, hasLanguageMismatch } from '@/lib/services/lineItemMatcher/crossLangVendor'
 import { useCreditCards } from '@/hooks/useCreditCards'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useVendorAliases } from '@/hooks/useVendorAliases'
@@ -536,6 +538,7 @@ export function InvoiceBankLinkModal({
   const [allRows, setAllRows] = useState<LineItemWithTransaction[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isLinking, setIsLinking] = useState(false)
+  const [isMerging, setIsMerging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [invoiceData, setInvoiceData] = useState<Invoice | null>(null)
 
@@ -873,6 +876,72 @@ export function InvoiceBankLinkModal({
     return finalFiltered
   }, [candidates, editingLineItem, sortColumn, sortDirection, amountTolerance, vendorFilter, invoiceData, vendorAliases, debouncedSearch, getDisplayName, exchangeRates])
 
+  // Cross-language vendor score enhancement via AI
+  // Only runs for the top candidate when vendor score is 0 and languages differ
+  // Tracks ALL attempted pairs (including 0 results) to prevent re-fetching
+  const [aiVendorOverrides, setAiVendorOverrides] = useState<Map<string, number>>(new Map())
+  const aiVendorAttempted = useRef(new Set<string>())
+
+  useEffect(() => {
+    if (!filteredCandidates.length || !editingLineItem || !invoiceData?.vendor_name) return
+
+    const topCandidate = filteredCandidates[0]
+    if (!topCandidate._matchScoreDetails || topCandidate._matchScoreDetails.breakdown.vendor > 0) return
+
+    const vName = invoiceData.vendor_name
+    const txDesc = topCandidate.description
+    if (!hasLanguageMismatch(vName, txDesc)) return
+
+    const overrideKey = `${topCandidate.id}_${editingLineItem.id}`
+    if (aiVendorAttempted.current.has(overrideKey)) return
+    aiVendorAttempted.current.add(overrideKey)
+
+    let cancelled = false
+    getCrossLangVendorScore(vName, txDesc).then(points => {
+      if (cancelled || points === null || points === 0) return
+      setAiVendorOverrides(prev => {
+        const next = new Map(prev)
+        next.set(overrideKey, points)
+        return next
+      })
+    })
+
+    return () => { cancelled = true }
+  }, [filteredCandidates, editingLineItem, invoiceData?.vendor_name])
+
+  // Apply AI vendor overrides to filtered candidates
+  const enhancedCandidates = useMemo(() => {
+    if (aiVendorOverrides.size === 0 || !editingLineItem) return filteredCandidates
+
+    return filteredCandidates.map(tx => {
+      const overrideKey = `${tx.id}_${editingLineItem.id}`
+      const aiPoints = aiVendorOverrides.get(overrideKey)
+      if (aiPoints === undefined || !tx._matchScoreDetails) return tx
+
+      const oldVendor = tx._matchScoreDetails.breakdown.vendor
+      if (oldVendor >= aiPoints) return tx // AI score not better
+
+      const pointsDelta = aiPoints - oldVendor
+      const newBreakdown = { ...tx._matchScoreDetails.breakdown, vendor: aiPoints }
+      const newRawTotal = tx._matchScoreDetails.rawTotal + pointsDelta
+      const hasRef = tx._matchScoreDetails.breakdown.reference > 0
+      const maxScore = hasRef ? 100 : 90
+      const newTotal = Math.max(0, Math.min(100, Math.round((newRawTotal / maxScore) * 100)))
+
+      return {
+        ...tx,
+        _matchScore: newTotal,
+        _matchScoreDetails: {
+          ...tx._matchScoreDetails,
+          breakdown: newBreakdown,
+          rawTotal: newRawTotal,
+          total: newTotal,
+          matchReasons: [...tx._matchScoreDetails.matchReasons, 'Vendor match (cross-language AI)'],
+        },
+      }
+    }).sort((a, b) => (b._matchScore ?? 0) - (a._matchScore ?? 0))
+  }, [filteredCandidates, aiVendorOverrides, editingLineItem])
+
   const handleEditRow = (rowId: string, type: 'line-item' | 'doc-link' | 'new-doc-link') => {
     if (editingRowId === rowId && editingRowType === type) {
       setEditingRowId(null)
@@ -1091,6 +1160,61 @@ export function InvoiceBankLinkModal({
     onClose()
   }
 
+  const handleMergeLineItems = async () => {
+    if (!invoiceData || lineItems.length <= 1) return
+
+    const hasLinkedItems = lineItems.some((item) => item.transaction_id)
+    if (hasLinkedItems) {
+      setError('Cannot merge: some line items are already linked to transactions. Unlink them first.')
+      return
+    }
+
+    setIsMerging(true)
+    setError(null)
+    handleCancelEdit()
+
+    try {
+      const keepItem = lineItems[0]
+      const deleteIds = lineItems.slice(1).map((item) => item.id)
+
+      // Delete all line items except the first one
+      const { error: deleteError } = await supabase
+        .from('invoice_rows')
+        .delete()
+        .in('id', deleteIds)
+
+      if (deleteError) throw deleteError
+
+      // Update the kept line item with invoice totals
+      const { error: updateError } = await supabase
+        .from('invoice_rows')
+        .update({
+          total_agorot: invoiceData.total_amount_agorot,
+          vat_amount_agorot: invoiceData.vat_amount_agorot,
+          vat_rate: invoiceData.vat_amount_agorot && invoiceData.subtotal_agorot
+            ? Math.round((invoiceData.vat_amount_agorot / invoiceData.subtotal_agorot) * 100)
+            : keepItem.vat_rate,
+          description: invoiceData.vendor_name
+            ? `${invoiceData.vendor_name} - ${invoiceData.invoice_number || 'Invoice'}`
+            : keepItem.description,
+          transaction_date: invoiceData.invoice_date || keepItem.transaction_date,
+          currency: invoiceData.currency || keepItem.currency,
+          quantity: 1,
+          unit_price_agorot: invoiceData.subtotal_agorot,
+        })
+        .eq('id', keepItem.id)
+
+      if (updateError) throw updateError
+
+      fetchAllRows()
+      onLinkChange?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to merge line items')
+    } finally {
+      setIsMerging(false)
+    }
+  }
+
   // Check if we're in line item editing mode
   const isEditingLineItem = editingRowType === 'line-item' && editingRowId
 
@@ -1118,7 +1242,7 @@ export function InvoiceBankLinkModal({
             <div className="flex items-center gap-2 px-3 py-1.5 bg-background/50 rounded-lg">
               <span className="text-text-muted">Amount:</span>
               <span className="font-medium text-text">
-                {formatCurrency(stats.linkedAmount, 'ILS')} / {formatCurrency(stats.totalAmount, 'ILS')}
+                {formatCurrency(stats.linkedAmount, invoiceData?.currency || 'ILS')} / {formatCurrency(stats.totalAmount, invoiceData?.currency || 'ILS')}
               </span>
             </div>
           </div>
@@ -1145,12 +1269,26 @@ export function InvoiceBankLinkModal({
               {/* Line Items */}
               <Panel defaultSize={70} minSize={30}>
                 <div className="h-full flex flex-col border border-text-muted/20 rounded-lg overflow-hidden">
-              <div className="px-4 py-3 bg-surface/50 border-b border-text-muted/20 shrink-0">
-                <h3 className="text-sm font-medium text-text flex items-center gap-1.5">
-                  Line Items
-                  <HeaderTooltip tooltip="Individual items from the invoice that can be matched to bank or credit card transactions. Each line item represents a separate charge or product." />
-                </h3>
-                <p className="text-xs text-text-muted mt-0.5">Invoice line items</p>
+              <div className="px-4 py-3 bg-surface/50 border-b border-text-muted/20 shrink-0 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-text flex items-center gap-1.5">
+                    Line Items
+                    <HeaderTooltip tooltip="Individual items from the invoice that can be matched to bank or credit card transactions. Each line item represents a separate charge or product." />
+                  </h3>
+                  <p className="text-xs text-text-muted mt-0.5">Invoice line items</p>
+                </div>
+                {lineItems.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleMergeLineItems}
+                    disabled={isMerging}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Merge all line items into a single line item matching the invoice totals"
+                  >
+                    <Squares2X2Icon className="w-3.5 h-3.5" />
+                    {isMerging ? 'Merging...' : 'Merge Items'}
+                  </button>
+                )}
               </div>
               {isLoading ? (
                 <div className="flex-1 flex items-center justify-center text-text-muted">Loading...</div>
@@ -1162,9 +1300,9 @@ export function InvoiceBankLinkModal({
                   <div className="flex items-center border-b border-text-muted/20 bg-surface/30 text-xs font-medium text-text-muted uppercase tracking-wider min-h-[36px]">
                     <div className="w-10 shrink-0" />
                     <div className="w-20 px-2">Date</div>
-                    <div className="flex-1 px-2">Description</div>
+                    <div className="flex-1 px-2 text-center">Description</div>
                     <div className="w-24 px-2 text-end">Amount</div>
-                    <div className="w-28 px-2 truncate" dir="auto">Vendor</div>
+                    <div className="w-28 px-2 text-center truncate" dir="auto">Vendor</div>
                     <div className="w-24 px-2">Invoice #</div>
                   </div>
                   {lineItems.map((item, index) => {
@@ -1184,13 +1322,13 @@ export function InvoiceBankLinkModal({
                         <div className="w-20 px-2 text-sm text-text-muted whitespace-nowrap">
                           {formatDisplayDate(item.transaction_date)}
                         </div>
-                        <div className="flex-1 px-2 text-sm text-text truncate" dir="auto">
+                        <div className="flex-1 px-2 text-sm text-text text-center truncate" dir="auto">
                           {item.description || '-'}
                         </div>
                         <div className="w-24 px-2 text-sm font-medium text-text text-end whitespace-nowrap">
                           {formatLineItemAmount(item)}
                         </div>
-                        <div className="w-28 px-2 text-sm text-text-muted truncate" dir="auto">
+                        <div className="w-28 px-2 text-sm text-text-muted text-center truncate" dir="auto">
                           {vendorName || '-'}
                         </div>
                         <div className="w-24 px-2 text-sm text-text-muted truncate">
@@ -1311,7 +1449,7 @@ export function InvoiceBankLinkModal({
                           <HeaderTooltip tooltip="Bank and credit card transactions that can be linked to invoice line items. Use filters to narrow down results by date, amount, or type." />
                         </h3>
                         <span className="text-xs text-text-muted">
-                          ({filteredCandidates.length} of {candidates.length} transactions)
+                          ({enhancedCandidates.length} of {candidates.length} transactions)
                         </span>
                       </div>
                       <button
@@ -1427,7 +1565,7 @@ export function InvoiceBankLinkModal({
                   <div className="flex-1 overflow-y-auto">
                     {isLoadingCandidates ? (
                       <div className="flex items-center justify-center py-8 text-text-muted">Loading...</div>
-                    ) : filteredCandidates.length === 0 ? (
+                    ) : enhancedCandidates.length === 0 ? (
                       <div className="flex items-center justify-center py-8 text-text-muted">
                         No transactions found
                       </div>
@@ -1483,7 +1621,7 @@ export function InvoiceBankLinkModal({
                           <div className="w-14 px-1 text-center">Ref</div>
                         </div>
                         <div className="divide-y divide-text-muted/10">
-                          {filteredCandidates.map((tx) => {
+                          {enhancedCandidates.map((tx) => {
                             const txHasVat = tx.has_vat ?? false
                             const txVatPercentage = tx.vat_percentage ?? 18
                             const txVatAmount = txHasVat
@@ -1502,7 +1640,7 @@ export function InvoiceBankLinkModal({
                                 <div className="w-14 px-2">
                                   <TransactionTypeBadge type={tx.transaction_type} />
                                 </div>
-                                <div className="flex-1 px-2 text-sm text-text truncate" dir="auto">
+                                <div className="flex-1 px-2 text-sm text-text text-center truncate" dir="auto">
                                   {getDisplayName(tx.description)}
                                 </div>
                                 <div className="w-16 px-2 text-center text-sm text-text-muted whitespace-nowrap">
@@ -1628,7 +1766,7 @@ export function InvoiceBankLinkModal({
                                 <div className="w-14 px-1">
                                   <TransactionTypeBadge type={tx.transaction_type} />
                                 </div>
-                                <div className="flex-1 px-2 text-sm text-text truncate" dir="auto">
+                                <div className="flex-1 px-2 text-sm text-text text-center truncate" dir="auto">
                                   {getDisplayName(tx.description)}
                                 </div>
                                 <div className="w-16 px-1 text-center text-sm text-text-muted whitespace-nowrap">
@@ -1778,14 +1916,14 @@ export function InvoiceBankLinkModal({
                                         />
                                       </div>
                                     </div>
-                                    <div className="max-h-[120px] overflow-y-auto border border-text-muted/20 rounded bg-background/50">
+                                    <div className="overflow-y-auto border border-text-muted/20 rounded bg-background/50" style={{ maxHeight: '50vh', minHeight: '80px' }}>
                                       {isLoadingCandidates ? (
                                         <div className="p-3 text-center text-text-muted text-xs">Loading...</div>
-                                      ) : filteredCandidates.length === 0 ? (
+                                      ) : enhancedCandidates.length === 0 ? (
                                         <div className="p-3 text-center text-text-muted text-xs">No transactions</div>
                                       ) : (
                                         <div className="divide-y divide-text-muted/10">
-                                          {filteredCandidates.map((tx) => (
+                                          {enhancedCandidates.map((tx) => (
                                             <button
                                               key={tx.id}
                                               type="button"
@@ -1794,7 +1932,7 @@ export function InvoiceBankLinkModal({
                                               className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-surface/50 text-start disabled:opacity-50"
                                             >
                                               <TransactionTypeBadge type={tx.transaction_type} />
-                                              <span className="text-xs text-text truncate flex-1" dir="auto">
+                                              <span className="text-xs text-text text-center truncate flex-1" dir="auto">
                                                 {getDisplayName(tx.description)}
                                               </span>
                                               <span className="text-xs font-medium text-text">
@@ -1812,7 +1950,7 @@ export function InvoiceBankLinkModal({
                                     <span className="text-xs text-text-muted whitespace-nowrap">
                                       {formatDisplayDate(link.transaction.date)}
                                     </span>
-                                    <span className="text-sm text-text truncate flex-1" dir="auto">
+                                    <span className="text-sm text-text text-center truncate flex-1" dir="auto">
                                       {getDisplayName(link.transaction.description)}
                                     </span>
                                     <span className="text-sm font-medium text-text whitespace-nowrap">
@@ -1877,14 +2015,14 @@ export function InvoiceBankLinkModal({
                                     />
                                   </div>
                                 </div>
-                                <div className="max-h-[120px] overflow-y-auto border border-text-muted/20 rounded bg-background/50">
+                                <div className="overflow-y-auto border border-text-muted/20 rounded bg-background/50" style={{ maxHeight: '50vh', minHeight: '80px' }}>
                                   {isLoadingCandidates ? (
                                     <div className="p-3 text-center text-text-muted text-xs">Loading...</div>
-                                  ) : filteredCandidates.length === 0 ? (
+                                  ) : enhancedCandidates.length === 0 ? (
                                     <div className="p-3 text-center text-text-muted text-xs">No transactions</div>
                                   ) : (
                                     <div className="divide-y divide-text-muted/10">
-                                      {filteredCandidates.map((tx) => (
+                                      {enhancedCandidates.map((tx) => (
                                         <button
                                           key={tx.id}
                                           type="button"
@@ -1893,7 +2031,7 @@ export function InvoiceBankLinkModal({
                                           className="w-full px-2 py-1.5 flex items-center gap-2 hover:bg-surface/50 text-start disabled:opacity-50"
                                         >
                                           <TransactionTypeBadge type={tx.transaction_type} />
-                                          <span className="text-xs text-text truncate flex-1" dir="auto">
+                                          <span className="text-xs text-text text-center truncate flex-1" dir="auto">
                                             {getDisplayName(tx.description)}
                                           </span>
                                           <span className="text-xs font-medium text-text">

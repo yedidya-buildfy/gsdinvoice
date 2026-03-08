@@ -14,17 +14,53 @@ import {
   useConnectGmail,
   useDisconnectGmail,
   useStartEmailSync,
+  useResumeEmailSync,
   useUpdateSenderRules,
 } from '@/hooks/useEmailConnections'
 import { ConfirmDialog } from '@/components/ui/base/modal/confirm-dialog'
 import type { EmailConnection } from '@/types/database'
 
 interface SenderRule {
-  domain: string
-  rule: 'always_trust' | 'always_ignore'
+  pattern: string
+  match_type: 'domain' | 'email'
+  action: 'always_trust' | 'always_ignore'
 }
 
-function SyncStateDisplay({ connection }: { connection: EmailConnection }) {
+function normalizeSenderRules(value: unknown): SenderRule[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+
+    const item = entry as Record<string, unknown>
+    if (
+      typeof item.pattern === 'string' &&
+      (item.match_type === 'domain' || item.match_type === 'email') &&
+      (item.action === 'always_trust' || item.action === 'always_ignore')
+    ) {
+      return [{
+        pattern: item.pattern,
+        match_type: item.match_type,
+        action: item.action,
+      }]
+    }
+
+    if (
+      typeof item.domain === 'string' &&
+      (item.rule === 'always_trust' || item.rule === 'always_ignore')
+    ) {
+      return [{
+        pattern: item.domain,
+        match_type: 'domain',
+        action: item.rule,
+      }]
+    }
+
+    return []
+  })
+}
+
+function SyncStateDisplay({ connection, onResume, isResuming }: { connection: EmailConnection; onResume?: () => void; isResuming?: boolean }) {
   const syncState = connection.sync_state as Record<string, unknown> | null
   if (!syncState) return null
 
@@ -32,7 +68,10 @@ function SyncStateDisplay({ connection }: { connection: EmailConnection }) {
   const emailsChecked = (syncState.emails_checked as number) ?? 0
   const totalEstimated = (syncState.total_emails_estimated as number) ?? 0
   const receiptsFound = (syncState.receipts_found as number) ?? 0
-  const progress = totalEstimated > 0 ? Math.round((emailsChecked / totalEstimated) * 100) : 0
+  const lastError = syncState.last_error as string | undefined
+  const hasPageToken = !!(syncState.current_page_token as string | undefined)
+  const totalReliable = totalEstimated >= emailsChecked
+  const progress = totalReliable ? Math.round((emailsChecked / totalEstimated) * 100) : 0
 
   if (syncStatus === 'completed') {
     return (
@@ -43,20 +82,63 @@ function SyncStateDisplay({ connection }: { connection: EmailConnection }) {
     )
   }
 
+  if (syncStatus === 'failed') {
+    return (
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center justify-between text-xs text-text-muted">
+          <span className="flex items-center gap-1.5">
+            <ExclamationCircleIcon className="w-3.5 h-3.5 text-red-400" />
+            {emailsChecked > 0
+              ? `Scanned ${emailsChecked}${totalReliable ? ` / ${totalEstimated}` : ''} emails`
+              : 'Scan failed'}
+          </span>
+          {receiptsFound > 0 && <span>{receiptsFound} receipts found</span>}
+        </div>
+        {lastError && (
+          <p className="text-xs text-red-400/80">{lastError}</p>
+        )}
+        {totalReliable && (
+          <div className="w-full bg-background rounded-full h-1.5">
+            <div
+              className="bg-red-400/60 h-1.5 rounded-full"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        )}
+        {hasPageToken && onResume && (
+          <button
+            type="button"
+            onClick={onResume}
+            disabled={isResuming}
+            className="flex items-center gap-1.5 mt-1 px-3 py-1.5 text-xs bg-primary/10 text-primary rounded-lg hover:bg-primary/20 disabled:opacity-50 transition-colors"
+          >
+            <ArrowPathIcon className={`w-3.5 h-3.5 ${isResuming ? 'animate-spin' : ''}`} />
+            {isResuming ? 'Resuming...' : 'Resume scan'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
   if (syncStatus !== 'syncing') return null
 
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-center justify-between text-xs text-text-muted">
-        <span>Scanning emails... {emailsChecked} / {totalEstimated}</span>
+        <span className="flex items-center gap-1.5">
+          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin text-primary" />
+          Scanning emails... {emailsChecked}{totalReliable ? ` / ${totalEstimated}` : ' checked'}
+        </span>
         <span>{receiptsFound} receipts found</span>
       </div>
-      <div className="w-full bg-background rounded-full h-1.5">
-        <div
-          className="bg-primary h-1.5 rounded-full transition-all duration-500"
-          style={{ width: `${Math.min(progress, 100)}%` }}
-        />
-      </div>
+      {totalReliable && (
+        <div className="w-full bg-background rounded-full h-1.5">
+          <div
+            className="bg-primary h-1.5 rounded-full transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -65,18 +147,24 @@ function ConnectionCard({
   connection,
   onDisconnect,
   onSync,
+  onResume,
   onManageRules,
+  isResuming,
 }: {
   connection: EmailConnection
   onDisconnect: () => void
   onSync: () => void
+  onResume: () => void
   onManageRules: () => void
+  isResuming: boolean
 }) {
   const statusColors: Record<string, string> = {
     active: 'text-green-400',
     syncing: 'text-yellow-400',
     expired: 'text-red-400',
     revoked: 'text-red-400',
+    failed: 'text-red-400',
+    reauthorization_required: 'text-red-400',
   }
 
   const statusLabels: Record<string, string> = {
@@ -84,6 +172,8 @@ function ConnectionCard({
     syncing: 'Syncing',
     expired: 'Expired',
     revoked: 'Revoked',
+    failed: 'Failed',
+    reauthorization_required: 'Reconnect Required',
   }
 
   return (
@@ -108,13 +198,13 @@ function ConnectionCard({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {(connection.status === 'active' || connection.status === 'syncing') && (
+          {(connection.status === 'active' || connection.status === 'syncing' || connection.status === 'failed') && (
             <button
               type="button"
               onClick={onSync}
-              disabled={connection.status === 'syncing'}
+              disabled={connection.status === 'syncing' || isResuming}
               className="p-2 rounded-lg text-text-muted hover:text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title={connection.status === 'syncing' ? 'Sync in progress' : 'Resync emails'}
+              title={connection.status === 'syncing' ? 'Sync in progress' : 'New scan'}
             >
               <ArrowPathIcon className={`w-4 h-4 ${connection.status === 'syncing' ? 'animate-spin' : ''}`} />
             </button>
@@ -137,7 +227,7 @@ function ConnectionCard({
           </button>
         </div>
       </div>
-      <SyncStateDisplay connection={connection} />
+      <SyncStateDisplay connection={connection} onResume={onResume} isResuming={isResuming} />
     </div>
   )
 }
@@ -150,20 +240,20 @@ function SenderRulesModal({
   onClose: () => void
 }) {
   const updateRules = useUpdateSenderRules()
-  const existingRules = (connection.sender_rules ?? []) as unknown as SenderRule[]
+  const existingRules = normalizeSenderRules(connection.sender_rules)
   const [rules, setRules] = useState<SenderRule[]>(existingRules)
   const [newDomain, setNewDomain] = useState('')
   const [newRule, setNewRule] = useState<'always_trust' | 'always_ignore'>('always_trust')
 
   const handleAdd = () => {
     const domain = newDomain.trim().toLowerCase()
-    if (!domain || rules.some(r => r.domain === domain)) return
-    setRules([...rules, { domain, rule: newRule }])
+    if (!domain || rules.some((r) => r.pattern === domain && r.match_type === 'domain')) return
+    setRules([...rules, { pattern: domain, match_type: 'domain', action: newRule }])
     setNewDomain('')
   }
 
   const handleRemove = (domain: string) => {
-    setRules(rules.filter(r => r.domain !== domain))
+    setRules(rules.filter((r) => r.pattern !== domain || r.match_type !== 'domain'))
   }
 
   const handleSave = () => {
@@ -190,20 +280,20 @@ function SenderRulesModal({
           {/* Existing rules */}
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {rules.map((rule) => (
-              <div key={rule.domain} className="flex items-center justify-between px-3 py-2 rounded-lg bg-background">
+              <div key={`${rule.match_type}:${rule.pattern}`} className="flex items-center justify-between px-3 py-2 rounded-lg bg-background">
                 <div className="flex items-center gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded ${
-                    rule.rule === 'always_trust'
+                    rule.action === 'always_trust'
                       ? 'bg-green-400/10 text-green-400'
                       : 'bg-red-400/10 text-red-400'
                   }`}>
-                    {rule.rule === 'always_trust' ? 'Trust' : 'Ignore'}
+                    {rule.action === 'always_trust' ? 'Trust' : 'Ignore'}
                   </span>
-                  <span className="text-sm text-text">{rule.domain}</span>
+                  <span className="text-sm text-text">{rule.pattern}</span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleRemove(rule.domain)}
+                  onClick={() => handleRemove(rule.pattern)}
                   className="p-1 rounded hover:bg-surface text-text-muted hover:text-red-400"
                 >
                   <XMarkIcon className="w-4 h-4" />
@@ -341,6 +431,7 @@ export function EmailConnectionsSection() {
   const connectGmail = useConnectGmail()
   const disconnectGmail = useDisconnectGmail()
   const startSync = useStartEmailSync()
+  const resumeSync = useResumeEmailSync()
 
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null)
   const [rulesTarget, setRulesTarget] = useState<EmailConnection | null>(null)
@@ -402,7 +493,9 @@ export function EmailConnectionsSection() {
               connection={conn}
               onDisconnect={() => setDisconnectTarget(conn.id)}
               onSync={() => setSyncTarget(conn)}
+              onResume={() => resumeSync.mutate(conn.id)}
               onManageRules={() => setRulesTarget(conn)}
+              isResuming={resumeSync.isPending}
             />
           ))}
         </div>

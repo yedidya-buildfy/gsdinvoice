@@ -157,7 +157,7 @@ export function TransactionTable({
               <th className="px-4 py-3 text-center w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Description</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider">Description</th>
               {isVisible('date') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>}
               {isVisible('amount') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-28">Amount</th>}
               {isVisible('vat') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>}
@@ -202,7 +202,7 @@ export function TransactionTable({
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="start"
+              align="center"
             />
             {isVisible('date') && (
               <SortHeader
@@ -308,7 +308,7 @@ export function TransactionTable({
                     className={checkboxClass}
                   />
                 </td>
-                <td className="px-4 py-3 text-start text-sm" dir="auto">
+                <td className="px-4 py-3 text-center text-sm" dir="auto">
                   {isCCCharge ? (
                     <span className="text-text font-medium hover:text-primary transition-colors">
                       {tx.description}

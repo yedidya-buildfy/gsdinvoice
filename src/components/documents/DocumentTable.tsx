@@ -258,9 +258,11 @@ function SkeletonRow({ isVisible }: { isVisible: (col: DocumentColumnKey) => boo
           <div className="h-4 w-14 bg-surface rounded inline-block" />
         </td>
       )}
-      <td className="px-4 py-3 text-start">
-        <div className="h-4 w-48 bg-surface rounded inline-block" />
-      </td>
+      {isVisible('name') && (
+        <td className="px-4 py-3 text-start">
+          <div className="h-4 w-48 bg-surface rounded inline-block" />
+        </td>
+      )}
       {isVisible('vendor') && (
         <td className="px-4 py-3 text-start">
           <div className="h-4 w-24 bg-surface rounded inline-block" />
@@ -363,8 +365,8 @@ export function DocumentTable({
               </th>
               {isVisible('type') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">Type</th>}
               {isVisible('size') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Size</th>}
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Name</th>
-              {isVisible('vendor') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Vendor</th>}
+              {isVisible('name') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Name</th>}
+              {isVisible('vendor') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider">Vendor</th>}
               {isVisible('total') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-24">Total</th>}
               {isVisible('vatAmount') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT</th>}
               {isVisible('added') && <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-20">Added</th>}
@@ -422,14 +424,16 @@ export function DocumentTable({
                 className="w-20"
               />
             )}
-            <SortHeader
-              column="original_name"
-              label="Name"
-              sortColumn={sortColumn}
-              sortDirection={sortDirection}
-              onSort={onSort}
-              align="start"
-            />
+            {isVisible('name') && (
+              <SortHeader
+                column="original_name"
+                label="Name"
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+                align="start"
+              />
+            )}
             {isVisible('vendor') && (
               <SortHeader
                 column="vendor_name"
@@ -437,7 +441,7 @@ export function DocumentTable({
                 sortColumn={sortColumn}
                 sortDirection={sortDirection}
                 onSort={onSort}
-                align="start"
+                align="center"
               />
             )}
             {isVisible('total') && (
@@ -564,23 +568,25 @@ export function DocumentTable({
                     {doc.file_size != null ? formatFileSize(doc.file_size) : '-'}
                   </td>
                 )}
-                <td className="px-4 py-3 text-start">
-                  <div className="flex items-center gap-3">
-                    {isImageType(doc.file_type || '') && (
-                      <img
-                        src={doc.url}
-                        alt={doc.original_name || 'Document'}
-                        className="h-8 w-8 rounded object-cover shrink-0"
-                        loading="lazy"
-                      />
-                    )}
-                    <span className="text-sm text-text truncate max-w-xs" title={doc.original_name || undefined}>
-                      {doc.original_name || 'Unnamed document'}
-                    </span>
-                  </div>
-                </td>
+                {isVisible('name') && (
+                  <td className="px-4 py-3 text-start">
+                    <div className="flex items-center gap-3">
+                      {isImageType(doc.file_type || '') && (
+                        <img
+                          src={doc.url}
+                          alt={doc.original_name || 'Document'}
+                          className="h-8 w-8 rounded object-cover shrink-0"
+                          loading="lazy"
+                        />
+                      )}
+                      <span className="text-sm text-text truncate max-w-xs" title={doc.original_name || undefined}>
+                        {doc.original_name || 'Unnamed document'}
+                      </span>
+                    </div>
+                  </td>
+                )}
                 {isVisible('vendor') && (
-                  <td className="px-4 py-3 text-start text-sm text-text" dir="auto">
+                  <td className="px-4 py-3 text-center text-sm text-text" dir="auto">
                     {invoice?.vendor_name || '-'}
                   </td>
                 )}

@@ -29,9 +29,6 @@ const RETRY_CONFIG = {
   jitterFactor: 0.2, // ±20% randomness
 };
 
-// Stale lock timeout - if processing for longer than this, consider it stuck
-const STALE_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
 // ============================================================================
 // RETRY UTILITIES
 // ============================================================================
@@ -192,6 +189,7 @@ function extractJsonFromText(text: string): string | null {
 }
 
 // JSON Schema for structured output - uses Gemini's nullable format
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const INVOICE_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
@@ -335,6 +333,9 @@ function getMimeType(fileType: string): string | null {
       return 'text/csv';
     case 'xlsx':
       return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case 'html':
+    case 'htm':
+      return 'text/html';
     default:
       return null;
   }
@@ -344,6 +345,23 @@ function getMimeType(fileType: string): string | null {
 function isSpreadsheetType(fileType: string): boolean {
   const type = fileType.toLowerCase();
   return type === 'csv' || type === 'xlsx';
+}
+
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // Convert ArrayBuffer to base64
@@ -1081,6 +1099,185 @@ async function extractWithOpenAIDoubleRead(
   return comparison.mergedResult;
 }
 
+async function extractTextWithOpenAI(
+  apiKey: string,
+  documentText: string,
+): Promise<InvoiceExtraction> {
+  return retryWithBackoff(async () => {
+    const response = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          {
+            role: 'user',
+            content: `${EXTRACTION_PROMPT}\n\nDocument text:\n${documentText.slice(0, 30000)}`,
+          },
+        ],
+        response_format: { type: 'json_object' },
+        reasoning: { effort: 'minimal' },
+        verbosity: 'low',
+        max_tokens: 16384,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      const retryAfterMs = parseRetryAfter(
+        response.headers.get('Retry-After') || response.headers.get('retry-after')
+      );
+      if (isRetryableStatus(response.status)) {
+        throw new RetryableError(
+          `OpenAI text extraction error: ${response.status} - ${errorText}`,
+          response.status,
+          retryAfterMs,
+        );
+      }
+      throw new Error(`OpenAI text extraction error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('OpenAI text extraction returned no content');
+    }
+
+    const jsonText = extractJsonFromText(content);
+    if (!jsonText) {
+      throw new Error('OpenAI text extraction returned no valid JSON');
+    }
+
+    const parsed = JSON.parse(jsonText) as InvoiceExtraction;
+    if (!parsed.vendor || !parsed.totals) {
+      throw new Error('OpenAI text extraction incomplete');
+    }
+
+    return parsed;
+  }, 'OpenAI text extraction');
+}
+
+async function extractTextWithGemini(
+  apiKey: string,
+  documentText: string,
+): Promise<InvoiceExtraction> {
+  return retryWithBackoff(async () => {
+    const response = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: `${EXTRACTION_PROMPT}\n\nDocument text:\n${documentText.slice(0, 30000)}`,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 65536,
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingLevel: 'MINIMAL',
+          },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      const retryAfterMs = parseRetryAfter(
+        response.headers.get('Retry-After') || response.headers.get('retry-after')
+      );
+      if (isRetryableStatus(response.status)) {
+        throw new RetryableError(
+          `Gemini text extraction error: ${response.status} - ${errorText}`,
+          response.status,
+          retryAfterMs,
+        );
+      }
+      throw new Error(`Gemini text extraction error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('\n') || '';
+    const jsonText = extractJsonFromText(text);
+    if (!jsonText) {
+      throw new Error('Gemini text extraction returned no valid JSON');
+    }
+
+    const parsed = JSON.parse(jsonText) as InvoiceExtraction;
+    if (!parsed.vendor || !parsed.totals) {
+      throw new Error('Gemini text extraction incomplete');
+    }
+
+    return parsed;
+  }, 'Gemini text extraction');
+}
+
+async function extractTextWithDoubleRead(
+  documentText: string,
+  apiKeys: { openai?: string | null; gemini?: string | null },
+): Promise<{ extracted: InvoiceExtraction; provider: 'openai_text' | 'gemini_text' }> {
+  if (apiKeys.openai) {
+    try {
+      const [result1, result2] = await Promise.allSettled([
+        extractTextWithOpenAI(apiKeys.openai, documentText),
+        extractTextWithOpenAI(apiKeys.openai, documentText),
+      ]);
+
+      const extraction1 = result1.status === 'fulfilled' ? result1.value : null;
+      const extraction2 = result2.status === 'fulfilled' ? result2.value : null;
+
+      if (extraction1 && extraction2) {
+        const comparison = compareExtractions(ensureLineItems(extraction1), ensureLineItems(extraction2));
+        return { extracted: comparison.mergedResult, provider: 'openai_text' };
+      }
+
+      if (extraction1 || extraction2) {
+        const single = ensureLineItems((extraction1 || extraction2)!);
+        single.confidence = Math.min(single.confidence || 50, 60);
+        return { extracted: single, provider: 'openai_text' };
+      }
+    } catch (error) {
+      console.error('[TEXT] OpenAI text extraction failed:', error);
+    }
+  }
+
+  if (!apiKeys.gemini) {
+    throw new Error('No provider available for HTML/text extraction');
+  }
+
+  const [result1, result2] = await Promise.allSettled([
+    extractTextWithGemini(apiKeys.gemini, documentText),
+    extractTextWithGemini(apiKeys.gemini, documentText),
+  ]);
+
+  const extraction1 = result1.status === 'fulfilled' ? result1.value : null;
+  const extraction2 = result2.status === 'fulfilled' ? result2.value : null;
+
+  if (extraction1 && extraction2) {
+    const comparison = compareExtractions(ensureLineItems(extraction1), ensureLineItems(extraction2));
+    return { extracted: comparison.mergedResult, provider: 'gemini_text' };
+  }
+
+  if (extraction1 || extraction2) {
+    const single = ensureLineItems((extraction1 || extraction2)!);
+    single.confidence = Math.min(single.confidence || 50, 60);
+    return { extracted: single, provider: 'gemini_text' };
+  }
+
+  throw new Error('Both text extraction attempts failed');
+}
+
 // ============================================================================
 // MAIN HANDLER
 // ============================================================================
@@ -1111,7 +1308,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Verify JWT authentication
+  // Verify authentication (user JWT or service role key)
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
     return new Response(
@@ -1123,21 +1320,41 @@ Deno.serve(async (req) => {
     );
   }
 
-  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: { user: authUser }, error: authError } = await authClient.auth.getUser();
-  if (authError || !authUser) {
-    console.error("[MAIN] Authentication failed:", authError?.message);
-    return new Response(
-      JSON.stringify({ success: false, error: "Unauthorized" }),
-      {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+  const token = authHeader.replace("Bearer ", "");
+  let isServiceRole = false;
+
+  // Decode JWT payload to check role (handles both user and service role tokens)
+  try {
+    const payloadB64 = token.split('.')[1];
+    if (payloadB64) {
+      const payload = JSON.parse(atob(payloadB64));
+      if (payload.role === 'service_role') {
+        isServiceRole = true;
+        console.log("[MAIN] Authenticated via service role key");
       }
-    );
+    }
+  } catch {
+    // Not a valid JWT structure, fall through to user auth
   }
-  console.log("[MAIN] Authenticated user:", authUser.id);
+
+  if (!isServiceRole) {
+    // Validate as user JWT
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user: authUser }, error: authError } = await authClient.auth.getUser();
+    if (authError || !authUser) {
+      console.error("[MAIN] Authentication failed:", authError?.message);
+      return new Response(
+        JSON.stringify({ success: false, error: "Unauthorized" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+    console.log("[MAIN] Authenticated user:", authUser.id);
+  }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -1316,13 +1533,28 @@ Deno.serve(async (req) => {
 
     // Try extraction with fallback
     let extracted: InvoiceExtraction;
-    let usedProvider: 'gemini' | 'gemini_double' | 'openai' | 'openai_double';
+    let usedProvider: 'gemini' | 'gemini_double' | 'openai' | 'openai_double' | 'openai_text' | 'gemini_text';
 
-    // Check if file type is supported by OpenAI (images and PDFs only)
-    const isOpenAISupportedType = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(mimeType);
+    if (fileType.toLowerCase() === 'html') {
+      const htmlContent = await blob.text();
+      const documentText = htmlToPlainText(htmlContent);
+      if (!documentText) {
+        throw new Error('HTML document contained no extractable text');
+      }
 
-    // Try OpenAI double-read first if available (primary provider)
-    if (openaiApiKey && isOpenAISupportedType) {
+      const textResult = await extractTextWithDoubleRead(documentText, {
+        openai: openaiApiKey,
+        gemini: geminiApiKey,
+      });
+      extracted = textResult.extracted;
+      usedProvider = textResult.provider;
+      console.log('[MAIN] HTML/text extraction succeeded');
+    } else {
+      // Check if file type is supported by OpenAI (images and PDFs only)
+      const isOpenAISupportedType = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'].includes(mimeType);
+
+      // Try OpenAI double-read first if available (primary provider)
+      if (openaiApiKey && isOpenAISupportedType) {
       try {
         console.log('[MAIN] Attempting OpenAI double-read extraction (primary)...');
         extracted = await extractWithOpenAIDoubleRead(openaiApiKey, base64Data, mimeType);
@@ -1351,7 +1583,7 @@ Deno.serve(async (req) => {
           throw openaiError;
         }
       }
-    } else if (geminiApiKey) {
+      } else if (geminiApiKey) {
       // OpenAI not available or file type not supported by OpenAI - use Gemini
       try {
         console.log('[MAIN] Using Gemini double-read (OpenAI not available for this file type)...');
@@ -1363,11 +1595,12 @@ Deno.serve(async (req) => {
         console.error('[MAIN] Gemini error message:', geminiError instanceof Error ? geminiError.message : String(geminiError));
         throw geminiError;
       }
-    } else {
+      } else {
       // No suitable provider available
       throw new Error(
         `No suitable AI provider available. OpenAI supports images/PDFs only (file type: ${mimeType}). GEMINI_API_KEY not configured.`
       );
+      }
     }
 
     console.log('[MAIN] Final extraction provider:', usedProvider);
@@ -1407,6 +1640,40 @@ Deno.serve(async (req) => {
     }
 
     console.log("[MAIN] Invoice created:", invoice.id);
+
+    // ========================================================================
+    // POST-EXTRACTION VALIDATION
+    // Flag low-confidence extractions missing critical fields
+    // ========================================================================
+    const missingFields: string[] = [];
+    const hasVendorName = !!(extracted.vendor?.name && extracted.vendor.name.trim().length > 0);
+    const hasTotalAmount = !!(extracted.totals?.total != null && !isNaN(extracted.totals.total));
+    const hasDate = !!(extracted.document?.date && extracted.document.date.trim().length > 0);
+    const hasDocNumber = !!(extracted.document?.number && extracted.document.number.trim().length > 0);
+
+    if (!hasVendorName) missingFields.push('vendor_name');
+    if (!hasTotalAmount) missingFields.push('total_amount');
+    if (!hasDate && !hasDocNumber) missingFields.push('date_or_document_number');
+
+    if (missingFields.length > 0) {
+      const LOW_CONFIDENCE_SCORE = 20;
+      console.warn(
+        `[VALIDATION] Low confidence extraction for invoice ${invoice.id}. Missing fields: ${missingFields.join(', ')}. ` +
+        `Setting confidence_score to ${LOW_CONFIDENCE_SCORE}.`
+      );
+
+      const { error: validationUpdateError } = await supabase
+        .from("invoices")
+        .update({
+          confidence_score: LOW_CONFIDENCE_SCORE,
+          is_approved: false,
+        })
+        .eq("id", invoice.id);
+
+      if (validationUpdateError) {
+        console.error("[VALIDATION] Failed to update low-confidence invoice:", validationUpdateError);
+      }
+    }
 
     // Update file status to processed
     await supabase

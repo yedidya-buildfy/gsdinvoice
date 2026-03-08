@@ -13,7 +13,8 @@ export function EmailSyncProgress() {
         const emailsChecked = (syncState?.emails_checked as number) ?? 0
         const totalEstimated = (syncState?.total_emails_estimated as number) ?? 0
         const receiptsFound = (syncState?.receipts_found as number) ?? 0
-        const progress = totalEstimated > 0 ? Math.round((emailsChecked / totalEstimated) * 100) : 0
+        const totalReliable = totalEstimated >= emailsChecked
+        const progress = totalReliable ? Math.round((emailsChecked / totalEstimated) * 100) : 0
 
         return (
           <div
@@ -29,15 +30,17 @@ export function EmailSyncProgress() {
                   Scanning <strong>{sync.email_address}</strong> for receipts...
                 </span>
                 <span className="text-text-muted text-xs shrink-0 ml-2">
-                  {receiptsFound} found | {emailsChecked}/{totalEstimated} emails
+                  {receiptsFound} found | {emailsChecked}{totalReliable ? `/${totalEstimated}` : ''} emails
                 </span>
               </div>
-              <div className="w-full bg-background rounded-full h-1 mt-1.5">
-                <div
-                  className="bg-primary h-1 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(progress, 100)}%` }}
-                />
-              </div>
+              {totalReliable && (
+                <div className="w-full bg-background rounded-full h-1 mt-1.5">
+                  <div
+                    className="bg-primary h-1 rounded-full transition-all duration-500"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )

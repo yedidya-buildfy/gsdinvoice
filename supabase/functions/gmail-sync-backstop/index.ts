@@ -3,6 +3,14 @@
 // haven't synced recently, then uses the Gmail History API to process any
 // new messages that were missed by the webhook.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { detectFinancialEmail } from "../_shared/email-ingestion/detectFinancialEmail.ts";
+import { discoverDocumentCandidates } from "../_shared/email-ingestion/discoverCandidates.ts";
+import {
+  extractHtmlBody,
+  sanitizeFilename,
+} from "../_shared/email-ingestion/message.ts";
+import { normalizeSenderRules } from "../_shared/email-ingestion/senderRules.ts";
+import type { EmailCandidate } from "../_shared/email-ingestion/types.ts";
 
 // CORS headers for cross-origin requests
 const corsHeaders = {
@@ -24,8 +32,20 @@ const MAX_MESSAGES_PER_CONNECTION = 20;
 // Stale sync threshold in minutes
 const STALE_SYNC_THRESHOLD_MINUTES = 30;
 
-// Rule-based scoring threshold (same as webhook)
-const SCORE_THRESHOLD = 40;
+const GEMINI_CLASSIFY_MODEL = "gemini-3.1-flash-lite-preview";
+const GEMINI_CLASSIFY_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_CLASSIFY_MODEL}:generateContent`;
+
+// Download safety limits
+const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_REDIRECTS = 5;
+const ALLOWED_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "text/html",
+]);
 
 // ============================================================================
 // TOKEN MANAGEMENT
@@ -100,13 +120,7 @@ interface EmailConnection {
   last_history_id: string | null;
   last_sync_at: string | null;
   status: string;
-  sender_rules: SenderRule[] | null;
-}
-
-interface SenderRule {
-  domain?: string;
-  email?: string;
-  rule: "always_trust" | "always_ignore";
+  sender_rules: unknown;
 }
 
 /**
@@ -240,7 +254,6 @@ async function fetchGmailHistory(
   const params = new URLSearchParams({
     startHistoryId,
     historyTypes: "messageAdded",
-    labelIds: "INBOX",
     maxResults: String(MAX_MESSAGES_PER_CONNECTION),
   });
 
@@ -356,194 +369,101 @@ function getHeader(
   return header?.value ?? null;
 }
 
-function extractSenderEmail(fromHeader: string): string {
-  const match = fromHeader.match(/<([^>]+)>/);
-  return (match ? match[1] : fromHeader).toLowerCase().trim();
-}
-
-function extractSenderDomain(email: string): string {
-  const parts = email.split("@");
-  return parts.length > 1 ? parts[1].toLowerCase() : "";
-}
-
 // ============================================================================
-// RULE-BASED SCORING (same logic as webhook)
+// SAFE REMOTE CONTENT DOWNLOAD
 // ============================================================================
 
-const BILLING_SENDER_PREFIXES = [
-  "billing", "receipts", "receipt", "noreply", "no-reply", "no_reply",
-  "invoice", "invoices", "payments", "payment", "orders", "order",
-  "accounting", "finance", "accounts", "support", "statement", "statements",
-];
+function mimeTypeToFileType(mimeType: string, filename: string): string {
+  const lowerMime = mimeType.toLowerCase();
+  const lowerName = filename.toLowerCase();
 
-const KNOWN_VENDOR_DOMAINS = [
-  "paypal.com", "stripe.com", "square.com", "intuit.com", "quickbooks.com",
-  "freshbooks.com", "xero.com", "wix.com", "shopify.com", "amazon.com",
-  "google.com", "apple.com", "microsoft.com", "adobe.com", "digitalocean.com",
-  "aws.amazon.com", "heroku.com", "github.com", "atlassian.com", "slack.com",
-  "zoom.us", "dropbox.com", "notion.so", "figma.com", "vercel.com",
-  "netlify.com", "render.com", "cloudflare.com", "godaddy.com",
-  "namecheap.com", "hover.com", "twilio.com", "sendgrid.com",
-  "mailchimp.com", "hubspot.com", "intercom.com", "zendesk.com",
-  "monday.com", "facebook.com", "meta.com", "facebookmail.com",
-  "isracard.co.il", "leumi.co.il", "poalim.co.il", "discount.co.il",
-  "mizrahi-tefahot.co.il", "cal-online.co.il", "max.co.il", "bezeq.co.il",
-  "partner.co.il", "cellcom.co.il", "hot.net.il", "yes.co.il",
-  "orange.co.il", "pelephone.co.il", "bezek.co.il", "electric.co.il",
-  "iec.co.il",
-];
+  if (lowerMime === "application/pdf" || lowerName.endsWith(".pdf")) return "pdf";
+  if (lowerMime === "image/png" || lowerName.endsWith(".png")) return "png";
+  if (
+    lowerMime === "image/jpeg" ||
+    lowerMime === "image/jpg" ||
+    lowerName.endsWith(".jpg") ||
+    lowerName.endsWith(".jpeg")
+  ) {
+    return "jpg";
+  }
+  if (lowerMime === "image/webp" || lowerName.endsWith(".webp")) return "webp";
+  if (lowerMime === "text/html" || lowerName.endsWith(".html") || lowerName.endsWith(".htm")) return "html";
+  return "pdf";
+}
 
-const RECEIPT_SUBJECT_KEYWORDS = [
-  "receipt", "invoice", "payment", "order confirmation", "billing",
-  "statement", "subscription", "charge", "transaction", "purchase",
-  "tax invoice", "חשבונית", "קבלה", "אישור תשלום", "אישור הזמנה",
-  "חיוב", "דף חשבון", "מנוי", "עסקה", "חשבונית מס",
-];
-
-const NEGATIVE_SUBJECT_KEYWORDS = [
-  "unsubscribe", "newsletter", "sale", "discount", "promo", "% off",
-  "free shipping", "flash sale", "limited time", "deal of the day",
-  "tracking number", "shipped", "out for delivery", "delivered",
-  "security alert", "password reset", "verify your email", "welcome to",
-];
-
-const RECEIPT_ATTACHMENT_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp"];
-
-interface AttachmentInfo {
+interface DownloadedContent {
+  blob: Uint8Array;
   filename: string;
   mimeType: string;
-  attachmentId: string;
-  size: number;
 }
 
-function collectAttachments(payload: GmailMessagePayload): AttachmentInfo[] {
-  const attachments: AttachmentInfo[] = [];
+async function downloadRemoteContent(url: string): Promise<DownloadedContent | null> {
+  let currentUrl = url;
+  let redirectCount = 0;
 
-  function walk(part: GmailMessagePayload) {
-    if (part.filename && part.body?.attachmentId) {
-      attachments.push({
-        filename: part.filename,
-        mimeType: part.mimeType,
-        attachmentId: part.body.attachmentId,
-        size: part.body.size || 0,
-      });
-    }
-    if (part.parts) {
-      for (const subPart of part.parts) {
-        walk(subPart);
+  while (redirectCount <= MAX_REDIRECTS) {
+    const response = await fetch(currentUrl, {
+      method: "GET",
+      redirect: "manual",
+      headers: {
+        "User-Agent": "VAT-Declaration-Manager/Email-Ingestion",
+        "Accept": "application/pdf,image/*,text/html",
+      },
+    });
+
+    // Handle redirects manually
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location) {
+        console.warn("[DOWNLOAD] Redirect without location header");
+        return null;
       }
+      currentUrl = new URL(location, currentUrl).toString();
+      redirectCount++;
+      continue;
     }
-  }
 
-  walk(payload);
-  return attachments;
-}
-
-function hasReceiptAttachments(payload: GmailMessagePayload): boolean {
-  const attachments = collectAttachments(payload);
-  return attachments.some((att) => {
-    const filename = (att.filename || "").toLowerCase();
-    return RECEIPT_ATTACHMENT_EXTENSIONS.some((ext) => filename.endsWith(ext));
-  });
-}
-
-function scoreMessage(
-  message: GmailMessage,
-  senderRules: SenderRule[] | null
-): { score: number; reasons: string[] } {
-  let score = 0;
-  const reasons: string[] = [];
-
-  const from = getHeader(message.payload, "From") || "";
-  const subject = (getHeader(message.payload, "Subject") || "").toLowerCase();
-  const senderEmail = extractSenderEmail(from);
-  const senderDomain = extractSenderDomain(senderEmail);
-  const senderPrefix = senderEmail.split("@")[0] || "";
-
-  // User-defined sender rules
-  if (senderRules && senderRules.length > 0) {
-    for (const rule of senderRules) {
-      const matchesDomain =
-        rule.domain && senderDomain === rule.domain.toLowerCase();
-      const matchesEmail =
-        rule.email && senderEmail === rule.email.toLowerCase();
-
-      if (matchesDomain || matchesEmail) {
-        if (rule.rule === "always_trust") {
-          score += 50;
-          reasons.push(`Trusted sender rule: ${rule.domain || rule.email}`);
-        } else if (rule.rule === "always_ignore") {
-          return { score: 0, reasons: ["Ignored sender rule"] };
-        }
-      }
+    if (!response.ok) {
+      throw new Error(`Remote download failed: ${response.status}`);
     }
-  }
 
-  // Sender analysis
-  if (
-    BILLING_SENDER_PREFIXES.some(
-      (prefix) =>
-        senderPrefix === prefix || senderPrefix.startsWith(`${prefix}.`)
-    )
-  ) {
-    score += 15;
-    reasons.push(`Billing sender prefix: ${senderPrefix}`);
-  }
-
-  if (KNOWN_VENDOR_DOMAINS.includes(senderDomain)) {
-    score += 10;
-    reasons.push(`Known vendor domain: ${senderDomain}`);
-  }
-
-  // Subject analysis
-  let positiveKeywordMatches = 0;
-  for (const keyword of RECEIPT_SUBJECT_KEYWORDS) {
-    if (subject.includes(keyword.toLowerCase())) {
-      positiveKeywordMatches++;
+    // Pre-check content type
+    const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+      console.warn("[DOWNLOAD] Rejected content-type:", contentType, "from:", currentUrl);
+      return null;
     }
-  }
-  if (positiveKeywordMatches > 0) {
-    score += Math.min(positiveKeywordMatches * 10, 25);
-    reasons.push(`Subject keywords matched: ${positiveKeywordMatches}`);
-  }
 
-  let negativeKeywordMatches = 0;
-  for (const keyword of NEGATIVE_SUBJECT_KEYWORDS) {
-    if (subject.includes(keyword.toLowerCase())) {
-      negativeKeywordMatches++;
+    // Pre-check content length if available
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_DOWNLOAD_SIZE) {
+      console.warn("[DOWNLOAD] File too large:", contentLength, "bytes from:", currentUrl);
+      return null;
     }
-  }
-  if (negativeKeywordMatches > 0) {
-    score -= Math.min(negativeKeywordMatches * 15, 30);
-    reasons.push(`Negative keywords matched: ${negativeKeywordMatches}`);
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > MAX_DOWNLOAD_SIZE) {
+      console.warn("[DOWNLOAD] Downloaded content too large:", bytes.length, "bytes");
+      return null;
+    }
+
+    const finalUrl = new URL(currentUrl);
+    console.log("[DOWNLOAD] Fetched from domain:", finalUrl.hostname, "size:", bytes.length);
+    const suggestedName = sanitizeFilename(finalUrl.pathname.split("/").pop() || "linked-invoice");
+
+    const extension = mimeTypeToFileType(contentType, suggestedName);
+    const filename = suggestedName.includes(".") ? suggestedName : `${suggestedName}.${extension}`;
+
+    return {
+      blob: bytes,
+      filename,
+      mimeType: contentType,
+    };
   }
 
-  // Attachment analysis
-  if (hasReceiptAttachments(message.payload)) {
-    score += 20;
-    reasons.push("Has PDF/image attachment");
-  }
-
-  // Amount patterns in subject
-  const amountPattern =
-    /[$\u20AA\u20AC\u00A3]\s*[\d,]+\.?\d*|\d+[.,]\d{2}\s*(ILS|NIS|USD|EUR|GBP)/i;
-  if (amountPattern.test(subject)) {
-    score += 10;
-    reasons.push("Subject contains monetary amount");
-  }
-
-  // Invoice/order number patterns in subject
-  const invoiceNumPattern =
-    /(invoice|order|receipt|confirmation)\s*#?\s*[\d-]+/i;
-  if (invoiceNumPattern.test(subject)) {
-    score += 10;
-    reasons.push("Subject contains invoice/order number");
-  }
-
-  return {
-    score: Math.max(0, Math.min(100, score)),
-    reasons,
-  };
+  console.warn("[DOWNLOAD] Too many redirects for:", url);
+  return null;
 }
 
 // ============================================================================
@@ -556,6 +476,7 @@ function getFileType(mimeType: string, filename: string): string | null {
   if (lower.endsWith(".png") || mimeType === "image/png") return "png";
   if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || mimeType === "image/jpeg") return "jpg";
   if (lower.endsWith(".webp") || mimeType === "image/webp") return "webp";
+  if (lower.endsWith(".html") || lower.endsWith(".htm") || mimeType === "text/html") return "html";
   return null;
 }
 
@@ -565,34 +486,57 @@ async function computeFileHash(bytes: Uint8Array): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function processAttachment(
+async function processCandidate(
   supabase: ReturnType<typeof createClient>,
   accessToken: string,
   messageId: string,
-  attachment: AttachmentInfo,
-  connection: EmailConnection
+  message: GmailMessage,
+  candidate: EmailCandidate,
+  connection: EmailConnection,
+  detection: { label: "yes" | "maybe" | "no"; confidence: number; reason: string },
 ): Promise<{ fileId: string } | null> {
-  const fileType = getFileType(attachment.mimeType, attachment.filename);
+  let fileBytes: Uint8Array;
+  let mimeType: string;
+  let originalName: string;
+
+  if (candidate.kind === "attachment") {
+    fileBytes = await downloadAttachment(accessToken, messageId, candidate.attachmentId);
+    mimeType = candidate.mimeType;
+    originalName = candidate.filename;
+  } else if (candidate.kind === "html_body") {
+    const html = extractHtmlBody(message.payload);
+    if (!html) return null;
+    fileBytes = new TextEncoder().encode(html);
+    mimeType = "text/html";
+    originalName = candidate.filename;
+  } else {
+    const downloaded = await downloadRemoteContent(candidate.url);
+    if (!downloaded) {
+      console.log("[GMAIL-BACKSTOP] Remote download rejected or failed for:", candidate.url);
+      return null;
+    }
+    fileBytes = downloaded.blob;
+    mimeType = downloaded.mimeType;
+    originalName = downloaded.filename;
+  }
+
+  const fileType = getFileType(mimeType, originalName);
   if (!fileType) {
     console.log(
-      "[GMAIL-BACKSTOP] Skipping unsupported attachment:",
-      attachment.mimeType,
-      attachment.filename
+      "[GMAIL-BACKSTOP] Skipping unsupported candidate:",
+      candidate.kind,
+      mimeType,
+      originalName
     );
     return null;
   }
 
   console.log(
-    "[GMAIL-BACKSTOP] Processing attachment:",
-    attachment.filename,
+    "[GMAIL-BACKSTOP] Processing candidate:",
+    candidate.kind,
+    originalName,
     "type:",
     fileType
-  );
-
-  const fileBytes = await downloadAttachment(
-    accessToken,
-    messageId,
-    attachment.attachmentId
   );
 
   const fileHash = await computeFileHash(fileBytes);
@@ -615,12 +559,17 @@ async function processAttachment(
   }
 
   // Upload to storage
-  const storagePath = `${connection.team_id}/${connection.user_id}/email/${messageId}/${attachment.filename}`;
+  const identityKey = candidate.kind === "attachment"
+    ? candidate.attachmentId
+    : candidate.kind === "download_link"
+      ? sanitizeFilename(candidate.url)
+      : "html_body";
+  const storagePath = `${connection.team_id}/${connection.user_id}/email/${messageId}/${identityKey}/${originalName}`;
 
   const { error: uploadError } = await supabase.storage
     .from("documents")
     .upload(storagePath, fileBytes, {
-      contentType: attachment.mimeType,
+      contentType: mimeType,
       upsert: false,
     });
 
@@ -636,8 +585,6 @@ async function processAttachment(
     }
   }
 
-  const originalName = attachment.filename || `email-attachment-${messageId}.${fileType}`;
-
   const { data: fileRecord, error: insertError } = await supabase
     .from("files")
     .insert({
@@ -649,6 +596,13 @@ async function processAttachment(
       source_type: "invoice",
       source: "email",
       email_message_id: messageId,
+      email_attachment_id: candidate.kind === "attachment" ? candidate.attachmentId : null,
+      email_content_kind: candidate.kind,
+      email_source_url: candidate.kind === "download_link" ? candidate.url : null,
+      email_detection_label: detection.label,
+      email_detection_confidence: detection.confidence,
+      email_detection_reason: detection.reason,
+      email_discovery_metadata: JSON.parse(JSON.stringify(candidate)),
       file_hash: fileHash,
       file_size: fileBytes.length,
       status: "pending",
@@ -659,8 +613,9 @@ async function processAttachment(
   if (insertError) {
     if (insertError.code === "23505") {
       console.log(
-        "[GMAIL-BACKSTOP] Duplicate email_message_id:",
-        messageId
+        "[GMAIL-BACKSTOP] Duplicate email candidate:",
+        messageId,
+        candidate.kind
       );
       return null;
     }
@@ -673,6 +628,7 @@ async function processAttachment(
   // Trigger extract-invoice
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
   try {
     const extractResp = await fetch(
@@ -682,6 +638,7 @@ async function processAttachment(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${supabaseServiceKey}`,
+          apikey: supabaseAnonKey,
         },
         body: JSON.stringify({
           file_id: fileRecord.id,
@@ -723,65 +680,56 @@ async function processMessage(
   gmailMessageId: string,
   connection: EmailConnection
 ): Promise<{ processed: boolean; score: number; fileIds: string[] }> {
-  // Deduplication check
-  const { data: existingFile } = await supabase
-    .from("files")
-    .select("id")
-    .eq("team_id", connection.team_id)
-    .eq("email_message_id", gmailMessageId)
-    .limit(1)
-    .maybeSingle();
-
-  if (existingFile) {
+  const message = await fetchGmailMessage(accessToken, gmailMessageId);
+  const normalizedRules = normalizeSenderRules(connection.sender_rules);
+  const candidates = discoverDocumentCandidates(message);
+  if (candidates.length === 0) {
     return { processed: false, score: 0, fileIds: [] };
   }
 
-  const message = await fetchGmailMessage(accessToken, gmailMessageId);
-  const { score } = scoreMessage(message, connection.sender_rules);
+  const detection = await detectFinancialEmail(
+    Deno.env.get("GEMINI_API_KEY"),
+    message,
+    candidates,
+    normalizedRules,
+    GEMINI_CLASSIFY_URL,
+  );
   const subject = getHeader(message.payload, "Subject") || "(no subject)";
 
   console.log(
-    `[GMAIL-BACKSTOP] Message ${gmailMessageId}: score=${score}, subject="${subject.substring(0, 60)}"`
+    `[GMAIL-BACKSTOP] Message ${gmailMessageId}: label=${detection.label}, confidence=${detection.confidence}, subject="${subject.substring(0, 60)}", candidates=${candidates.length}`
   );
 
-  if (score < SCORE_THRESHOLD) {
-    return { processed: false, score, fileIds: [] };
-  }
-
-  const attachments = collectAttachments(message.payload);
-  const receiptAttachments = attachments.filter((att) => {
-    const filename = (att.filename || "").toLowerCase();
-    return RECEIPT_ATTACHMENT_EXTENSIONS.some((ext) => filename.endsWith(ext));
-  });
-
-  if (receiptAttachments.length === 0) {
-    return { processed: false, score, fileIds: [] };
+  if (detection.label === "no") {
+    return { processed: false, score: 0, fileIds: [] };
   }
 
   const fileIds: string[] = [];
 
-  for (const attachment of receiptAttachments) {
+  for (const candidate of candidates) {
     try {
-      const result = await processAttachment(
+      const result = await processCandidate(
         supabase,
         accessToken,
         gmailMessageId,
-        attachment,
-        connection
+        message,
+        candidate,
+        connection,
+        detection,
       );
       if (result) {
         fileIds.push(result.fileId);
       }
     } catch (attError) {
       console.error(
-        "[GMAIL-BACKSTOP] Failed to process attachment:",
-        attachment.filename,
+        "[GMAIL-BACKSTOP] Failed to process candidate:",
+        candidate.kind,
         attError
       );
     }
   }
 
-  return { processed: fileIds.length > 0, score, fileIds };
+  return { processed: fileIds.length > 0, score: detection.confidence, fileIds };
 }
 
 /**
@@ -810,12 +758,38 @@ async function processConnection(
     const accessToken = await getValidAccessToken(supabase, connection);
 
     if (!connection.last_history_id) {
+      // No history_id yet - fetch current Gmail profile to bootstrap it
       console.log(
         "[GMAIL-BACKSTOP] No last_history_id for connection:",
         connection.email_address,
-        "-- skipping (needs initial sync)"
+        "-- bootstrapping from Gmail profile"
       );
-      result.error = "no_history_id";
+      try {
+        const profileResp = await fetch(
+          `${GMAIL_API_BASE}/profile`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        if (profileResp.ok) {
+          const profile = await profileResp.json();
+          const historyId = profile.historyId;
+          console.log("[GMAIL-BACKSTOP] Bootstrapped historyId:", historyId);
+          await supabase
+            .from("email_connections")
+            .update({
+              last_history_id: historyId,
+              last_sync_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", connection.id);
+          result.error = "bootstrapped_history_id";
+        } else {
+          console.error("[GMAIL-BACKSTOP] Gmail profile fetch failed:", profileResp.status);
+          result.error = "profile_fetch_failed";
+        }
+      } catch (err) {
+        console.error("[GMAIL-BACKSTOP] Failed to bootstrap history_id:", err);
+        result.error = "bootstrap_failed";
+      }
       return result;
     }
 

@@ -5,6 +5,7 @@ import {
   ChevronUpIcon,
   CheckIcon,
   EyeIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { formatCurrency } from '@/lib/currency'
 import type { Invoice } from '@/types/database'
@@ -13,17 +14,21 @@ import type { DocumentWithUrl } from '@/hooks/useDocuments'
 interface EmailReviewQueueProps {
   documents: (DocumentWithUrl & { invoice: (Invoice & { bankLinkStatus?: string }) | null })[]
   onApprove: (invoiceId: string) => void
+  onDeny: (documentId: string) => void
   onView: (documentId: string) => void
   onBulkApprove: (invoiceIds: string[]) => void
   approvingIds: Set<string>
+  denyingIds: Set<string>
 }
 
 export function EmailReviewQueue({
   documents,
   onApprove,
+  onDeny,
   onView,
   onBulkApprove,
   approvingIds,
+  denyingIds,
 }: EmailReviewQueueProps) {
   const [isExpanded, setIsExpanded] = useState(true)
 
@@ -135,6 +140,19 @@ export function EmailReviewQueue({
                       title="View"
                     >
                       <EyeIcon className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeny(doc.id)}
+                      disabled={denyingIds.has(doc.id)}
+                      className="p-1.5 rounded text-text-muted hover:text-red-400 hover:bg-red-400/10 disabled:opacity-50 transition-colors"
+                      title="Deny"
+                    >
+                      {denyingIds.has(doc.id) ? (
+                        <div className="h-4 w-4 border-2 border-text-muted/30 border-t-red-400 rounded-full animate-spin" />
+                      ) : (
+                        <XMarkIcon className="w-4 h-4" />
+                      )}
                     </button>
                     <button
                       type="button"

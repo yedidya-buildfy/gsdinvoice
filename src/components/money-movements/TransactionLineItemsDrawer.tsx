@@ -228,7 +228,7 @@ export function TransactionLineItemsDrawer({
                       className="border-b border-text-muted/10 hover:bg-background/30"
                     >
                       <td className="py-2 px-3">
-                        <div className="font-medium text-text" dir="auto">
+                        <div className="font-medium text-text text-center" dir="auto">
                           {lineItem.invoice?.vendor_name || '-'}
                         </div>
                         {lineItem.invoice?.invoice_number && (
@@ -238,7 +238,7 @@ export function TransactionLineItemsDrawer({
                         )}
                       </td>
                       <td className="py-2 px-3">
-                        <div className="text-text text-sm" dir="auto">
+                        <div className="text-text text-sm text-center" dir="auto">
                           {lineItem.description || '-'}
                         </div>
                         {lineItem.reference_id && (

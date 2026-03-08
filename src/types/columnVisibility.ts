@@ -14,7 +14,6 @@ export type TransactionColumnKey =
 export type CreditCardColumnKey =
   | 'date'
   | 'amount'
-  | 'currency'
   | 'vat'
   | 'vatPercent'
   | 'vatAmount'
@@ -26,6 +25,7 @@ export type CreditCardColumnKey =
 
 // Documents table
 export type DocumentColumnKey =
+  | 'name'
   | 'type'
   | 'size'
   | 'vendor'
@@ -59,7 +59,6 @@ export const TRANSACTION_COLUMNS: ColumnDef<TransactionColumnKey>[] = [
 export const CREDIT_CARD_COLUMNS: ColumnDef<CreditCardColumnKey>[] = [
   { key: 'date', label: 'Date' },
   { key: 'amount', label: 'Amount' },
-  { key: 'currency', label: 'Currency' },
   { key: 'vat', label: 'VAT' },
   { key: 'vatPercent', label: 'VAT %' },
   { key: 'vatAmount', label: 'VAT Amt' },
@@ -71,6 +70,7 @@ export const CREDIT_CARD_COLUMNS: ColumnDef<CreditCardColumnKey>[] = [
 ]
 
 export const DOCUMENT_COLUMNS: ColumnDef<DocumentColumnKey>[] = [
+  { key: 'name', label: 'Name' },
   { key: 'type', label: 'Type' },
   { key: 'size', label: 'Size' },
   { key: 'vendor', label: 'Vendor' },

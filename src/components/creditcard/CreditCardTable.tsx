@@ -130,8 +130,8 @@ function SkeletonRow({ isVisible }: { isVisible: (col: CreditCardColumnKey) => b
           <div className="h-4 w-16 bg-surface rounded inline-block" />
         </td>
       )}
-      {(isVisible('amount') || isVisible('currency')) && (
-        <td className="ps-4 pe-1 py-3 text-end" colSpan={isVisible('amount') && isVisible('currency') ? 2 : 1}>
+      {isVisible('amount') && (
+        <td className="px-4 py-3 text-end">
           <div className="h-4 w-16 bg-surface rounded inline-block" />
         </td>
       )}
@@ -226,10 +226,9 @@ export function CreditCardTable({
               <th className="px-4 py-3 text-center w-12">
                 <input type="checkbox" disabled className={checkboxClass} />
               </th>
-              <th className="px-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider">Merchant</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider">Merchant</th>
               {isVisible('date') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-20">Date</th>}
-              {isVisible('amount') && <th className="ps-4 pe-1 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Amount</th>}
-              {isVisible('currency') && <th className="ps-1 pe-4 py-3 text-start text-xs font-medium text-text-muted uppercase tracking-wider w-12">Cur</th>}
+              {isVisible('amount') && <th className="px-4 py-3 text-end text-xs font-medium text-text-muted uppercase tracking-wider">Amount</th>}
               {isVisible('vat') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-14">VAT</th>}
               {isVisible('vatPercent') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-16">VAT %</th>}
               {isVisible('vatAmount') && <th className="px-4 py-3 text-center text-xs font-medium text-text-muted uppercase tracking-wider w-24">VAT Amt</th>}
@@ -275,7 +274,7 @@ export function CreditCardTable({
               sortColumn={sortColumn}
               sortDirection={sortDirection}
               onSort={onSort}
-              align="start"
+              align="center"
               tooltip="From CC statement"
             />
             {isVisible('date') && (
@@ -297,18 +296,7 @@ export function CreditCardTable({
                 sortDirection={sortDirection}
                 onSort={onSort}
                 align="end"
-                tooltip="In foreign currency if applicable"
-              />
-            )}
-            {isVisible('currency') && (
-              <SortHeader
-                column="foreign_currency"
-                label="Cur"
-                sortColumn={sortColumn}
-                sortDirection={sortDirection}
-                onSort={onSort}
-                align="start"
-                tooltip="Original transaction currency"
+                tooltip="Amount with currency"
               />
             )}
             {isVisible('vat') && (
@@ -437,7 +425,7 @@ export function CreditCardTable({
                     className={checkboxClass}
                   />
                 </td>
-                <td className="px-4 py-3 text-start text-sm" dir="auto">
+                <td className="px-4 py-3 text-center text-sm" dir="auto">
                   <span className="text-text font-medium">{merchantName}</span>
                   {reference && (
                     <span className="text-text-muted/50 ml-1 text-xs">{reference}</span>
@@ -448,11 +436,8 @@ export function CreditCardTable({
                     {formatDisplayDate(tx.date)}
                   </td>
                 )}
-                {(isVisible('amount') || isVisible('currency')) && (
-                  <td
-                    className="ps-4 pe-1 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap"
-                    colSpan={isVisible('amount') && isVisible('currency') ? 2 : 1}
-                  >
+                {isVisible('amount') && (
+                  <td className="px-4 py-3 text-end text-sm font-medium text-red-400 whitespace-nowrap">
                     {displayAmount}
                   </td>
                 )}

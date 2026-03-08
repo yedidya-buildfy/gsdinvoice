@@ -370,7 +370,77 @@ Deno.serve(async (req) => {
     );
 
     // ========================================================================
-    // STEP 5: Redirect to settings page with success
+    // STEP 5: Register Gmail watch() for Pub/Sub push notifications
+    // ========================================================================
+    // Non-blocking: if this fails, the daily gmail-renew-watch cron will retry.
+    const gmailPubsubTopic = Deno.env.get("GMAIL_PUBSUB_TOPIC");
+    if (gmailPubsubTopic) {
+      try {
+        console.log("[GMAIL-CALLBACK] Registering Gmail watch subscription...");
+        const watchResp = await fetch(
+          "https://www.googleapis.com/gmail/v1/users/me/watch",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              topicName: gmailPubsubTopic,
+              labelIds: ["INBOX"],
+            }),
+          }
+        );
+
+        if (!watchResp.ok) {
+          const watchError = await watchResp.text();
+          console.error(
+            "[GMAIL-CALLBACK] Watch registration failed (non-fatal):",
+            watchResp.status,
+            watchError
+          );
+        } else {
+          const watchData = await watchResp.json();
+          console.log(
+            "[GMAIL-CALLBACK] Watch registered. historyId:",
+            watchData.historyId,
+            "expiration:",
+            watchData.expiration
+          );
+
+          // Save the initial historyId so delta syncs work immediately
+          if (watchData.historyId) {
+            const { error: watchUpdateError } = await supabase
+              .from("email_connections")
+              .update({
+                last_history_id: watchData.historyId,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("team_id", team_id)
+              .eq("email_address", emailAddress);
+
+            if (watchUpdateError) {
+              console.error(
+                "[GMAIL-CALLBACK] Failed to save historyId (non-fatal):",
+                watchUpdateError.message
+              );
+            }
+          }
+        }
+      } catch (watchErr) {
+        console.error(
+          "[GMAIL-CALLBACK] Watch registration error (non-fatal):",
+          watchErr instanceof Error ? watchErr.message : watchErr
+        );
+      }
+    } else {
+      console.warn(
+        "[GMAIL-CALLBACK] GMAIL_PUBSUB_TOPIC not set, skipping watch registration"
+      );
+    }
+
+    // ========================================================================
+    // STEP 6: Redirect to settings page with success
     // ========================================================================
     return new Response(null, {
       status: 302,

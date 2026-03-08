@@ -776,20 +776,16 @@ export function scoreCurrency(
   lineItem: InvoiceRow,
   transaction: Transaction
 ): number {
-  const lineCurrency = lineItem.currency || 'ILS'
+  const lineCurrency = (lineItem.currency || 'ILS').toUpperCase()
 
-  // Check if transaction has foreign currency that matches
-  if (transaction.foreign_currency === lineCurrency) {
-    return SCORING_WEIGHTS.CURRENCY // 5 points
-  }
+  // Derive effective transaction currency using same logic as scoreAmount:
+  // Only treat as foreign currency if foreign_amount_cents actually exists and is non-zero
+  const hasForeignAmount = transaction.foreign_amount_cents != null && transaction.foreign_amount_cents !== 0
+  const txCurrency = hasForeignAmount && transaction.foreign_currency
+    ? transaction.foreign_currency.toUpperCase()
+    : 'ILS'
 
-  // If line item is ILS and transaction is ILS (no foreign currency)
-  if (lineCurrency === 'ILS' && !transaction.foreign_currency) {
-    return SCORING_WEIGHTS.CURRENCY // 5 points
-  }
-
-  // Currency mismatch but not disqualifying
-  return 0
+  return lineCurrency === txCurrency ? SCORING_WEIGHTS.CURRENCY : 0
 }
 
 // =============================================================================

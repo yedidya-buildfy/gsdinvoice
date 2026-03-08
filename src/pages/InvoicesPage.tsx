@@ -60,6 +60,7 @@ export function InvoicesPage() {
 
   // Approval loading state
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set())
+  const [denyingIds, setDenyingIds] = useState<Set<string>>(new Set())
   const [approvalError, setApprovalError] = useState<string | null>(null)
 
   // Bank link modal state
@@ -420,6 +421,33 @@ export function InvoicesPage() {
     )
   }
 
+  const handleDenyEmailReceipt = async (documentId: string) => {
+    setDenyingIds((prev) => new Set(prev).add(documentId))
+    try {
+      const { error } = await supabase.rpc('bulk_delete_files', {
+        ids: [documentId],
+      })
+      if (error) {
+        console.error('[InvoicesPage] Deny failed:', error)
+        setApprovalError('Failed to deny email receipt')
+        setTimeout(() => setApprovalError(null), 5000)
+        return
+      }
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      refetch()
+    } catch (err) {
+      console.error('[InvoicesPage] Deny error:', err)
+      setApprovalError('Failed to deny email receipt')
+      setTimeout(() => setApprovalError(null), 5000)
+    } finally {
+      setDenyingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(documentId)
+        return next
+      })
+    }
+  }
+
   const handleExtractInModal = () => {
     if (!selectedDocument) return
 
@@ -530,11 +558,13 @@ export function InvoicesPage() {
       <EmailReviewQueue
         documents={documentsWithInvoices}
         onApprove={(invoiceId) => handleApprovalToggle(invoiceId, true)}
+        onDeny={handleDenyEmailReceipt}
         onView={(documentId) => setSelectedDocumentId(documentId)}
         onBulkApprove={(invoiceIds) => {
           invoiceIds.forEach((id) => handleApprovalToggle(id, true))
         }}
         approvingIds={approvingIds}
+        denyingIds={denyingIds}
       />
       </section>
 

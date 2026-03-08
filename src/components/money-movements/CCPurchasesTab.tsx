@@ -248,7 +248,7 @@ export function CCPurchasesTab({ onBankChargeClick, onLinkCCTransaction, onRefet
   // CC Purchases shows Invoice column when line item linking is available
   const activeCCColumns = useMemo(() => {
     const active = new Set<CreditCardColumnKey>([
-      'date', 'amount', 'currency', 'vat', 'vatPercent', 'vatAmount',
+      'date', 'amount', 'vat', 'vatPercent', 'vatAmount',
       'billing', 'status', 'card', 'link', 'invoice',
     ])
     return active

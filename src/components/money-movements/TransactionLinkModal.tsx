@@ -3,7 +3,7 @@
  * Opens from Bank/CC Purchases tabs when clicking "Link to Invoice"
  */
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { XMarkIcon, MagnifyingGlassIcon, DocumentTextIcon, CheckIcon, AdjustmentsHorizontalIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline'
 import { Modal } from '@/components/ui/base/modal/modal'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
@@ -16,6 +16,7 @@ import {
   type LineItemWithInvoice,
   type ScoringContext,
 } from '@/lib/services/lineItemMatcher'
+import { getCrossLangVendorScore, hasLanguageMismatch } from '@/lib/services/lineItemMatcher/crossLangVendor'
 import { useVendorAliases } from '@/hooks/useVendorAliases'
 import type { Transaction } from '@/types/database'
 
@@ -195,7 +196,7 @@ export function TransactionLinkModal({
   }, [isOpen, transaction, fromDate, toDate, searchQuery, vendorFilter, amountTolerance, currencyFilter])
 
   // Score line items using new scoring algorithm
-  const scoredLineItems = useMemo(() => {
+  const baseScoredLineItems = useMemo(() => {
     if (!transaction) return []
 
     return lineItems
@@ -207,20 +208,80 @@ export function TransactionLinkModal({
           extractedData: null, // Not available in this context
           vendorAliases: vendorAliases || [],
         }
-        const score = scoreMatch(transaction, scoringContext)
-        // Map to the expected format with confidence for backward compatibility
+        const matchScore = scoreMatch(transaction, scoringContext)
         return {
           lineItem: item,
+          fullScore: matchScore,
           score: {
-            confidence: score.isDisqualified ? 0 : score.total,
-            matchReasons: score.matchReasons,
-            warnings: score.warnings,
+            confidence: matchScore.isDisqualified ? 0 : matchScore.total,
+            matchReasons: matchScore.matchReasons,
+            warnings: matchScore.warnings,
           },
         }
       })
       .filter(item => item.score.confidence > 0) // Filter out disqualified
       .sort((a, b) => b.score.confidence - a.score.confidence)
   }, [lineItems, transaction, vendorAliases])
+
+  // Cross-language vendor score enhancement for top candidate
+  const [aiVendorOverrides, setAiVendorOverrides] = useState<Map<string, number>>(new Map())
+  const aiVendorAttempted = useRef(new Set<string>())
+
+  useEffect(() => {
+    if (!baseScoredLineItems.length || !transaction) return
+
+    const top = baseScoredLineItems[0]
+    if (top.fullScore.breakdown.vendor > 0) return
+
+    const vendorName = top.lineItem.invoice?.vendor_name || ''
+    const txDesc = transaction.description || ''
+    if (!vendorName || !txDesc || !hasLanguageMismatch(vendorName, txDesc)) return
+
+    const overrideKey = `${top.lineItem.id}_${transaction.id}`
+    if (aiVendorAttempted.current.has(overrideKey)) return
+    aiVendorAttempted.current.add(overrideKey)
+
+    let cancelled = false
+    getCrossLangVendorScore(vendorName, txDesc).then(points => {
+      if (cancelled || points === null || points === 0) return
+      setAiVendorOverrides(prev => {
+        const next = new Map(prev)
+        next.set(overrideKey, points)
+        return next
+      })
+    })
+
+    return () => { cancelled = true }
+  }, [baseScoredLineItems, transaction])
+
+  // Apply AI vendor overrides
+  const scoredLineItems = useMemo(() => {
+    if (aiVendorOverrides.size === 0 || !transaction) return baseScoredLineItems
+
+    return baseScoredLineItems.map(item => {
+      const overrideKey = `${item.lineItem.id}_${transaction.id}`
+      const aiPoints = aiVendorOverrides.get(overrideKey)
+      if (aiPoints === undefined) return item
+
+      const oldVendor = item.fullScore.breakdown.vendor
+      if (oldVendor >= aiPoints) return item
+
+      const pointsDelta = aiPoints - oldVendor
+      const newRawTotal = item.fullScore.rawTotal + pointsDelta
+      const hasRef = item.fullScore.breakdown.reference > 0
+      const maxScore = hasRef ? 100 : 90
+      const newTotal = Math.max(0, Math.min(100, Math.round((newRawTotal / maxScore) * 100)))
+
+      return {
+        ...item,
+        score: {
+          confidence: newTotal,
+          matchReasons: [...item.score.matchReasons, 'Vendor match (cross-language AI)'],
+          warnings: item.score.warnings,
+        },
+      }
+    }).sort((a, b) => b.score.confidence - a.score.confidence)
+  }, [baseScoredLineItems, aiVendorOverrides, transaction])
 
   // Get unique vendors for filter dropdown
   const uniqueVendors = useMemo(() => {
@@ -401,12 +462,12 @@ export function TransactionLinkModal({
                     className="border-b border-text-muted/10 hover:bg-background/30"
                   >
                     <td className="py-2 px-3">
-                      <div className="font-medium text-text" dir="auto">
+                      <div className="font-medium text-text text-center" dir="auto">
                         {lineItem.invoice?.vendor_name || '-'}
                       </div>
                     </td>
                     <td className="py-2 px-3">
-                      <div className="text-text text-sm" dir="auto">
+                      <div className="text-text text-sm text-center" dir="auto">
                         {lineItem.description || '-'}
                       </div>
                       {lineItem.reference_id && (

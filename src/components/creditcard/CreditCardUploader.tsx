@@ -6,6 +6,7 @@ import {
   CheckCircleIcon,
 } from '@heroicons/react/24/outline'
 import { useCreditCardUpload } from '@/hooks/useCreditCardUpload'
+import { TransactionDuplicateModal } from '@/components/duplicates/TransactionDuplicateModal'
 
 interface CreditCardUploaderProps {
   onUploadComplete?: () => void
@@ -32,6 +33,9 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
     matchedCount,
     isProcessing,
     addFile,
+    duplicateCheckResult,
+    showDuplicateModal,
+    handleDuplicateAction,
   } = useCreditCardUpload()
 
   const prevStatusRef = useRef(status)
@@ -45,7 +49,7 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
   }, [status, onUploadComplete])
 
   const handleClick = () => {
-    if (!isProcessing) {
+    if (!isProcessing && status !== 'waiting_action') {
       inputRef.current?.click()
     }
   }
@@ -93,21 +97,25 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
 
   const getStatusText = () => {
     if (status === 'parsing') return 'Parsing file...'
+    if (status === 'checking') return 'Checking for duplicates...'
     if (status === 'saving') return 'Saving transactions...'
     if (status === 'matching') return 'Matching to bank charges...'
     if (status === 'success') return 'Import complete'
+    if (status === 'waiting_action') return 'Waiting for action...'
     return 'Processing...'
   }
+
+  const isBlocked = isProcessing || status === 'waiting_action'
 
   return (
     <div className="w-full">
       {/* Drop zone */}
       <div
         role="button"
-        tabIndex={isProcessing ? -1 : 0}
+        tabIndex={isBlocked ? -1 : 0}
         onClick={handleClick}
         onKeyDown={(e) => {
-          if (!isProcessing && (e.key === 'Enter' || e.key === ' ')) {
+          if (!isBlocked && (e.key === 'Enter' || e.key === ' ')) {
             handleClick()
           }
         }}
@@ -119,7 +127,7 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
           w-full min-h-[160px] p-6
           border-2 border-dashed rounded-lg
           transition-all duration-200
-          ${isProcessing
+          ${isBlocked
             ? 'border-gray-700 bg-gray-900/50 cursor-not-allowed opacity-50'
             : isDragOver
               ? 'border-green-500 bg-green-500/10 cursor-pointer'
@@ -149,7 +157,7 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
           onChange={handleFileChange}
           className="hidden"
           aria-label="Credit card statement file input"
-          disabled={isProcessing}
+          disabled={isBlocked}
         />
       </div>
 
@@ -164,7 +172,7 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
       )}
 
       {/* Progress card - only shows during processing or success */}
-      {currentFile && status !== 'error' && (
+      {currentFile && status !== 'error' && status !== 'waiting_action' && (
         <div className="mt-4 p-4 rounded-lg bg-gray-900 border border-gray-800">
           {/* File info */}
           <div className="flex items-center space-x-3 mb-3">
@@ -216,6 +224,16 @@ export function CreditCardUploader({ onUploadComplete }: CreditCardUploaderProps
           )}
         </div>
       )}
+
+      {/* Transaction Duplicate Modal */}
+      <TransactionDuplicateModal
+        isOpen={showDuplicateModal}
+        onClose={() => handleDuplicateAction('skip')}
+        fileName={currentFile?.name || ''}
+        duplicateResult={duplicateCheckResult}
+        onAction={handleDuplicateAction}
+        isLoading={isProcessing}
+      />
     </div>
   )
 }

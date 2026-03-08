@@ -730,7 +730,7 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                     className="w-full flex items-center justify-between p-3 hover:bg-surface/50 transition-colors border-b border-text-muted/10 last:border-b-0 text-start disabled:opacity-50"
                   >
                     <div>
-                      <div className="text-sm text-text font-medium" dir="auto">
+                      <div className="text-sm text-text font-medium text-center" dir="auto">
                         {charge.description}
                       </div>
                       <div className="text-xs text-text-muted">
@@ -888,13 +888,13 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                                 month: '2-digit',
                               }) : '-'}
                             </td>
-                            <td className="py-2 px-2 text-text text-xs whitespace-nowrap">
+                            <td className="py-2 px-2 text-text text-xs whitespace-nowrap text-center">
                               {tx.card_name && <span dir="auto">{tx.card_name}</span>}
                               {tx.card_name && tx.card_last_four && ' '}
                               {tx.card_last_four && `-${tx.card_last_four}`}
                               {!tx.card_name && !tx.card_last_four && '-'}
                             </td>
-                            <td className="py-2 px-2 text-text" dir="auto">
+                            <td className="py-2 px-2 text-text text-center" dir="auto">
                               {tx.merchant_name || '-'}
                             </td>
                             <td className="py-2 px-2 text-text text-end whitespace-nowrap">
@@ -1107,13 +1107,13 @@ export function CCChargeModal({ isOpen, onClose, bankTransactionId, ccTransactio
                                     month: '2-digit',
                                   }) : '-'}
                                 </td>
-                                <td className="py-2 px-2 text-text text-xs whitespace-nowrap">
+                                <td className="py-2 px-2 text-text text-xs whitespace-nowrap text-center">
                                   {tx.card_name && <span dir="auto">{tx.card_name}</span>}
                                   {tx.card_name && tx.card_last_four && ' '}
                                   {tx.card_last_four && `-${tx.card_last_four}`}
                                   {!tx.card_name && !tx.card_last_four && '-'}
                                 </td>
-                                <td className="py-2 px-2 text-text" dir="auto">
+                                <td className="py-2 px-2 text-text text-center" dir="auto">
                                   {tx.merchant_name || '-'}
                                 </td>
                                 <td className="py-2 px-2 text-text text-end whitespace-nowrap">

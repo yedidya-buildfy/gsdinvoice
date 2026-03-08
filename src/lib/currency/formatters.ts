@@ -72,6 +72,15 @@ export function formatTransactionAmount(
     return formatCurrency(amount, tx.foreign_currency, options);
   }
 
+  // No amount data available (e.g. pending CC purchase)
+  if (tx.amount_agorot === 0 && tx.foreign_amount_cents == null) {
+    // Show currency if known (e.g. "USD pending"), otherwise just "-"
+    if (tx.foreign_currency && isCurrencyCode(tx.foreign_currency)) {
+      return `${tx.foreign_currency} pending`;
+    }
+    return '-';
+  }
+
   // Fall back to ILS
   return formatCurrency(Math.abs(tx.amount_agorot), DEFAULT_CURRENCY, options);
 }

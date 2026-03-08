@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { RangeCalendarCard } from '@/components/ui/date-picker'
 import { CCBankMatchWidget } from '@/components/dashboard/CCBankMatchWidget'
 import { MatchingGapsWidget } from '@/components/dashboard/MatchingGapsWidget'
+import { UnlinkedItemsWidget } from '@/components/dashboard/UnlinkedItemsWidget'
 
 export function DashboardPage() {
   // Global date filter for all dashboard widgets - default to no filter (show all data)
@@ -32,6 +33,9 @@ export function DashboardPage() {
 
         {/* CC-Bank Matching Widget */}
         <CCBankMatchWidget fromDate={fromDate} toDate={toDate} />
+
+        {/* Unlinked Items Lists */}
+        <UnlinkedItemsWidget fromDate={fromDate} toDate={toDate} />
       </div>
     </div>
   )

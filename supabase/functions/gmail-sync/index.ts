@@ -1,6 +1,19 @@
 // Supabase Edge Function for Gmail receipt/invoice sync
 // Handles historical email scanning (mode: 'start') and continued pagination (mode: 'continue')
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { detectFinancialEmail } from "../_shared/email-ingestion/detectFinancialEmail.ts";
+import { discoverDocumentCandidates } from "../_shared/email-ingestion/discoverCandidates.ts";
+import {
+  base64UrlDecodeToBytes,
+  extractHtmlBody,
+  getHeader,
+  sanitizeFilename,
+} from "../_shared/email-ingestion/message.ts";
+import { normalizeSenderRules } from "../_shared/email-ingestion/senderRules.ts";
+import type {
+  EmailCandidate,
+  NormalizedSenderRule,
+} from "../_shared/email-ingestion/types.ts";
 
 // ============================================================================
 // CORS & CONSTANTS
@@ -14,13 +27,25 @@ const corsHeaders = {
 
 const GMAIL_API_BASE = "https://www.googleapis.com/gmail/v1/users/me";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const GEMINI_CLASSIFY_MODEL = "gemini-2.0-flash-lite";
+const GEMINI_CLASSIFY_MODEL = "gemini-3.1-flash-lite-preview";
 const GEMINI_CLASSIFY_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_CLASSIFY_MODEL}:generateContent`;
 
 // Processing limits per invocation
 const MAX_EMAILS_PER_PAGE = 50;
 const TIMEOUT_GUARD_MS = 45_000; // 45 seconds - leave buffer for Edge Function limit
-const STALE_SYNC_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const STALE_SYNC_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+// Download safety limits
+const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_REDIRECTS = 5;
+const ALLOWED_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "text/html",
+]);
 
 // ============================================================================
 // TYPES
@@ -34,11 +59,6 @@ interface SyncState {
   started_at: string;
   last_error?: string;
   search_query?: string;
-}
-
-interface SenderRule {
-  pattern: string; // email or domain pattern
-  action: "always_trust" | "always_ignore";
 }
 
 interface EmailConnection {
@@ -55,7 +75,7 @@ interface EmailConnection {
   last_sync_at: string | null;
   status: string;
   sync_state: SyncState | null;
-  sender_rules: SenderRule[] | null;
+  sender_rules: unknown;
 }
 
 interface GmailMessageRef {
@@ -95,14 +115,6 @@ interface GmailSearchResult {
   messages: GmailMessageRef[] | null;
   nextPageToken?: string;
   resultSizeEstimate?: number;
-}
-
-interface ClassificationResult {
-  is_receipt: boolean;
-  confidence: number;
-  vendor?: string;
-  amount?: number;
-  date?: string;
 }
 
 interface DownloadedContent {
@@ -237,7 +249,7 @@ async function refreshAccessToken(
       await supabase
         .from("email_connections")
         .update({
-          status: "error",
+          status: "reauthorization_required",
           sync_state: {
             ...(connection.sync_state || {}),
             status: "failed",
@@ -304,6 +316,40 @@ async function getValidAccessToken(
 // ============================================================================
 // 4b: GMAIL API HELPERS
 // ============================================================================
+
+/**
+ * Count total messages matching a query by paginating through IDs only.
+ * Uses maxResults=500 (Gmail max) for fast counting — no message content fetched.
+ */
+async function countMessages(
+  accessToken: string,
+  query: string
+): Promise<number> {
+  let total = 0;
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ q: query, maxResults: "500" });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const response = await fetch(
+      `${GMAIL_API_BASE}/messages?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!response.ok) {
+      console.warn("[GMAIL] Count failed, falling back to estimate");
+      return 0; // Return 0 to signal fallback to estimate
+    }
+
+    const data = await response.json();
+    total += (data.messages?.length ?? 0);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  console.log("[GMAIL] Exact message count:", total);
+  return total;
+}
 
 /**
  * Search Gmail messages with a query string.
@@ -420,570 +466,122 @@ class GmailRateLimitError extends Error {
 }
 
 // ============================================================================
-// GMAIL MESSAGE HELPERS
+// SHARED CANDIDATE DOWNLOAD HELPERS
 // ============================================================================
 
-/**
- * Extract a header value from a Gmail message payload.
- */
-function getHeader(
-  message: GmailMessage,
-  headerName: string
-): string | undefined {
-  const headers = message.payload?.headers;
-  if (!headers) return undefined;
-  const header = headers.find(
-    (h) => h.name.toLowerCase() === headerName.toLowerCase()
-  );
-  return header?.value;
-}
+function mimeTypeToFileType(mimeType: string, filename: string): string {
+  const lowerMime = mimeType.toLowerCase();
+  const lowerName = filename.toLowerCase();
 
-/**
- * Extract the sender email address from From header.
- */
-function getSenderEmail(message: GmailMessage): string {
-  const from = getHeader(message, "From") || "";
-  // Extract email from "Name <email@example.com>" format
-  const match = from.match(/<([^>]+)>/);
-  return (match ? match[1] : from).toLowerCase().trim();
-}
-
-/**
- * Extract the sender domain from the From header.
- */
-function getSenderDomain(message: GmailMessage): string {
-  const email = getSenderEmail(message);
-  const atIndex = email.indexOf("@");
-  return atIndex >= 0 ? email.substring(atIndex + 1) : email;
-}
-
-/**
- * Extract plain text body from message parts recursively.
- */
-function extractTextBody(part: GmailMessagePart): string {
-  if (part.mimeType === "text/plain" && part.body?.data) {
-    return base64UrlDecode(part.body.data);
-  }
-  if (part.parts) {
-    for (const subpart of part.parts) {
-      const text = extractTextBody(subpart);
-      if (text) return text;
-    }
-  }
-  return "";
-}
-
-/**
- * Extract HTML body from message parts recursively.
- */
-function extractHtmlBody(part: GmailMessagePart): string {
-  if (part.mimeType === "text/html" && part.body?.data) {
-    return base64UrlDecode(part.body.data);
-  }
-  if (part.parts) {
-    for (const subpart of part.parts) {
-      const html = extractHtmlBody(subpart);
-      if (html) return html;
-    }
-  }
-  return "";
-}
-
-/**
- * Decode Gmail's base64url-encoded data.
- */
-function base64UrlDecode(data: string): string {
-  // Convert base64url to standard base64
-  const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
-  // Pad if necessary
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  return atob(padded);
-}
-
-/**
- * Decode Gmail's base64url-encoded data to Uint8Array.
- */
-function base64UrlDecodeToBytes(data: string): Uint8Array {
-  const decoded = base64UrlDecode(data);
-  const bytes = new Uint8Array(decoded.length);
-  for (let i = 0; i < decoded.length; i++) {
-    bytes[i] = decoded.charCodeAt(i);
-  }
-  return bytes;
-}
-
-/**
- * Find attachments in a message (PDF and image files).
- */
-function findAttachments(
-  part: GmailMessagePart
-): Array<{
-  filename: string;
-  mimeType: string;
-  attachmentId: string;
-  size: number;
-}> {
-  const attachments: Array<{
-    filename: string;
-    mimeType: string;
-    attachmentId: string;
-    size: number;
-  }> = [];
-
-  const validMimeTypes = [
-    "application/pdf",
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-  ];
-
+  if (lowerMime === "application/pdf" || lowerName.endsWith(".pdf")) return "pdf";
+  if (lowerMime === "image/png" || lowerName.endsWith(".png")) return "png";
   if (
-    part.filename &&
-    part.body?.attachmentId &&
-    validMimeTypes.includes(part.mimeType.toLowerCase())
+    lowerMime === "image/jpeg" ||
+    lowerMime === "image/jpg" ||
+    lowerName.endsWith(".jpg") ||
+    lowerName.endsWith(".jpeg")
   ) {
-    attachments.push({
-      filename: part.filename,
-      mimeType: part.mimeType,
-      attachmentId: part.body.attachmentId,
-      size: part.body.size,
-    });
+    return "jpg";
   }
-
-  if (part.parts) {
-    for (const subpart of part.parts) {
-      attachments.push(...findAttachments(subpart));
-    }
-  }
-
-  return attachments;
+  if (lowerMime === "image/webp" || lowerName.endsWith(".webp")) return "webp";
+  if (lowerMime === "text/html" || lowerName.endsWith(".html") || lowerName.endsWith(".htm")) return "html";
+  return "pdf";
 }
 
-// ============================================================================
-// 4c: RULE-BASED SCORING ENGINE
-// ============================================================================
+async function downloadRemoteContent(url: string): Promise<DownloadedContent | null> {
+  let currentUrl = url;
+  let redirectCount = 0;
 
-// Known receipt sender domains
-const KNOWN_RECEIPT_DOMAINS = new Set([
-  "paypal.com",
-  "paypal.co.il",
-  "stripe.com",
-  "amazon.com",
-  "amazon.co.uk",
-  "google.com",
-  "apple.com",
-  "microsoft.com",
-  "dropbox.com",
-  "spotify.com",
-  "netflix.com",
-  "uber.com",
-  "wix.com",
-  "fiverr.com",
-  "heroku.com",
-  "digitalocean.com",
-  "cloudflare.com",
-  "github.com",
-  "gitlab.com",
-  "atlassian.com",
-  "zoom.us",
-  "slack.com",
-  "notion.so",
-  "vercel.com",
-  "render.com",
-  "aws.amazon.com",
-  "gandi.net",
-  "namecheap.com",
-  "godaddy.com",
-  "hover.com",
-  "squarespace.com",
-  "shopify.com",
-  "ebay.com",
-  "aliexpress.com",
-  "booking.com",
-  "airbnb.com",
-]);
-
-// Financial keywords for subject and body matching
-const FINANCIAL_SUBJECT_PATTERNS =
-  /\b(receipt|invoice|order|payment|confirmation|billing|charge|transaction|refund|subscription)\b/i;
-const FINANCIAL_SUBJECT_PATTERNS_HE = /(\u05d7\u05e9\u05d1\u05d5\u05e0\u05d9\u05ea|\u05e7\u05d1\u05dc\u05d4|\u05d0\u05d9\u05e9\u05d5\u05e8\u0520\u05ea\u05e9\u05dc\u05d5\u05dd|\u05d7\u05d9\u05d5\u05d1|\u05ea\u05e9\u05dc\u05d5\u05dd)/;
-const FINANCIAL_BODY_PATTERNS =
-  /\b(order\s*(?:#|number|no\.?)\s*\w+|invoice\s*(?:#|number|no\.?)\s*\w+|total[:\s]+[$\u20aa\u20ac\u00a3]?\s*[\d,.]+|amount[:\s]+[$\u20aa\u20ac\u00a3]?\s*[\d,.]+|tax[:\s]+[$\u20aa\u20ac\u00a3]?\s*[\d,.]+|vat[:\s]+[$\u20aa\u20ac\u00a3]?\s*[\d,.]+|subtotal[:\s]+[$\u20aa\u20ac\u00a3]?\s*[\d,.]+)\b/i;
-
-// Negative signal patterns
-const NEWSLETTER_SUBJECT_PATTERNS =
-  /\b(unsubscribe|newsletter|sale|deal|% off|\boff\b|clearance|limited time|flash sale|promo)\b/i;
-const MARKETING_CTA_PATTERNS =
-  /\b(shop now|buy now|limited time|act now|exclusive offer|don't miss|last chance|hurry)\b/i;
-
-// Billing-related sender prefixes
-const BILLING_PREFIXES = new Set([
-  "billing",
-  "receipts",
-  "receipt",
-  "invoice",
-  "invoices",
-  "noreply",
-  "no-reply",
-  "payments",
-  "payment",
-  "orders",
-  "order",
-  "accounts",
-  "accounting",
-]);
-
-/**
- * Score an email for receipt/invoice likelihood (0-100).
- * Higher scores indicate higher probability of being a receipt.
- */
-function scoreEmail(message: GmailMessage, senderRules: SenderRule[]): number {
-  let score = 0;
-  const senderEmail = getSenderEmail(message);
-  const senderDomain = getSenderDomain(message);
-  const subject = getHeader(message, "Subject") || "";
-  const body = extractTextBody(message.payload);
-  const hasListUnsubscribe = !!getHeader(message, "List-Unsubscribe");
-  const attachments = findAttachments(message.payload);
-
-  // --- Check sender rules first (highest priority) ---
-  for (const rule of senderRules) {
-    const pattern = rule.pattern.toLowerCase();
-    if (
-      senderEmail === pattern ||
-      senderEmail.endsWith(`@${pattern}`) ||
-      senderDomain === pattern
-    ) {
-      if (rule.action === "always_trust") {
-        return 95; // Auto-accept
-      }
-      if (rule.action === "always_ignore") {
-        return 5; // Auto-reject
-      }
-    }
-  }
-
-  // --- Positive signals ---
-
-  // Sender prefix check (billing@, receipts@, etc.)
-  const senderPrefix = senderEmail.split("@")[0];
-  if (BILLING_PREFIXES.has(senderPrefix)) {
-    score += 15;
-  }
-
-  // PDF or image attachment
-  const hasPdfAttachment = attachments.some(
-    (a) => a.mimeType === "application/pdf"
-  );
-  const hasImageAttachment = attachments.some((a) =>
-    a.mimeType.startsWith("image/")
-  );
-  if (hasPdfAttachment || hasImageAttachment) {
-    score += 20;
-  }
-
-  // Subject contains financial keywords
-  if (FINANCIAL_SUBJECT_PATTERNS.test(subject)) {
-    score += 15;
-  }
-  if (FINANCIAL_SUBJECT_PATTERNS_HE.test(subject)) {
-    score += 15;
-  }
-
-  // Body contains financial data patterns
-  if (FINANCIAL_BODY_PATTERNS.test(body)) {
-    score += 15;
-  }
-
-  // Known receipt sender domain
-  if (KNOWN_RECEIPT_DOMAINS.has(senderDomain)) {
-    score += 15;
-  }
-
-  // --- Negative signals ---
-
-  // List-Unsubscribe header + no financial keywords = likely newsletter
-  const hasFinancialKeywordsInSubject =
-    FINANCIAL_SUBJECT_PATTERNS.test(subject) ||
-    FINANCIAL_SUBJECT_PATTERNS_HE.test(subject);
-  if (hasListUnsubscribe && !hasFinancialKeywordsInSubject) {
-    score -= 30;
-  }
-
-  // Newsletter/sale subject patterns
-  if (NEWSLETTER_SUBJECT_PATTERNS.test(subject)) {
-    score -= 20;
-  }
-
-  // Marketing CTAs in body
-  if (MARKETING_CTA_PATTERNS.test(body)) {
-    score -= 15;
-  }
-
-  // Clamp to 0-100
-  return Math.max(0, Math.min(100, score));
-}
-
-// ============================================================================
-// 4d: AI DOUBLE-READ CLASSIFICATION
-// ============================================================================
-
-const CLASSIFICATION_PROMPT = `Analyze this email and determine if it is a receipt, invoice, or payment confirmation.
-
-Respond with JSON only:
-{
-  "is_receipt": true/false,
-  "confidence": 0.0-1.0,
-  "vendor": "company name or null",
-  "amount": 123.45 or null,
-  "date": "YYYY-MM-DD or null"
-}
-
-Email subject: {subject}
-Email from: {from}
-Email body (first 2000 chars):
-{body}`;
-
-/**
- * Classify an email using Gemini AI (single call).
- */
-async function classifyWithGemini(
-  apiKey: string,
-  subject: string,
-  from: string,
-  bodyText: string
-): Promise<ClassificationResult> {
-  const prompt = CLASSIFICATION_PROMPT.replace("{subject}", subject)
-    .replace("{from}", from)
-    .replace("{body}", bodyText.substring(0, 2000));
-
-  const response = await fetch(`${GEMINI_CLASSIFY_URL}?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 512,
-        responseMimeType: "application/json",
+  while (redirectCount <= MAX_REDIRECTS) {
+    const response = await fetch(currentUrl, {
+      method: "GET",
+      redirect: "manual",
+      headers: {
+        "User-Agent": "VAT-Declaration-Manager/Email-Ingestion",
+        "Accept": "application/pdf,image/*,text/html",
       },
-    }),
-  });
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Gemini classification failed: ${response.status} - ${errorText}`
-    );
-  }
-
-  const data = await response.json();
-  const candidate = data.candidates?.[0];
-  if (!candidate?.content?.parts?.[0]?.text) {
-    throw new Error("Gemini classification returned no content");
-  }
-
-  const text = candidate.content.parts[0].text;
-  // Extract JSON from the text
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Gemini classification returned no JSON");
-  }
-
-  const parsed = JSON.parse(jsonMatch[0]);
-  return {
-    is_receipt: !!parsed.is_receipt,
-    confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
-    vendor: parsed.vendor || undefined,
-    amount: typeof parsed.amount === "number" ? parsed.amount : undefined,
-    date: parsed.date || undefined,
-  };
-}
-
-/**
- * Perform AI double-read classification for ambiguous emails (score 6-94).
- * Makes two parallel Gemini calls and cross-references the results.
- * Returns a final confidence score (0-1).
- */
-async function aiDoubleReadClassification(
-  message: GmailMessage
-): Promise<{ isReceipt: boolean; confidence: number }> {
-  const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!geminiApiKey) {
-    console.warn(
-      "[AI-CLASSIFY] GEMINI_API_KEY not set, falling back to rule score"
-    );
-    return { isReceipt: false, confidence: 0 };
-  }
-
-  const subject = getHeader(message, "Subject") || "";
-  const from = getHeader(message, "From") || "";
-  const bodyText = extractTextBody(message.payload);
-
-  try {
-    // Two parallel classification calls
-    const [result1, result2] = await Promise.allSettled([
-      classifyWithGemini(geminiApiKey, subject, from, bodyText),
-      classifyWithGemini(geminiApiKey, subject, from, bodyText),
-    ]);
-
-    const c1 =
-      result1.status === "fulfilled" ? result1.value : null;
-    const c2 =
-      result2.status === "fulfilled" ? result2.value : null;
-
-    if (result1.status === "rejected") {
-      console.error("[AI-CLASSIFY] Call 1 failed:", result1.reason);
-    }
-    if (result2.status === "rejected") {
-      console.error("[AI-CLASSIFY] Call 2 failed:", result2.reason);
-    }
-
-    // If both failed, cannot classify
-    if (!c1 && !c2) {
-      console.error("[AI-CLASSIFY] Both classification calls failed");
-      return { isReceipt: false, confidence: 0 };
-    }
-
-    // If only one succeeded, use it with reduced confidence
-    if (!c1 || !c2) {
-      const single = c1 || c2!;
-      return {
-        isReceipt: single.is_receipt,
-        confidence: single.confidence * 0.6,
-      };
-    }
-
-    // Both succeeded - cross-reference scoring
-    let crossScore = 0;
-
-    // Type agreement: both say receipt or both say not receipt
-    if (c1.is_receipt === c2.is_receipt) {
-      crossScore += 30;
-    }
-
-    // Vendor name match (normalized)
-    if (c1.vendor && c2.vendor) {
-      const v1 = c1.vendor.toLowerCase().trim();
-      const v2 = c2.vendor.toLowerCase().trim();
-      if (v1 === v2 || v1.includes(v2) || v2.includes(v1)) {
-        crossScore += 15;
+    // Handle redirects manually
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location) {
+        console.warn("[DOWNLOAD] Redirect without location header");
+        return null;
       }
+      currentUrl = new URL(location, currentUrl).toString();
+      redirectCount++;
+      continue;
     }
 
-    // Amount match
-    if (
-      c1.amount != null &&
-      c2.amount != null &&
-      Math.abs(c1.amount - c2.amount) < 0.01
-    ) {
-      crossScore += 25;
+    if (!response.ok) {
+      throw new Error(`Remote download failed: ${response.status}`);
     }
 
-    // Date match
-    if (c1.date && c2.date && c1.date === c2.date) {
-      crossScore += 15;
+    // Pre-check content type
+    const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+      console.warn("[DOWNLOAD] Rejected content-type:", contentType, "from:", currentUrl);
+      return null;
     }
 
-    // Has attachment or link (bonus if both agree on receipt)
-    const attachments = findAttachments(message.payload);
-    if (attachments.length > 0 && c1.is_receipt && c2.is_receipt) {
-      crossScore += 15;
+    // Pre-check content length if available
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_DOWNLOAD_SIZE) {
+      console.warn("[DOWNLOAD] File too large:", contentLength, "bytes from:", currentUrl);
+      return null;
     }
 
-    const finalConfidence = crossScore / 100;
-    // Use majority vote for is_receipt determination
-    const isReceipt = c1.is_receipt && c2.is_receipt;
-
-    console.log("[AI-CLASSIFY] Cross-reference score:", crossScore);
-    console.log("[AI-CLASSIFY] Final confidence:", finalConfidence);
-    console.log("[AI-CLASSIFY] Is receipt:", isReceipt);
-
-    return { isReceipt, confidence: finalConfidence };
-  } catch (err) {
-    console.error("[AI-CLASSIFY] Unexpected error:", err);
-    return { isReceipt: false, confidence: 0 };
-  }
-}
-
-// ============================================================================
-// 4e: CONTENT DOWNLOAD
-// ============================================================================
-
-/**
- * Download receipt content from a Gmail message.
- * Priority: PDF attachment > Image attachment > HTML body.
- */
-async function downloadReceiptContent(
-  accessToken: string,
-  message: GmailMessage
-): Promise<DownloadedContent | null> {
-  const attachments = findAttachments(message.payload);
-
-  // Priority 1: PDF attachment
-  const pdfAttachment = attachments.find(
-    (a) => a.mimeType === "application/pdf"
-  );
-  if (pdfAttachment) {
-    console.log("[DOWNLOAD] Found PDF attachment:", pdfAttachment.filename);
-    try {
-      const attachData = await getAttachment(
-        accessToken,
-        message.id,
-        pdfAttachment.attachmentId
-      );
-      const bytes = base64UrlDecodeToBytes(attachData.data);
-      return {
-        blob: bytes,
-        filename: pdfAttachment.filename || `receipt_${message.id}.pdf`,
-        mimeType: "application/pdf",
-      };
-    } catch (err) {
-      console.error("[DOWNLOAD] PDF attachment download failed:", err);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > MAX_DOWNLOAD_SIZE) {
+      console.warn("[DOWNLOAD] Downloaded content too large:", bytes.length, "bytes");
+      return null;
     }
-  }
 
-  // Priority 2: Image attachment (jpg, png, webp)
-  const imageAttachment = attachments.find((a) =>
-    a.mimeType.startsWith("image/")
-  );
-  if (imageAttachment) {
-    console.log("[DOWNLOAD] Found image attachment:", imageAttachment.filename);
-    try {
-      const attachData = await getAttachment(
-        accessToken,
-        message.id,
-        imageAttachment.attachmentId
-      );
-      const bytes = base64UrlDecodeToBytes(attachData.data);
-      const ext = imageAttachment.mimeType.split("/")[1] || "jpg";
-      return {
-        blob: bytes,
-        filename:
-          imageAttachment.filename || `receipt_${message.id}.${ext}`,
-        mimeType: imageAttachment.mimeType,
-      };
-    } catch (err) {
-      console.error("[DOWNLOAD] Image attachment download failed:", err);
-    }
-  }
+    const finalUrl = new URL(currentUrl);
+    console.log("[DOWNLOAD] Fetched from domain:", finalUrl.hostname, "size:", bytes.length);
+    const suggestedName = sanitizeFilename(finalUrl.pathname.split("/").pop() || "linked-invoice");
 
-  // Priority 3: HTML body (store as HTML for later processing)
-  const htmlBody = extractHtmlBody(message.payload);
-  if (htmlBody) {
-    console.log("[DOWNLOAD] Using HTML body, length:", htmlBody.length);
-    const encoder = new TextEncoder();
-    const bytes = encoder.encode(htmlBody);
+    const extension = mimeTypeToFileType(contentType, suggestedName);
+    const filename = suggestedName.includes(".") ? suggestedName : `${suggestedName}.${extension}`;
+
     return {
       blob: bytes,
-      filename: `receipt_${message.id}.html`,
-      mimeType: "text/html",
+      filename,
+      mimeType: contentType,
     };
   }
 
-  console.warn("[DOWNLOAD] No downloadable content found for message:", message.id);
+  console.warn("[DOWNLOAD] Too many redirects for:", url);
   return null;
+}
+
+async function downloadCandidateContent(
+  accessToken: string,
+  message: GmailMessage,
+  candidate: EmailCandidate,
+): Promise<DownloadedContent | null> {
+  if (candidate.kind === "attachment") {
+    const attachData = await getAttachment(accessToken, message.id, candidate.attachmentId);
+    return {
+      blob: base64UrlDecodeToBytes(attachData.data),
+      filename: candidate.filename,
+      mimeType: candidate.mimeType,
+    };
+  }
+
+  if (candidate.kind === "html_body") {
+    const htmlBody = extractHtmlBody(message.payload);
+    if (!htmlBody) return null;
+
+    return {
+      blob: new TextEncoder().encode(htmlBody),
+      filename: candidate.filename,
+      mimeType: candidate.mimeType,
+    };
+  }
+
+  return await downloadRemoteContent(candidate.url);
 }
 
 // ============================================================================
@@ -1009,24 +607,42 @@ async function createFileFromEmail(
   teamId: string,
   userId: string,
   messageId: string,
-  content: DownloadedContent
+  candidate: EmailCandidate,
+  content: DownloadedContent,
+  detection: { label: "yes" | "maybe" | "no"; confidence: number; reason: string }
 ): Promise<string | null> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const attachmentId = candidate.kind === "attachment" ? candidate.attachmentId : null;
+  const contentKind = candidate.kind;
+  const sourceUrl = candidate.kind === "download_link" ? candidate.url : null;
 
-  // Check for duplicate: if email_message_id already exists for this team
-  const { data: existingFile } = await supabase
+  // Check for duplicate candidate identity.
+  let duplicateQuery = supabase
     .from("files")
     .select("id")
     .eq("email_message_id", messageId)
     .eq("team_id", teamId)
+    .eq("email_content_kind", contentKind);
+
+  duplicateQuery = attachmentId
+    ? duplicateQuery.eq("email_attachment_id", attachmentId)
+    : duplicateQuery.is("email_attachment_id", null);
+
+  duplicateQuery = sourceUrl
+    ? duplicateQuery.eq("email_source_url", sourceUrl)
+    : duplicateQuery.is("email_source_url", null);
+
+  const { data: existingFile } = await duplicateQuery
     .limit(1)
     .maybeSingle();
 
   if (existingFile) {
     console.log(
-      "[FILE] Duplicate detected, skipping email_message_id:",
-      messageId
+      "[FILE] Duplicate candidate detected, skipping:",
+      messageId,
+      contentKind,
+      attachmentId || sourceUrl || "inline"
     );
     return null;
   }
@@ -1049,31 +665,11 @@ async function createFileFromEmail(
     return null;
   }
 
-  // Determine file type from MIME
-  let fileType: string;
-  switch (content.mimeType) {
-    case "application/pdf":
-      fileType = "pdf";
-      break;
-    case "image/jpeg":
-    case "image/jpg":
-      fileType = "jpg";
-      break;
-    case "image/png":
-      fileType = "png";
-      break;
-    case "image/webp":
-      fileType = "webp";
-      break;
-    case "text/html":
-      fileType = "html";
-      break;
-    default:
-      fileType = "pdf";
-  }
+  const fileType = mimeTypeToFileType(content.mimeType, content.filename);
 
   // Upload to Supabase Storage
-  const storagePath = `receipts/${teamId}/${messageId}/${content.filename}`;
+  const candidateKey = attachmentId || contentKind;
+  const storagePath = `receipts/${teamId}/${messageId}/${candidateKey}/${sanitizeFilename(content.filename)}`;
   console.log("[FILE] Uploading to storage:", storagePath);
 
   const { error: uploadError } = await supabase.storage
@@ -1106,6 +702,13 @@ async function createFileFromEmail(
       source: "email",
       source_type: "invoice",
       email_message_id: messageId,
+      email_attachment_id: attachmentId,
+      email_content_kind: contentKind,
+      email_source_url: sourceUrl,
+      email_detection_label: detection.label,
+      email_detection_confidence: detection.confidence,
+      email_detection_reason: detection.reason,
+      email_discovery_metadata: JSON.parse(JSON.stringify(candidate)),
       file_hash: fileHash,
       status: "pending",
     })
@@ -1119,9 +722,8 @@ async function createFileFromEmail(
 
   console.log("[FILE] Created file record:", fileRecord.id);
 
-  // Trigger extract-invoice edge function (fire and forget)
-  // Only trigger for file types that can be extracted (not HTML)
-  if (fileType !== "html" && supabaseUrl && supabaseAnonKey) {
+  // Trigger extract-invoice edge function (fire and forget).
+  if (supabaseUrl && supabaseAnonKey) {
     try {
       const extractUrl = `${supabaseUrl}/functions/v1/extract-invoice`;
       console.log("[FILE] Triggering extract-invoice for file:", fileRecord.id);
@@ -1184,20 +786,45 @@ async function updateSyncState(
 async function completeSyncState(
   supabase: SupabaseClient,
   connectionId: string,
-  syncState: SyncState
+  syncState: SyncState,
+  accessToken?: string
 ): Promise<void> {
+  // Fetch current Gmail profile historyId for incremental sync
+  let historyId: string | undefined;
+  if (accessToken) {
+    try {
+      const profileResp = await fetch(
+        `${GMAIL_API_BASE}/profile`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (profileResp.ok) {
+        const profile = await profileResp.json();
+        historyId = profile.historyId;
+        console.log("[SYNC-STATE] Got Gmail historyId:", historyId);
+      }
+    } catch (err) {
+      console.error("[SYNC-STATE] Failed to fetch Gmail profile:", err);
+    }
+  }
+
+  const updateData: Record<string, unknown> = {
+    sync_state: {
+      ...syncState,
+      status: "completed",
+      current_page_token: null,
+    },
+    status: "active",
+    last_sync_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (historyId) {
+    updateData.last_history_id = historyId;
+  }
+
   const { error } = await supabase
     .from("email_connections")
-    .update({
-      sync_state: {
-        ...syncState,
-        status: "completed",
-        current_page_token: null,
-      },
-      status: "active",
-      last_sync_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq("id", connectionId);
 
   if (error) {
@@ -1218,11 +845,12 @@ async function processEmailPage(
   connection: EmailConnection,
   accessToken: string,
   messageRefs: GmailMessageRef[],
-  senderRules: SenderRule[],
+  senderRules: NormalizedSenderRule[],
   startTime: number
 ): Promise<{ receiptsFound: number; emailsProcessed: number }> {
   let receiptsFound = 0;
   let emailsProcessed = 0;
+  const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
 
   for (const ref of messageRefs) {
     // Timeout guard: stop if approaching time limit
@@ -1237,98 +865,54 @@ async function processEmailPage(
     }
 
     try {
-      // Check for duplicate before fetching the full message
-      const { data: existingFile } = await supabase
-        .from("files")
-        .select("id")
-        .eq("email_message_id", ref.id)
-        .eq("team_id", connection.team_id)
-        .limit(1)
-        .maybeSingle();
-
-      if (existingFile) {
-        console.log("[PROCESS] Skipping duplicate email:", ref.id);
-        emailsProcessed++;
-        continue;
-      }
-
       // Fetch full message
       const message = await getMessage(accessToken, ref.id);
       emailsProcessed++;
 
-      // Rule-based scoring
-      const ruleScore = scoreEmail(message, senderRules);
-      console.log(
-        "[PROCESS] Email:",
-        ref.id,
-        "Score:",
-        ruleScore,
-        "Subject:",
-        (getHeader(message, "Subject") || "").substring(0, 60)
+      const candidates = discoverDocumentCandidates(message);
+      if (candidates.length === 0) {
+        continue;
+      }
+
+      const detection = await detectFinancialEmail(
+        geminiApiKey,
+        message,
+        candidates,
+        senderRules,
+        GEMINI_CLASSIFY_URL,
       );
 
-      // Decision based on score
-      let isReceipt = false;
+      console.log("[PROCESS] Email:", ref.id, {
+        subject: (getHeader(message, "Subject") || "").substring(0, 60),
+        detection,
+        candidateCount: candidates.length,
+      });
 
-      if (ruleScore >= 95) {
-        // Auto-accept
-        isReceipt = true;
-        console.log("[PROCESS] Auto-accept (score >= 95)");
-      } else if (ruleScore <= 5) {
-        // Auto-reject
-        isReceipt = false;
-        console.log("[PROCESS] Auto-reject (score <= 5)");
-      } else if (ruleScore >= 6 && ruleScore <= 94) {
-        // Ambiguous zone: use AI double-read classification
-        console.log("[PROCESS] Ambiguous score, using AI classification...");
-        const aiResult = await aiDoubleReadClassification(message);
+      if (detection.label === "no") {
+        continue;
+      }
 
-        // Combined decision: use AI result if confidence is reasonable
-        if (aiResult.confidence >= 0.5 && aiResult.isReceipt) {
-          isReceipt = true;
-          console.log(
-            "[PROCESS] AI classified as receipt, confidence:",
-            aiResult.confidence
-          );
-        } else if (aiResult.confidence >= 0.5 && !aiResult.isReceipt) {
-          isReceipt = false;
-          console.log(
-            "[PROCESS] AI classified as NOT receipt, confidence:",
-            aiResult.confidence
-          );
-        } else {
-          // Low AI confidence: fall back to rule score threshold
-          isReceipt = ruleScore >= 40;
-          console.log(
-            "[PROCESS] Low AI confidence, using rule score threshold:",
-            ruleScore >= 40
-          );
+      for (const candidate of candidates) {
+        const content = await downloadCandidateContent(accessToken, message, candidate);
+        if (!content) {
+          console.warn("[PROCESS] Candidate produced no content:", ref.id, candidate.identityKey);
+          continue;
         }
-      }
 
-      if (!isReceipt) {
-        continue;
-      }
+        const fileId = await createFileFromEmail(
+          supabase,
+          connection.team_id,
+          connection.user_id,
+          message.id,
+          candidate,
+          content,
+          detection,
+        );
 
-      // Download receipt content
-      const content = await downloadReceiptContent(accessToken, message);
-      if (!content) {
-        console.warn("[PROCESS] No downloadable content for receipt:", ref.id);
-        continue;
-      }
-
-      // Create file record
-      const fileId = await createFileFromEmail(
-        supabase,
-        connection.team_id,
-        connection.user_id,
-        message.id,
-        content
-      );
-
-      if (fileId) {
-        receiptsFound++;
-        console.log("[PROCESS] Receipt saved, file_id:", fileId);
+        if (fileId) {
+          receiptsFound++;
+          console.log("[PROCESS] Candidate saved, file_id:", fileId, candidate.identityKey);
+        }
       }
     } catch (err) {
       if (err instanceof GmailRateLimitError) {
@@ -1352,17 +936,7 @@ async function processEmailPage(
  * Build a Gmail search query for receipt/invoice emails.
  */
 function buildSearchQuery(dateFrom?: string, dateTo?: string): string {
-  const financialTerms = [
-    "receipt",
-    "invoice",
-    "order confirmation",
-    "payment",
-    "\u05d7\u05e9\u05d1\u05d5\u05e0\u05d9\u05ea",
-    "\u05e7\u05d1\u05dc\u05d4",
-    "\u05d0\u05d9\u05e9\u05d5\u05e8 \u05ea\u05e9\u05dc\u05d5\u05dd",
-  ].join(" OR ");
-
-  let query = `(${financialTerms}) OR (has:attachment (filename:pdf OR filename:jpg OR filename:png))`;
+  let query = "-in:chats -label:spam -label:trash";
 
   if (dateFrom) {
     // Gmail date format: YYYY/MM/DD
@@ -1375,7 +949,7 @@ function buildSearchQuery(dateFrom?: string, dateTo?: string): string {
     query += ` before:${formatted}`;
   }
 
-  return query;
+  return query.trim();
 }
 
 // ============================================================================
@@ -1413,16 +987,95 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const mode: string = body.mode;
 
-    if (mode !== "start" && mode !== "continue") {
+    if (mode !== "start" && mode !== "continue" && mode !== "resume") {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "Invalid mode. Use 'start' or 'continue'.",
+          error: "Invalid mode. Use 'start', 'continue', or 'resume'.",
         }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
+      );
+    }
+
+    // ==================================================================
+    // MODE: RESUME - Resume a failed sync from where it left off
+    // ==================================================================
+    if (mode === "resume") {
+      const connectionId = body.connection_id;
+      if (!connectionId) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Missing connection_id" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const { data: conn, error: connError } = await supabase
+        .from("email_connections")
+        .select("*")
+        .eq("id", connectionId)
+        .single();
+
+      if (connError || !conn) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Connection not found" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const syncState = conn.sync_state as SyncState | null;
+      if (!syncState?.current_page_token) {
+        return new Response(
+          JSON.stringify({ success: false, error: "No pending pages to resume" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Re-count total emails if the stored estimate looks stale
+      let totalEstimated = syncState.total_emails_estimated || 0;
+      if (syncState.search_query && (totalEstimated < (syncState.emails_checked || 0))) {
+        try {
+          const typedConn = conn as unknown as EmailConnection;
+          const accessToken = await getValidAccessToken(typedConn, supabase);
+          const exactCount = await countMessages(accessToken, syncState.search_query);
+          if (exactCount > 0) {
+            totalEstimated = exactCount;
+            console.log("[GMAIL-SYNC] Re-counted total on resume:", exactCount);
+          }
+        } catch (err) {
+          console.warn("[GMAIL-SYNC] Failed to re-count on resume:", err);
+        }
+      }
+
+      // Reset to syncing so the cron job picks it up
+      await supabase
+        .from("email_connections")
+        .update({
+          status: "syncing",
+          sync_state: {
+            ...syncState,
+            status: "syncing",
+            last_error: null,
+            total_emails_estimated: totalEstimated,
+            started_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", connectionId);
+
+      console.log("[GMAIL-SYNC] Resumed sync for connection:", connectionId,
+        "from page token, emails_checked:", syncState.emails_checked);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Sync resumed",
+          emails_checked: syncState.emails_checked,
+          receipts_found: syncState.receipts_found,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -1604,21 +1257,25 @@ Deno.serve(async (req) => {
         })
         .eq("id", connection_id);
 
-      // Search for first page
+      // Count exact total first (fast — only fetches message IDs)
+      const exactCount = await countMessages(accessToken, searchQuery);
+
+      // Search for first page of messages to process
       const searchResult = await searchMessages(accessToken, searchQuery);
 
-      // Update estimated total
+      // Use exact count, fall back to Gmail estimate
       initialSyncState.total_emails_estimated =
-        searchResult.resultSizeEstimate || 0;
+        exactCount || searchResult.resultSizeEstimate || 0;
       console.log(
-        "[GMAIL-SYNC] Estimated total emails:",
-        searchResult.resultSizeEstimate
+        "[GMAIL-SYNC] Total emails:",
+        initialSyncState.total_emails_estimated,
+        exactCount ? "(exact)" : "(estimate)"
       );
 
       if (!searchResult.messages || searchResult.messages.length === 0) {
         // No matching emails found
         console.log("[GMAIL-SYNC] No matching emails found");
-        await completeSyncState(supabase, connection_id, initialSyncState);
+        await completeSyncState(supabase, connection_id, initialSyncState, accessToken);
 
         return new Response(
           JSON.stringify({
@@ -1637,7 +1294,7 @@ Deno.serve(async (req) => {
       }
 
       // Process first page
-      const senderRules = (typedConnection.sender_rules || []) as SenderRule[];
+      const senderRules = normalizeSenderRules(typedConnection.sender_rules);
       const pageResult = await processEmailPage(
         supabase,
         typedConnection,
@@ -1657,7 +1314,7 @@ Deno.serve(async (req) => {
 
       if (!searchResult.nextPageToken) {
         // All done in one page
-        await completeSyncState(supabase, connection_id, updatedSyncState);
+        await completeSyncState(supabase, connection_id, updatedSyncState, accessToken);
         console.log("[GMAIL-SYNC] Sync completed in single page");
       } else {
         // More pages to process - save state for cron to continue
@@ -1749,7 +1406,7 @@ Deno.serve(async (req) => {
         await supabase
           .from("email_connections")
           .update({
-            status: "error",
+            status: "failed",
             sync_state: {
               ...syncState,
               status: "failed",
@@ -1778,7 +1435,11 @@ Deno.serve(async (req) => {
           "[GMAIL-SYNC] No page token, marking as completed:",
           connection.id
         );
-        await completeSyncState(supabase, connection.id, syncState);
+        let tokenForProfile: string | undefined;
+        try {
+          tokenForProfile = await getValidAccessToken(connection, supabase);
+        } catch { /* non-fatal */ }
+        await completeSyncState(supabase, connection.id, syncState, tokenForProfile);
         return new Response(
           JSON.stringify({
             success: true,
@@ -1805,7 +1466,7 @@ Deno.serve(async (req) => {
         await supabase
           .from("email_connections")
           .update({
-            status: "error",
+            status: "reauthorization_required",
             sync_state: {
               ...syncState,
               status: "failed",
@@ -1831,7 +1492,7 @@ Deno.serve(async (req) => {
       if (!searchResult.messages || searchResult.messages.length === 0) {
         // No more messages - sync complete
         console.log("[GMAIL-SYNC] No more messages, sync complete");
-        await completeSyncState(supabase, connection.id, syncState);
+        await completeSyncState(supabase, connection.id, syncState, accessToken);
         return new Response(
           JSON.stringify({
             success: true,
@@ -1846,7 +1507,7 @@ Deno.serve(async (req) => {
       }
 
       // Process the page
-      const senderRules = (connection.sender_rules || []) as SenderRule[];
+      const senderRules = normalizeSenderRules(connection.sender_rules);
       let pageResult: { receiptsFound: number; emailsProcessed: number };
 
       try {
@@ -1897,7 +1558,7 @@ Deno.serve(async (req) => {
 
       if (!searchResult.nextPageToken) {
         // All done
-        await completeSyncState(supabase, connection.id, updatedSyncState);
+        await completeSyncState(supabase, connection.id, updatedSyncState, accessToken);
         console.log("[GMAIL-SYNC] Sync fully completed");
       } else {
         // More pages - save for next cron invocation

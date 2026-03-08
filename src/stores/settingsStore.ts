@@ -87,11 +87,11 @@ function defaultColumnVisibility(): ColumnVisibilityState {
     reference: true, invoice: true, matchPercent: true, matched: true,
   }
   const ccCols: Record<CreditCardColumnKey, boolean> = {
-    date: true, amount: true, currency: true, vat: true, vatPercent: true,
+    date: true, amount: true, vat: true, vatPercent: true,
     vatAmount: true, billing: true, status: true, card: true, link: true, invoice: true,
   }
   const docCols: Record<DocumentColumnKey, boolean> = {
-    approval: true, type: true, size: true, vendor: true, total: true, vatAmount: true,
+    name: true, approval: true, type: true, size: true, vendor: true, total: true, vatAmount: true,
     added: true, items: true, confidence: true, bankLink: true, aiStatus: true, source: true,
   }
   return { transaction: txCols, creditCard: ccCols, document: docCols }
