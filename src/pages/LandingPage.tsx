@@ -1,7 +1,22 @@
-import { Link } from 'react-router'
+import { Link, Navigate } from 'react-router'
 import { DocumentTextIcon, BanknotesIcon, EnvelopeIcon, ChartBarIcon, ShieldCheckIcon, BoltIcon } from '@heroicons/react/24/outline'
+import { useAuth } from '@/contexts/AuthContext'
 
 export function LandingPage() {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-text-secondary">Loading...</div>
+      </div>
+    )
+  }
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />
+  }
+
   return (
     <div className="min-h-screen bg-background text-text">
       {/* Header */}
