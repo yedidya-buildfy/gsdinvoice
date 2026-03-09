@@ -4,12 +4,17 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import * as XLSX from "npm:xlsx@0.18.5";
 
 // CORS headers for cross-origin requests
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const ALLOWED_ORIGINS = ["https://bill-sync.com", "https://www.bill-sync.com", "http://localhost:5173"];
+
+function getCorsHeaders(req?: Request) {
+  const origin = req?.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 // Primary: GPT-5 mini via OpenAI
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
@@ -1282,6 +1287,8 @@ async function extractTextWithDoubleRead(
 // MAIN HANDLER
 // ============================================================================
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -1308,7 +1315,8 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Verify authentication (user JWT or service role key)
+  // Verify authentication. User-triggered requests must present a valid user JWT.
+  // Internal server-to-server triggers must use the exact service role key.
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
     return new Response(
@@ -1321,30 +1329,18 @@ Deno.serve(async (req) => {
   }
 
   const token = authHeader.replace("Bearer ", "");
-  let isServiceRole = false;
+  const isInternalRequest = token === supabaseKey;
+  let authClient: ReturnType<typeof createClient> | null = null;
 
-  // Decode JWT payload to check role (handles both user and service role tokens)
-  try {
-    const payloadB64 = token.split('.')[1];
-    if (payloadB64) {
-      const payload = JSON.parse(atob(payloadB64));
-      if (payload.role === 'service_role') {
-        isServiceRole = true;
-        console.log("[MAIN] Authenticated via service role key");
-      }
-    }
-  } catch {
-    // Not a valid JWT structure, fall through to user auth
-  }
-
-  if (!isServiceRole) {
-    // Validate as user JWT
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+  if (isInternalRequest) {
+    console.log("[MAIN] Authenticated via service role key");
+  } else {
+    authClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user: authUser }, error: authError } = await authClient.auth.getUser();
     if (authError || !authUser) {
-      console.error("[MAIN] Authentication failed:", authError?.message);
+      console.error("[MAIN] Authentication failed:", authError?.message, "code:", authError?.code);
       return new Response(
         JSON.stringify({ success: false, error: "Unauthorized" }),
         {
@@ -1362,31 +1358,37 @@ Deno.serve(async (req) => {
 
   try {
     // Parse request body
-    const body = await req.json();
+    const body = await req.json() as { file_id?: string };
     console.log("[MAIN] Request body:", JSON.stringify(body));
 
     fileId = body.file_id;
-    const storagePath = body.storage_path;
-    const fileType = body.file_type;
 
-    if (!fileId || !storagePath || !fileType) {
+    if (!fileId) {
       throw new Error(
-        "Missing required parameters: file_id, storage_path, file_type"
+        "Missing required parameter: file_id"
       );
     }
 
     console.log('[MAIN] File ID:', fileId);
-    console.log('[MAIN] Storage path:', storagePath);
-    console.log('[MAIN] File type:', fileType);
 
-    // Validate file type is supported
-    const mimeType = getMimeType(fileType);
-    if (!mimeType) {
-      throw new Error(
-        `Unsupported file type: ${fileType}. Supported: PDF, PNG, JPG, JPEG, WEBP, CSV, XLSX`
-      );
+    if (authClient) {
+      const { data: visibleFile, error: visibleFileError } = await authClient
+        .from("files")
+        .select("id")
+        .eq("id", fileId)
+        .single();
+
+      if (visibleFileError || !visibleFile) {
+        console.error("[MAIN] File authorization failed:", visibleFileError?.message);
+        return new Response(
+          JSON.stringify({ success: false, error: "File not found or access denied" }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
     }
-    console.log('[MAIN] MIME type:', mimeType);
 
     // Check API keys
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
@@ -1402,7 +1404,7 @@ Deno.serve(async (req) => {
     // ========================================================================
     // STATUS GUARD: Prevent duplicate processing
     // ========================================================================
-    // Only process if status is 'pending' or 'failed'
+    // Allow pending, failed, processed, and not_invoice (re-extraction)
     console.log('[MAIN] Attempting to acquire processing lock...');
 
     const { data: fileRecord, error: updateError } = await supabase
@@ -1413,8 +1415,8 @@ Deno.serve(async (req) => {
         error_message: null, // Clear previous error on retry
       })
       .eq("id", fileId)
-      .in("status", ["pending", "failed"])
-      .select("user_id, retry_count, team_id")
+      .in("status", ["pending", "failed", "processed", "not_invoice"])
+      .select("user_id, retry_count, team_id, storage_path, file_type")
       .single();
 
     // Check for query error first (before checking fileRecord)
@@ -1457,16 +1459,66 @@ Deno.serve(async (req) => {
 
     const userId = fileRecord.user_id;
     const teamId = fileRecord.team_id;
+    const storagePath = fileRecord.storage_path;
+    const fileType = fileRecord.file_type;
     const currentRetryCount = (fileRecord.retry_count || 0) + 1;
     console.log('[MAIN] User ID:', userId);
     console.log('[MAIN] Team ID:', teamId);
     console.log('[MAIN] Retry count:', currentRetryCount);
+    console.log('[MAIN] Storage path:', storagePath);
+    console.log('[MAIN] File type:', fileType);
+
+    if (!storagePath || !fileType) {
+      throw new Error("File record is missing storage metadata");
+    }
+
+    // Validate file type is supported
+    const mimeType = getMimeType(fileType);
+    if (!mimeType) {
+      throw new Error(
+        `Unsupported file type: ${fileType}. Supported: PDF, PNG, JPG, JPEG, WEBP, CSV, XLSX`
+      );
+    }
+    console.log('[MAIN] MIME type:', mimeType);
 
     // Update retry count
     await supabase
       .from("files")
       .update({ retry_count: currentRetryCount })
       .eq("id", fileId);
+
+    // ========================================================================
+    // RE-EXTRACTION: Clean up existing invoice data for this file
+    // ========================================================================
+    const { data: existingInvoices } = await supabase
+      .from("invoices")
+      .select("id")
+      .eq("file_id", fileId);
+
+    if (existingInvoices && existingInvoices.length > 0) {
+      const invoiceIds = existingInvoices.map((inv: { id: string }) => inv.id);
+      console.log('[MAIN] Re-extraction: deleting existing invoices:', invoiceIds);
+
+      // Delete invoice_rows first (child records)
+      const { error: rowsDeleteError } = await supabase
+        .from("invoice_rows")
+        .delete()
+        .in("invoice_id", invoiceIds);
+
+      if (rowsDeleteError) {
+        console.error('[MAIN] Error deleting old invoice_rows:', rowsDeleteError);
+      }
+
+      // Delete invoices
+      const { error: invoicesDeleteError } = await supabase
+        .from("invoices")
+        .delete()
+        .in("id", invoiceIds);
+
+      if (invoicesDeleteError) {
+        console.error('[MAIN] Error deleting old invoices:', invoicesDeleteError);
+      }
+    }
 
     // Download file from storage
     console.log("[MAIN] Downloading from storage:", storagePath);

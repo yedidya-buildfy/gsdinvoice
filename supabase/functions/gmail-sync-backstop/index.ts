@@ -13,12 +13,17 @@ import { normalizeSenderRules } from "../_shared/email-ingestion/senderRules.ts"
 import type { EmailCandidate } from "../_shared/email-ingestion/types.ts";
 
 // CORS headers for cross-origin requests
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const ALLOWED_ORIGINS = ["https://bill-sync.com", "https://www.bill-sync.com", "http://localhost:5173"];
+
+function getCorsHeaders(req?: Request) {
+  const origin = req?.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 // Gmail API base URL
 const GMAIL_API_BASE = "https://www.googleapis.com/gmail/v1/users/me";
@@ -625,48 +630,47 @@ async function processCandidate(
 
   console.log("[GMAIL-BACKSTOP] File record created:", fileRecord.id);
 
-  // Trigger extract-invoice
+  // Trigger extract-invoice (true fire-and-forget, no await)
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-  try {
-    const extractResp = await fetch(
-      `${supabaseUrl}/functions/v1/extract-invoice`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseServiceKey}`,
-          apikey: supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          file_id: fileRecord.id,
-          storage_path: storagePath,
-          file_type: fileType,
-        }),
-      }
-    );
-
-    if (!extractResp.ok) {
-      const errorText = await extractResp.text();
-      console.error(
-        "[GMAIL-BACKSTOP] extract-invoice trigger failed:",
-        extractResp.status,
-        errorText
-      );
+  fetch(
+    `${supabaseUrl}/functions/v1/extract-invoice`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseServiceKey}`,
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify({
+        file_id: fileRecord.id,
+        storage_path: storagePath,
+        file_type: fileType,
+      }),
+    }
+  ).then((resp) => {
+    if (!resp.ok) {
+      resp.text().then((errorText) => {
+        console.error(
+          "[GMAIL-BACKSTOP] extract-invoice trigger failed:",
+          resp.status,
+          errorText
+        );
+      });
     } else {
       console.log(
         "[GMAIL-BACKSTOP] extract-invoice triggered for file:",
         fileRecord.id
       );
     }
-  } catch (triggerError) {
+  }).catch((triggerError) => {
     console.error(
       "[GMAIL-BACKSTOP] Failed to trigger extract-invoice:",
       triggerError
     );
-  }
+  });
 
   return { fileId: fileRecord.id };
 }
@@ -870,6 +874,8 @@ async function processConnection(
 // ============================================================================
 
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });

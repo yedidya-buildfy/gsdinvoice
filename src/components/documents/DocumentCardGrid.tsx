@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
@@ -14,7 +14,7 @@ import {
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 import type { DocumentWithInvoice } from './DocumentTable'
 import { formatCurrency } from '@/lib/currency'
-import { isImageType } from '@/lib/storage'
+import { isImageType, getFileBlobUrl } from '@/lib/storage'
 import { ExtractionStatus } from './ExtractionStatus'
 import {
   BankLinkBadge,
@@ -38,9 +38,21 @@ interface DocumentCardGridProps {
   isVisible?: (col: DocumentColumnKey) => boolean
 }
 
-/** PDF first-page thumbnail using react-pdf */
-function PdfThumbnail({ url }: { url: string }) {
+/** PDF first-page thumbnail using react-pdf with blob URL to avoid CORS */
+function PdfThumbnail({ storagePath }: { storagePath: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let revoke: string | null = null
+    getFileBlobUrl(storagePath)
+      .then((url) => {
+        revoke = url
+        setBlobUrl(url)
+      })
+      .catch(() => setFailed(true))
+    return () => { if (revoke) URL.revokeObjectURL(revoke) }
+  }, [storagePath])
 
   if (failed) {
     return (
@@ -50,10 +62,18 @@ function PdfThumbnail({ url }: { url: string }) {
     )
   }
 
+  if (!blobUrl) {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
   return (
     <div className="w-full h-full flex items-center justify-center overflow-hidden pointer-events-none">
       <Document
-        file={url}
+        file={blobUrl}
         onLoadError={() => setFailed(true)}
         loading={
           <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -72,7 +92,7 @@ function PdfThumbnail({ url }: { url: string }) {
 }
 
 /** Large file preview — image, PDF via react-pdf, or type-icon fallback */
-function FileThumbnail({ url, fileType, name }: { url?: string; fileType: string; name?: string | null }) {
+function FileThumbnail({ url, storagePath, fileType, name }: { url?: string; storagePath?: string; fileType: string; name?: string | null }) {
   const [imgError, setImgError] = useState(false)
 
   if (isImageType(fileType) && url && !imgError) {
@@ -87,8 +107,8 @@ function FileThumbnail({ url, fileType, name }: { url?: string; fileType: string
     )
   }
 
-  if (fileType === 'pdf' && url) {
-    return <PdfThumbnail url={url} />
+  if (fileType === 'pdf' && storagePath) {
+    return <PdfThumbnail storagePath={storagePath} />
   }
 
   const iconClass = 'h-12 w-12'
@@ -240,6 +260,7 @@ export function DocumentCardGrid({
             <div className="mx-2 h-52 rounded-md overflow-hidden bg-black/20 flex-shrink-0">
               <FileThumbnail
                 url={doc.url}
+                storagePath={doc.storage_path}
                 fileType={doc.file_type || 'unknown'}
                 name={doc.original_name}
               />
@@ -271,8 +292,15 @@ export function DocumentCardGrid({
 
             {/* Zone 4: Date added + Financials */}
             <div className="px-2.5 py-1.5">
-              {isVisible('added') && doc.created_at && (
-                <p className="text-xs text-text-muted mb-1">{formatDate(doc.created_at)}</p>
+              {(isVisible('added') || isVisible('items')) && (
+                <div className="flex items-center justify-between mb-1">
+                  {isVisible('added') && doc.created_at ? (
+                    <span className="text-xs text-text-muted">{formatDate(doc.created_at)}</span>
+                  ) : <span />}
+                  {isVisible('items') && invoice && (
+                    <span className="text-xs text-text-muted">{getLineItemsCount(invoice) || 0} items</span>
+                  )}
+                </div>
               )}
               {(isVisible('total') || isVisible('vatAmount')) && (
                 <div className="flex items-baseline justify-between gap-2">
@@ -337,12 +365,6 @@ export function DocumentCardGrid({
                 </div>
               )}
 
-              {/* Items row */}
-              {isVisible('items') && getLineItemsCount(invoice) > 0 && (
-                <div className="text-xs text-text-muted">
-                  {getLineItemsCount(invoice)} items
-                </div>
-              )}
             </div>
           </div>
         )

@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
+const ALLOWED_ORIGINS = ["https://bill-sync.com", "https://www.bill-sync.com", "http://localhost:5173"];
 
 // ============================================================================
 // ENCRYPTION UTILITIES
@@ -70,8 +71,59 @@ interface OAuthState {
   redirect_origin?: string;
 }
 
-function decodeState(stateParam: string): OAuthState {
-  const decoded = atob(stateParam);
+function isAllowedOrigin(origin?: string | null): origin is string {
+  return !!origin && ALLOWED_ORIGINS.includes(origin);
+}
+
+function base64UrlDecode(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
+  return Uint8Array.from(atob(normalized + padding), (char) => char.charCodeAt(0));
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const normalized = hex.trim();
+  const pairs = normalized.match(/.{1,2}/g);
+  if (!pairs) {
+    throw new Error("State signing key is invalid");
+  }
+  return new Uint8Array(pairs.map((pair) => parseInt(pair, 16)));
+}
+
+async function importStateSigningKey(hexKey: string): Promise<CryptoKey> {
+  const keyBytes = hexToBytes(hexKey);
+  if (keyBytes.length !== 32) {
+    throw new Error(`State signing key must be 32 bytes, got ${keyBytes.length}`);
+  }
+
+  return await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+}
+
+async function decodeState(stateParam: string, secretHex: string): Promise<OAuthState> {
+  const [payloadEncoded, signatureEncoded, extra] = stateParam.split(".");
+  if (!payloadEncoded || !signatureEncoded || extra) {
+    throw new Error("Invalid state format");
+  }
+
+  const key = await importStateSigningKey(secretHex);
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    key,
+    base64UrlDecode(signatureEncoded),
+    new TextEncoder().encode(payloadEncoded)
+  );
+
+  if (!valid) {
+    throw new Error("Invalid state signature");
+  }
+
+  const decoded = new TextDecoder().decode(base64UrlDecode(payloadEncoded));
   const parsed = JSON.parse(decoded);
 
   if (!parsed.team_id || !parsed.user_id || !parsed.ts) {
@@ -86,7 +138,7 @@ function decodeState(stateParam: string): OAuthState {
 // ============================================================================
 
 Deno.serve(async (req) => {
-  const defaultAppUrl = Deno.env.get("APP_URL") || "http://localhost:5173";
+  const defaultAppUrl = Deno.env.get("APP_URL") || ALLOWED_ORIGINS[0];
 
   // Determine the app URL - will be updated from state if available
   let appUrl = defaultAppUrl;
@@ -127,10 +179,16 @@ Deno.serve(async (req) => {
       return redirectWithError("Missing state parameter");
     }
 
+    const tokenEncryptionKey = Deno.env.get("TOKEN_ENCRYPTION_KEY");
+    if (!tokenEncryptionKey) {
+      console.error("[GMAIL-CALLBACK] Missing TOKEN_ENCRYPTION_KEY");
+      return redirectWithError("Server configuration error");
+    }
+
     // Decode and validate state
     let state: OAuthState;
     try {
-      state = decodeState(stateParam);
+      state = await decodeState(stateParam, tokenEncryptionKey);
     } catch (stateError) {
       console.error(
         "[GMAIL-CALLBACK] Failed to decode state:",
@@ -142,8 +200,10 @@ Deno.serve(async (req) => {
     const { team_id, user_id, ts } = state;
 
     // Use redirect_origin from state if provided (supports local dev)
-    if (state.redirect_origin) {
+    if (state.redirect_origin && isAllowedOrigin(state.redirect_origin)) {
       appUrl = state.redirect_origin;
+    } else if (state.redirect_origin) {
+      return redirectWithError("Invalid redirect origin");
     }
     console.log("[GMAIL-CALLBACK] OAuth callback for team:", team_id, "user:", user_id);
 
@@ -160,7 +220,6 @@ Deno.serve(async (req) => {
     const googleClientId = Deno.env.get("GOOGLE_CLIENT_ID");
     const googleClientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
     const googleRedirectUri = Deno.env.get("GOOGLE_REDIRECT_URI");
-    const tokenEncryptionKey = Deno.env.get("TOKEN_ENCRYPTION_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -185,6 +244,32 @@ Deno.serve(async (req) => {
         missing
       );
       return redirectWithError("Server configuration error");
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data: membership, error: membershipError } = await supabase
+      .from("team_members")
+      .select("role")
+      .eq("team_id", team_id)
+      .eq("user_id", user_id)
+      .is("removed_at", null)
+      .single();
+
+    if (membershipError || !membership) {
+      console.error(
+        "[GMAIL-CALLBACK] Team membership check failed:",
+        membershipError?.message
+      );
+      return redirectWithError("You are not allowed to connect email accounts for this team");
+    }
+
+    if (membership.role !== "owner" && membership.role !== "admin") {
+      console.error(
+        "[GMAIL-CALLBACK] Insufficient role for Gmail connection:",
+        membership.role
+      );
+      return redirectWithError("Only team owners and admins can connect email accounts");
     }
 
     // ========================================================================
@@ -319,8 +404,6 @@ Deno.serve(async (req) => {
     // STEP 4: Upsert email connection into database
     // ========================================================================
     console.log("[GMAIL-CALLBACK] Saving email connection...");
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Calculate token expiration timestamp
     const tokenExpiresAt = new Date(

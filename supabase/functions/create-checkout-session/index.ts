@@ -8,13 +8,41 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') ?? '', {
 const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
+const appUrl = Deno.env.get('APP_URL')?.trim() || 'https://bill-sync.com'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const ALLOWED_ORIGINS = ["https://bill-sync.com", "https://www.bill-sync.com", "http://localhost:5173"];
+
+function getCorsHeaders(req?: Request) {
+  const origin = req?.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+}
+
+const PRICE_IDS = {
+  pro: {
+    monthly: 'price_1Sv5Q0AL5a3GKiPQ067swNb1',
+    yearly: 'price_1Sv5Q1AL5a3GKiPQDNZwX68D',
+  },
+  business: {
+    monthly: 'price_1Sv5Q1AL5a3GKiPQEZDH02dT',
+    yearly: 'price_1Sv5Q2AL5a3GKiPQBGd52tp8',
+  },
+} as const
+
+type PlanId = keyof typeof PRICE_IDS
+type BillingInterval = keyof typeof PRICE_IDS.pro
+
+function getPriceId(planId: string, interval: string): string | null {
+  if (!(planId in PRICE_IDS)) return null
+  const prices = PRICE_IDS[planId as PlanId]
+  if (!(interval in prices)) return null
+  return prices[interval as BillingInterval]
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -40,11 +68,19 @@ Deno.serve(async (req) => {
       )
     }
 
-    const { priceId, userId, userEmail, planTier } = await req.json()
+    const { userId, planId, interval } = await req.json()
 
-    if (!priceId || !userId || !userEmail) {
+    if (!userId || !planId || !interval) {
       return new Response(
         JSON.stringify({ error: 'Missing required fields' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const priceId = getPriceId(planId, interval)
+    if (!priceId) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid plan or billing interval' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -54,6 +90,14 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: 'User ID does not match authenticated user' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const userEmail = authUser.email
+    if (!userEmail) {
+      return new Response(
+        JSON.stringify({ error: 'Authenticated user has no email' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
@@ -98,16 +142,16 @@ Deno.serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: `${req.headers.get('origin')}/settings?tab=billing&success=true`,
-      cancel_url: `${req.headers.get('origin')}/settings?tab=billing&canceled=true`,
+      success_url: `${appUrl}/settings?tab=billing&success=true`,
+      cancel_url: `${appUrl}/settings?tab=billing&canceled=true`,
       metadata: {
         userId,
-        planTier,
+        planTier: planId,
       },
       subscription_data: {
         metadata: {
           userId,
-          planTier,
+          planTier: planId,
         },
         trial_period_days: 14, // 14-day trial
       },

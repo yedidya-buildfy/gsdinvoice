@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { getFileUrl } from '@/lib/storage'
+import { getSignedFileUrl } from '@/lib/storage'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeam } from '@/contexts/TeamContext'
 import type { File } from '@/types/database'
@@ -14,14 +14,18 @@ interface UseDocumentsOptions {
  */
 export type DocumentWithUrl = File & { url: string }
 
-/**
- * Add public URLs to documents for display
- */
-export function getDocumentsWithUrls(documents: File[]): DocumentWithUrl[] {
-  return documents.map((doc) => ({
-    ...doc,
-    url: getFileUrl(doc.storage_path),
-  }))
+async function attachSignedUrls(documents: File[]): Promise<DocumentWithUrl[]> {
+  return await Promise.all(
+    documents.map(async (doc) => {
+      try {
+        const url = await getSignedFileUrl(doc.storage_path)
+        return { ...doc, url }
+      } catch (error) {
+        console.error('[useDocuments] Failed to create signed URL:', doc.storage_path, error)
+        return { ...doc, url: '' }
+      }
+    })
+  )
 }
 
 /**
@@ -56,7 +60,7 @@ export function useDocuments(options?: UseDocumentsOptions) {
         throw new Error(error.message)
       }
 
-      return data as File[]
+      return await attachSignedUrls(data as File[])
     },
     enabled: !!user?.id && !!currentTeam,
     staleTime: 30 * 1000, // 30 seconds, matches existing pattern

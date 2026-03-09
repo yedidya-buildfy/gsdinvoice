@@ -169,7 +169,7 @@ export const useSettingsStore = create<SettingsState>()(
         })),
 
       // Document view mode
-      documentViewMode: 'table' as const,
+      documentViewMode: 'cards' as const,
       setDocumentViewMode: (mode) => set({ documentViewMode: mode }),
 
       // Column visibility - default all to true

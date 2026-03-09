@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 
 export const BUCKET_NAME = 'documents'
+const SIGNED_URL_TTL_SECONDS = 60 * 60
 
 type FileType = 'pdf' | 'png' | 'jpg' | 'jpeg' | 'webp' | 'xlsx' | 'csv' | 'unknown'
 
@@ -93,10 +94,32 @@ export async function uploadFile(
 }
 
 /**
- * Get the public URL for a file in storage
+ * Get a signed URL for a private file in storage
  */
-export function getFileUrl(path: string): string {
-  const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(path)
-  return data.publicUrl
+export async function getSignedFileUrl(path: string): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
+
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message || 'Failed to create signed URL')
+  }
+
+  return data.signedUrl
 }
 
+/**
+ * Download a file from storage and return a local blob URL.
+ * Useful for PDF rendering (pdfjs uses fetch which is subject to CORS).
+ */
+export async function getFileBlobUrl(path: string): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .download(path)
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Failed to download file')
+  }
+
+  return URL.createObjectURL(data)
+}

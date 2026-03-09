@@ -103,18 +103,12 @@ export function useInviteMember() {
         metadata: { email, role, invitation_id: data.id },
       })
 
-      // Send invitation email (non-blocking - don't fail if email fails)
-      const inviteUrl = `${window.location.origin}/invite/${data.token}`
       let emailSent = false
 
       try {
         const { error: emailError } = await supabase.functions.invoke('send-team-invite', {
           body: {
-            email,
-            teamName: currentTeam.name,
-            inviterName: user.user_metadata?.full_name || user.email || 'A team member',
-            role,
-            inviteUrl,
+            invitation_id: data.id,
           },
         })
 
@@ -215,18 +209,12 @@ export function useResendInvitation() {
         throw new Error(error.message)
       }
 
-      // Send the email with the new token
-      const inviteUrl = `${window.location.origin}/invite/${token}`
       let emailSent = false
 
       try {
         const { error: emailError } = await supabase.functions.invoke('send-team-invite', {
           body: {
-            email: invitation.email,
-            teamName: currentTeam.name,
-            inviterName: user.user_metadata?.full_name || user.email || 'A team member',
-            role: invitation.role,
-            inviteUrl,
+            invitation_id: invitationId,
           },
         })
 

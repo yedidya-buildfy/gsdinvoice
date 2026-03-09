@@ -6,7 +6,7 @@ import {
   Heading as AriaHeading,
 } from 'react-aria-components'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
-import { XMarkIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon, SparklesIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import { cx } from '@/utils/cx'
 import { FileViewer } from './FileViewer'
 import { ExtractedDataPanel } from './ExtractedDataPanel'
@@ -204,16 +204,20 @@ export function InvoicePreviewModal({
           {/* Footer */}
           <footer className="flex items-center justify-between px-6 py-4 border-t border-gray-800">
             <div>
-              {/* Extract button for pending documents */}
-              {isPending && onExtract && !isExtracting && (
+              {/* Extract / Re-extract button */}
+              {onExtract && !isExtracting && !isProcessing && (
                 <button
                   type="button"
                   onClick={onExtract}
                   disabled={isExtracting}
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <SparklesIcon className="w-4 h-4" />
-                  Extract with AI
+                  {isPending ? (
+                    <SparklesIcon className="w-4 h-4" />
+                  ) : (
+                    <ArrowPathIcon className="w-4 h-4" />
+                  )}
+                  {isPending ? 'Extract with AI' : 'Re-extract with AI'}
                 </button>
               )}
               {(isExtracting || isProcessing) && (

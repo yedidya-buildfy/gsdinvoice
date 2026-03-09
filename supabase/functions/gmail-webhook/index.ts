@@ -13,6 +13,25 @@ import type {
   EmailCandidate,
 } from "../_shared/email-ingestion/types.ts";
 
+// Debug logger - writes to debug_logs table for troubleshooting
+let _debugSupabase: ReturnType<typeof createClient> | null = null;
+function getDebugClient(): ReturnType<typeof createClient> {
+  if (!_debugSupabase) {
+    _debugSupabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+  }
+  return _debugSupabase;
+}
+async function debugLog(message: string, data?: Record<string, unknown>) {
+  try {
+    await getDebugClient()
+      .from("debug_logs")
+      .insert({ source: "gmail-webhook", message, data: data ?? null });
+  } catch { /* best-effort */ }
+}
+
 // CORS headers for cross-origin requests
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,6 +60,59 @@ const ALLOWED_CONTENT_TYPES = new Set([
   "image/webp",
   "text/html",
 ]);
+const GOOGLE_ISSUERS = new Set(["accounts.google.com", "https://accounts.google.com"]);
+
+interface GoogleTokenInfo {
+  aud?: string;
+  email?: string;
+  email_verified?: string | boolean;
+  iss?: string;
+  exp?: string;
+}
+
+async function verifyPubSubOidcToken(
+  req: Request,
+  expectedAudience: string,
+  expectedEmail: string
+): Promise<void> {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    throw new Error("Missing bearer token");
+  }
+
+  const idToken = authHeader.slice("Bearer ".length).trim();
+  if (!idToken) {
+    throw new Error("Missing bearer token");
+  }
+
+  const tokenInfoUrl = new URL("https://oauth2.googleapis.com/tokeninfo");
+  tokenInfoUrl.searchParams.set("id_token", idToken);
+
+  const response = await fetch(tokenInfoUrl.toString());
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Token verification failed: ${response.status} ${errorText}`);
+  }
+
+  const tokenInfo = await response.json() as GoogleTokenInfo;
+  const emailVerified = tokenInfo.email_verified === true || tokenInfo.email_verified === "true";
+
+  if (tokenInfo.aud !== expectedAudience) {
+    throw new Error("Invalid token audience");
+  }
+
+  if (!tokenInfo.iss || !GOOGLE_ISSUERS.has(tokenInfo.iss)) {
+    throw new Error("Invalid token issuer");
+  }
+
+  if (!emailVerified) {
+    throw new Error("Token email is not verified");
+  }
+
+  if (tokenInfo.email !== expectedEmail) {
+    throw new Error("Unexpected token email");
+  }
+}
 
 // ============================================================================
 // TOKEN MANAGEMENT
@@ -629,50 +701,50 @@ async function processCandidate(
 
   console.log("[GMAIL-WEBHOOK] File record created:", fileRecord.id);
 
-  // Trigger extract-invoice Edge Function (fire and forget)
+  // Trigger extract-invoice Edge Function (true fire-and-forget, no await)
+  // We must NOT await this -- the extraction can take 60-120s which would
+  // cause the webhook to timeout and potentially kill the extraction.
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-  try {
-    const extractResp = await fetch(
-      `${supabaseUrl}/functions/v1/extract-invoice`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseServiceKey}`,
-          apikey: supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          file_id: fileRecord.id,
-          storage_path: storagePath,
-          file_type: fileType,
-        }),
-      }
-    );
-
-    if (!extractResp.ok) {
-      const errorText = await extractResp.text();
-      console.error(
-        "[GMAIL-WEBHOOK] extract-invoice trigger failed:",
-        extractResp.status,
-        errorText
-      );
-      // Don't throw -- the file is created and can be retried later
+  fetch(
+    `${supabaseUrl}/functions/v1/extract-invoice`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseServiceKey}`,
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify({
+        file_id: fileRecord.id,
+        storage_path: storagePath,
+        file_type: fileType,
+      }),
+    }
+  ).then((resp) => {
+    if (!resp.ok) {
+      resp.text().then((errorText) => {
+        console.error(
+          "[GMAIL-WEBHOOK] extract-invoice trigger failed:",
+          resp.status,
+          errorText
+        );
+      });
     } else {
       console.log(
         "[GMAIL-WEBHOOK] extract-invoice triggered for file:",
         fileRecord.id
       );
     }
-  } catch (triggerError) {
+  }).catch((triggerError) => {
     console.error(
       "[GMAIL-WEBHOOK] Failed to trigger extract-invoice:",
       triggerError
     );
     // Non-fatal -- file record exists for retry
-  }
+  });
 
   return { fileId: fileRecord.id };
 }
@@ -689,9 +761,25 @@ async function processMessage(
 ): Promise<{ processed: boolean; score: number; fileIds: string[] }> {
   // Fetch full message
   const message = await fetchGmailMessage(accessToken, gmailMessageId);
+  const subject = getHeader(message.payload, "Subject") || "(no subject)";
   const normalizedRules = normalizeSenderRules(connection.sender_rules);
   const candidates = discoverDocumentCandidates(message);
+
+  await debugLog("processMessage", {
+    gmailMessageId,
+    subject: subject.substring(0, 100),
+    candidateCount: candidates.length,
+    candidateKinds: candidates.map((c) => c.kind),
+    candidateDetails: candidates.map((c) => ({
+      kind: c.kind,
+      filename: "filename" in c ? c.filename : undefined,
+      mimeType: "mimeType" in c ? c.mimeType : undefined,
+    })),
+    labelIds: message.labelIds,
+  });
+
   if (candidates.length === 0) {
+    await debugLog("no_candidates", { gmailMessageId, subject: subject.substring(0, 100) });
     return { processed: false, score: 0, fileIds: [] };
   }
 
@@ -702,13 +790,22 @@ async function processMessage(
     normalizedRules,
     GEMINI_CLASSIFY_URL,
   );
-  const subject = getHeader(message.payload, "Subject") || "(no subject)";
+
+  await debugLog("detection_result", {
+    gmailMessageId,
+    subject: subject.substring(0, 100),
+    label: detection.label,
+    confidence: detection.confidence,
+    reason: detection.reason,
+    candidateCount: candidates.length,
+  });
 
   console.log(
     `[GMAIL-WEBHOOK] Message ${gmailMessageId}: label=${detection.label}, confidence=${detection.confidence}, subject="${subject.substring(0, 60)}", candidates=${candidates.length}`
   );
 
   if (detection.label === "no") {
+    await debugLog("detection_rejected", { gmailMessageId, subject: subject.substring(0, 100), reason: detection.reason });
     return { processed: false, score: 0, fileIds: [] };
   }
 
@@ -727,8 +824,25 @@ async function processMessage(
       );
       if (result) {
         fileIds.push(result.fileId);
+        await debugLog("candidate_processed", {
+          gmailMessageId,
+          candidateKind: candidate.kind,
+          fileId: result.fileId,
+        });
+      } else {
+        await debugLog("candidate_skipped", {
+          gmailMessageId,
+          candidateKind: candidate.kind,
+          filename: "filename" in candidate ? candidate.filename : undefined,
+          reason: "processCandidate returned null (duplicate or unsupported)",
+        });
       }
     } catch (attError) {
+      await debugLog("candidate_error", {
+        gmailMessageId,
+        candidateKind: candidate.kind,
+        error: attError instanceof Error ? attError.message : String(attError),
+      });
       console.error(
         "[GMAIL-WEBHOOK] Failed to process candidate:",
         candidate.kind,
@@ -766,8 +880,6 @@ Deno.serve(async (req) => {
   console.log("[GMAIL-WEBHOOK] Push notification received");
   console.log("[GMAIL-WEBHOOK] Timestamp:", new Date().toISOString());
 
-  // Always return 200 quickly to acknowledge the Pub/Sub message.
-  // Google Pub/Sub retries on non-2xx, so we must ack even on errors.
   try {
     // Validate environment
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -775,20 +887,45 @@ Deno.serve(async (req) => {
     const tokenEncryptionKey = Deno.env.get("TOKEN_ENCRYPTION_KEY");
     const googleClientId = Deno.env.get("GOOGLE_CLIENT_ID");
     const googleClientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
+    const webhookAudience =
+      Deno.env.get("GMAIL_WEBHOOK_AUDIENCE") || req.url;
+    const webhookServiceAccountEmail = Deno.env.get(
+      "GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL"
+    );
 
     if (
       !supabaseUrl ||
       !supabaseServiceKey ||
       !tokenEncryptionKey ||
       !googleClientId ||
-      !googleClientSecret
+      !googleClientSecret ||
+      !webhookServiceAccountEmail
     ) {
       console.error("[GMAIL-WEBHOOK] Missing required environment variables");
-      // Return 200 to stop Pub/Sub retries -- config error won't fix itself
       return new Response(
         JSON.stringify({ error: "Server configuration error" }),
         {
-          status: 200,
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    try {
+      await verifyPubSubOidcToken(
+        req,
+        webhookAudience,
+        webhookServiceAccountEmail
+      );
+    } catch (authError) {
+      console.error(
+        "[GMAIL-WEBHOOK] Request authentication failed:",
+        authError
+      );
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        {
+          status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
@@ -964,21 +1101,40 @@ Deno.serve(async (req) => {
 
     // Collect unique new message IDs
     const newMessageIds = new Set<string>();
+    const skippedNonInbox: Array<{ id: string; labels: string[] }> = [];
+    let totalMessagesAdded = 0;
+
     if (historyResponse.history) {
       for (const historyRecord of historyResponse.history) {
         if (historyRecord.messagesAdded) {
           for (const added of historyRecord.messagesAdded) {
+            totalMessagesAdded++;
             // Only process INBOX messages
             if (
               added.message.labelIds &&
               added.message.labelIds.includes("INBOX")
             ) {
               newMessageIds.add(added.message.id);
+            } else {
+              skippedNonInbox.push({
+                id: added.message.id,
+                labels: added.message.labelIds || [],
+              });
             }
           }
         }
       }
     }
+
+    await debugLog("history_result", {
+      startHistoryId: connection.last_history_id,
+      newHistoryId: historyResponse.historyId,
+      historyRecordCount: historyResponse.history?.length ?? 0,
+      totalMessagesAdded,
+      inboxMessages: newMessageIds.size,
+      skippedNonInbox: skippedNonInbox.length > 0 ? skippedNonInbox : undefined,
+      newMessageIds: [...newMessageIds],
+    });
 
     console.log(
       "[GMAIL-WEBHOOK] New messages found:",

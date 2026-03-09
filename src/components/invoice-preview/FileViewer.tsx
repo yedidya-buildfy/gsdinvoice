@@ -45,7 +45,7 @@ function getFileCategory(fileType: string): FileCategory {
 }
 
 export function FileViewer({ storagePath, fileType }: FileViewerProps) {
-  const { url, loading, error } = useFileUrl(storagePath)
+  const { url, loading, error } = useFileUrl(storagePath, fileType)
   const category = getFileCategory(fileType)
 
   if (loading) {

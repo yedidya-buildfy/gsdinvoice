@@ -3,19 +3,42 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { Resend } from 'npm:resend@2.0.0'
 
 // CORS headers for cross-origin requests
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+const ALLOWED_ORIGINS = ["https://bill-sync.com", "https://www.bill-sync.com", "http://localhost:5173"];
+
+function getCorsHeaders(req?: Request) {
+  const origin = req?.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers':
+      'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  };
 }
 
 interface InviteEmailRequest {
-  email: string
+  invitation_id: string
+}
+
+interface InvitationEmailData {
   teamName: string
   inviterName: string
   role: string
   inviteUrl: string
+}
+
+interface InvitationRecord {
+  id: string
+  team_id: string
+  email: string
+  role: string
+  token: string
+  status: string
+  expires_at: string
+  team: { name: string } | null
+}
+
+function isAllowedOrigin(origin?: string | null): origin is string {
+  return !!origin && ALLOWED_ORIGINS.includes(origin);
 }
 
 function getRoleDisplayName(role: string): string {
@@ -36,7 +59,7 @@ function generateEmailHtml({
   inviterName,
   role,
   inviteUrl,
-}: Omit<InviteEmailRequest, 'email'>): string {
+}: InvitationEmailData): string {
   const roleDisplay = getRoleDisplayName(role)
 
   return `
@@ -130,7 +153,7 @@ function generateEmailText({
   inviterName,
   role,
   inviteUrl,
-}: Omit<InviteEmailRequest, 'email'>): string {
+}: InvitationEmailData): string {
   const roleDisplay = getRoleDisplayName(role)
 
   return `You're Invited to Join ${teamName}!
@@ -151,6 +174,7 @@ Sent by BillSync
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders })
@@ -171,7 +195,8 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')
-    if (!supabaseUrl || !supabaseAnonKey) {
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
       return new Response(
         JSON.stringify({ success: false, error: 'Server configuration error' }),
         {
@@ -180,6 +205,8 @@ Deno.serve(async (req) => {
         }
       )
     }
+
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey)
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -213,13 +240,105 @@ Deno.serve(async (req) => {
 
     // Parse and validate request body
     const body: InviteEmailRequest = await req.json()
-    const { email, teamName, inviterName, role, inviteUrl } = body
+    const { invitation_id } = body
 
-    if (!email || !teamName || !inviterName || !role || !inviteUrl) {
+    if (!invitation_id) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Missing required fields: email, teamName, inviterName, role, inviteUrl'
+          error: 'Missing required field: invitation_id'
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const { data: invitationData, error: invitationError } = await adminClient
+      .from('team_invitations')
+      .select(`
+        id,
+        team_id,
+        email,
+        role,
+        token,
+        status,
+        expires_at,
+        team:teams (
+          name
+        )
+      `)
+      .eq('id', invitation_id)
+      .single()
+
+    const invitation = invitationData as InvitationRecord | null
+
+    if (invitationError || !invitation) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Invitation not found'
+        }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    const { data: membership, error: membershipError } = await adminClient
+      .from('team_members')
+      .select('role')
+      .eq('team_id', invitation.team_id)
+      .eq('user_id', user.id)
+      .is('removed_at', null)
+      .single()
+
+    if (membershipError || !membership) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'You are not a member of this team'
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    if (membership.role !== 'owner' && membership.role !== 'admin') {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Only team owners and admins can send invitation emails'
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    if (invitation.status !== 'pending') {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Only pending invitations can be emailed'
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    if (new Date(invitation.expires_at) < new Date()) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Invitation has expired'
         }),
         {
           status: 400,
@@ -230,11 +349,11 @@ Deno.serve(async (req) => {
 
     // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(invitation.email)) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Invalid email address'
+          error: 'Invitation has an invalid email address'
         }),
         {
           status: 400,
@@ -279,12 +398,23 @@ Deno.serve(async (req) => {
       )
     }
 
-    console.log(`Sending business invite email to ${email} for business ${teamName}`)
+    const inviterName =
+      (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+      user.email ||
+      'A team member'
+    const appUrl = isAllowedOrigin(req.headers.get('Origin'))
+      ? req.headers.get('Origin')!
+      : (Deno.env.get('APP_URL') || ALLOWED_ORIGINS[0])
+    const inviteUrl = `${appUrl}/invite/${invitation.token}`
+    const teamName = invitation.team?.name || 'your team'
+    const role = invitation.role
+
+    console.log(`Sending business invite email to ${invitation.email} for business ${teamName}`)
 
     // Send the email
     const { data, error } = await resend.emails.send({
       from: fromAddress,
-      to: [email],
+      to: [invitation.email],
       subject: `You've been invited to join ${teamName}`,
       html: generateEmailHtml({ teamName, inviterName, role, inviteUrl }),
       text: generateEmailText({ teamName, inviterName, role, inviteUrl }),

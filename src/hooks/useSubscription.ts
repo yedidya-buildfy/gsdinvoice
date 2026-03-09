@@ -13,12 +13,11 @@ export function useSubscription() {
     queryFn: async () => {
       if (!user) return null
 
-      // Tables not in generated types - using any cast for subscription features
-      const { data, error } = await (supabase as any)
-        .from('subscriptions')
+      const { data, error } = await supabase
+        .from('subscriptions' as never)
         .select('*')
         .eq('user_id', user.id)
-        .single() as { data: Subscription | null; error: { code: string } | null }
+        .single() as unknown as { data: Subscription | null; error: { code: string } | null }
 
       if (error && error.code !== 'PGRST116') {
         throw error
@@ -34,18 +33,21 @@ export function usePlanLimits(planTier?: string) {
   return useQuery({
     queryKey: ['plan_limits', planTier],
     queryFn: async () => {
-      // Tables not in generated types - using any cast for subscription features
-      const query = (supabase as any).from('plan_limits').select('*')
-
       if (planTier) {
-        const { data, error } = await query.eq('plan_tier', planTier).single() as { data: PlanLimits | null; error: { code: string } | null }
+        const { data, error } = await supabase
+          .from('plan_limits' as never)
+          .select('*')
+          .eq('plan_tier', planTier)
+          .single() as unknown as { data: PlanLimits | null; error: { code: string } | null }
         if (error && error.code !== 'PGRST116') {
           throw error
         }
         return data
       }
 
-      const { data, error } = await query as { data: PlanLimits[] | null; error: { code: string } | null }
+      const { data, error } = await supabase
+        .from('plan_limits' as never)
+        .select('*') as unknown as { data: PlanLimits[] | null; error: { code: string } | null }
 
       if (error && error.code !== 'PGRST116') {
         throw error
@@ -69,15 +71,14 @@ export function useCurrentUsage() {
       periodStart.setDate(1)
       periodStart.setHours(0, 0, 0, 0)
 
-      // Tables not in generated types - using any cast for subscription features
-      const { data, error } = await (supabase as any)
-        .from('usage_records')
+      const { data, error } = await supabase
+        .from('usage_records' as never)
         .select('*')
         .eq('user_id', user.id)
         .gte('period_start', periodStart.toISOString())
         .order('period_start', { ascending: false })
         .limit(1)
-        .single() as { data: UsageRecord | null; error: { code: string } | null }
+        .single() as unknown as { data: UsageRecord | null; error: { code: string } | null }
 
       if (error && error.code !== 'PGRST116') {
         throw error
@@ -115,10 +116,9 @@ export function useCheckout() {
       // Call Supabase Edge Function to create checkout session
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
-          priceId: price.id,
           userId: user.id,
-          userEmail: user.email,
-          planTier: planId,
+          planId,
+          interval,
         },
       })
 
@@ -186,8 +186,8 @@ export function useUpdateSubscription() {
       const { data, error } = await supabase.functions.invoke('update-subscription', {
         body: {
           userId: user.id,
-          priceId: price.id,
-          planTier: planId,
+          planId,
+          interval,
         },
       })
 
@@ -201,4 +201,3 @@ export function useUpdateSubscription() {
     },
   })
 }
-

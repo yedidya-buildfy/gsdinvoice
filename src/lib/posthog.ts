@@ -16,7 +16,7 @@ export function initPostHog() {
     capture_pageleave: true,
     autocapture: true,
     session_recording: {
-      maskAllInputs: false,
+      maskAllInputs: true,
       maskInputOptions: {
         password: true,
       },

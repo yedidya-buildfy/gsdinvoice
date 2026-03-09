@@ -2,12 +2,17 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // CORS headers for cross-origin requests
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const ALLOWED_ORIGINS = ["https://bill-sync.com", "https://www.bill-sync.com", "http://localhost:5173"];
+
+function getCorsHeaders(req?: Request) {
+  const origin = req?.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-version",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
@@ -22,7 +27,65 @@ interface GmailAuthRequest {
   redirect_origin?: string;
 }
 
+interface OAuthState {
+  team_id: string;
+  user_id: string;
+  ts: number;
+  redirect_origin?: string;
+}
+
+function isAllowedOrigin(origin?: string | null): origin is string {
+  return !!origin && ALLOWED_ORIGINS.includes(origin);
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const normalized = hex.trim();
+  const pairs = normalized.match(/.{1,2}/g);
+  if (!pairs) {
+    throw new Error("State signing key is invalid");
+  }
+  return new Uint8Array(pairs.map((pair) => parseInt(pair, 16)));
+}
+
+async function importStateSigningKey(hexKey: string): Promise<CryptoKey> {
+  const keyBytes = hexToBytes(hexKey);
+  if (keyBytes.length !== 32) {
+    throw new Error(`State signing key must be 32 bytes, got ${keyBytes.length}`);
+  }
+
+  return await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+}
+
+async function encodeSignedState(state: OAuthState, secretHex: string): Promise<string> {
+  const payload = JSON.stringify(state);
+  const payloadEncoded = base64UrlEncode(new TextEncoder().encode(payload));
+  const key = await importStateSigningKey(secretHex);
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(payloadEncoded)
+  );
+
+  return `${payloadEncoded}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -32,8 +95,9 @@ Deno.serve(async (req) => {
     // Validate required environment variables
     const googleClientId = Deno.env.get("GOOGLE_CLIENT_ID");
     const googleRedirectUri = Deno.env.get("GOOGLE_REDIRECT_URI");
+    const tokenEncryptionKey = Deno.env.get("TOKEN_ENCRYPTION_KEY");
 
-    if (!googleClientId || !googleRedirectUri) {
+    if (!googleClientId || !googleRedirectUri || !tokenEncryptionKey) {
       console.error("[GMAIL-AUTH] Missing Google OAuth configuration");
       return new Response(
         JSON.stringify({
@@ -126,6 +190,16 @@ Deno.serve(async (req) => {
       );
     }
 
+    if (redirect_origin && !isAllowedOrigin(redirect_origin)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid redirect origin" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     // Use service role client for admin check (bypasses RLS)
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseServiceKey) {
@@ -197,14 +271,15 @@ Deno.serve(async (req) => {
       team_id
     );
 
-    // Build OAuth state parameter (base64 encoded JSON)
-    const state = btoa(
-      JSON.stringify({
+    // Build a signed OAuth state parameter to prevent tampering.
+    const state = await encodeSignedState(
+      {
         team_id,
         user_id: user.id,
         ts: Date.now(),
         redirect_origin: redirect_origin || undefined,
-      })
+      },
+      tokenEncryptionKey
     );
 
     // Build Google OAuth URL

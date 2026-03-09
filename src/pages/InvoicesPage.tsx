@@ -24,7 +24,7 @@ import { useExport } from '@/hooks/useExport'
 import { downloadFilesAsZip, mergeFilesIntoPDF, downloadFileIndividually } from '@/lib/export/documentExporter'
 import type { DocumentExportFormat } from '@/lib/export/types'
 import { Pagination } from '@/components/ui/Pagination'
-import { useDocuments, getDocumentsWithUrls } from '@/hooks/useDocuments'
+import { useDocuments } from '@/hooks/useDocuments'
 import {
   useExtractDocument,
   useExtractMultipleDocuments,
@@ -86,8 +86,7 @@ export function InvoicesPage() {
   // Get documents with URLs and invoices merged
   const documentsWithInvoices = useMemo(() => {
     if (!documents) return []
-    const docsWithUrls = getDocumentsWithUrls(documents)
-    return docsWithUrls.map((doc) => ({
+    return documents.map((doc) => ({
       ...doc,
       invoice: invoices?.find((inv) => inv.file_id === doc.id) ?? null,
     }))

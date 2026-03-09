@@ -9,9 +9,14 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const ALLOWED_ORIGINS = ["https://bill-sync.com", "https://www.bill-sync.com", "http://localhost:5173"];
+
+function getCorsHeaders(req?: Request) {
+  const origin = req?.headers.get("Origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
 }
 
 // Map Stripe price IDs to plan tiers
@@ -22,7 +27,29 @@ const PRICE_TO_PLAN: Record<string, string> = {
   'price_1Sv5Q2AL5a3GKiPQBGd52tp8': 'business',
 }
 
+const PLAN_TO_PRICE = {
+  pro: {
+    monthly: 'price_1Sv5Q0AL5a3GKiPQ067swNb1',
+    yearly: 'price_1Sv5Q1AL5a3GKiPQDNZwX68D',
+  },
+  business: {
+    monthly: 'price_1Sv5Q1AL5a3GKiPQEZDH02dT',
+    yearly: 'price_1Sv5Q2AL5a3GKiPQBGd52tp8',
+  },
+} as const
+
+type PlanId = keyof typeof PLAN_TO_PRICE
+type BillingInterval = keyof typeof PLAN_TO_PRICE.pro
+
+function getPriceId(planId: string, interval: string): string | null {
+  if (!(planId in PLAN_TO_PRICE)) return null
+  const prices = PLAN_TO_PRICE[planId as PlanId]
+  if (!(interval in prices)) return null
+  return prices[interval as BillingInterval]
+}
+
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -48,11 +75,19 @@ Deno.serve(async (req) => {
       )
     }
 
-    const { userId, priceId, planTier } = await req.json()
+    const { userId, planId, interval } = await req.json()
 
-    if (!userId || !priceId || !planTier) {
+    if (!userId || !planId || !interval) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: userId, priceId, planTier' }),
+        JSON.stringify({ error: 'Missing required fields: userId, planId, interval' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const priceId = getPriceId(planId, interval)
+    if (!priceId) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid plan or billing interval' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -115,13 +150,13 @@ Deno.serve(async (req) => {
         proration_behavior: 'create_prorations',
         metadata: {
           userId,
-          planTier,
+          planTier: planId,
         },
       }
     )
 
     // Update the local subscription record
-    const newPlanTier = PRICE_TO_PLAN[priceId] || planTier
+    const newPlanTier = PRICE_TO_PLAN[priceId] || planId
     await supabase
       .from('subscriptions')
       .update({

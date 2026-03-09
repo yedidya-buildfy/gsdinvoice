@@ -41,17 +41,18 @@ interface EdgeFunctionResponse {
 function ensureLineItems(
   lineItems: ExtractedLineItem[],
   totals: InvoiceExtraction['totals'],
-  vendorName: string | null
+  vendorName: string | null,
+  invoiceDate: string | null | undefined
 ): ExtractedLineItem[] {
   // If line items exist, return them
   if (lineItems && lineItems.length > 0) {
     return lineItems
   }
 
-  // Create a default line item with the total amount
+  // Create a default line item from the invoice header data so it can be matched
   return [
     {
-      date: null,
+      date: invoiceDate || null,
       description: vendorName || 'Invoice Total',
       reference_id: null,
       amount: totals.total,
@@ -102,6 +103,14 @@ export function useExtractDocument() {
 
       if (error) {
         console.error('[useExtractDocument] Edge function error:', error)
+        // Try to read response body for details
+        if (error.context?.body) {
+          try {
+            const body = await error.context.body.getReader().read()
+            const text = new TextDecoder().decode(body.value)
+            console.error('[useExtractDocument] Error response body:', text)
+          } catch { /* ignore */ }
+        }
         throw new Error(error.message || 'Edge function invocation failed')
       }
 
@@ -140,7 +149,8 @@ export function useExtractDocument() {
       const lineItems = ensureLineItems(
         extracted.line_items || [],
         extracted.totals,
-        extracted.vendor?.name || null
+        extracted.vendor?.name || null,
+        extracted.document?.date
       )
 
       // Prepare line items for insertion
@@ -482,7 +492,8 @@ export function useExtractMultipleDocuments() {
         const lineItems = ensureLineItems(
           extracted.line_items || [],
           extracted.totals,
-          extracted.vendor?.name || null
+          extracted.vendor?.name || null,
+          extracted.document?.date
         )
 
         const rowsToInsert = lineItems.map((item) => ({
